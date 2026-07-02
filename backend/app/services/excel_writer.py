@@ -16,6 +16,11 @@ def _parse_cell_ref(ref: str) -> tuple[str | None, str]:
 
 
 def _resolve_scalar_cell(wb, entry: dict):
+    """Returns (worksheet, coord) or None. coord may still be a multi-cell
+    range (e.g. 'B1:C2') when a named range spans one — callers MUST check for
+    ':' before treating it as a single cell, since ws['B1:C2'] returns a tuple
+    of rows, not a Cell.
+    """
     if entry["target"] == "namedRange":
         defined_name = wb.defined_names.get(entry["ref"])
         if defined_name is None:
@@ -74,6 +79,12 @@ def inject_values(
                 warnings.append(f"Could not resolve mapped cell for '{field_id}' — skipped")
                 continue
             ws, coord = resolved
+            if ":" in coord:
+                warnings.append(
+                    f"'{field_id}' maps to the multi-cell range {ws.title}!{coord} — "
+                    "value NOT written; map it to a single cell instead"
+                )
+                continue
             cell = ws[coord]
             if _is_formula_cell(cell):
                 warnings.append(
@@ -132,6 +143,8 @@ def read_output_values(path: Path, mappings: dict, output_field_ids: list[str]) 
         if resolved is None:
             continue
         ws, coord = resolved
+        if ":" in coord:
+            continue
         value = ws[coord].value
         if value is not None:
             results[field_id] = value
