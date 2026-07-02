@@ -117,12 +117,22 @@ def _extract_t12(doc: Document, grid: dict | None, text: str, warnings: list[str
         llm = llm_extraction.extract_with_llm("t12_operating_statement", text, doc.filename, _allowed_fields())
         if llm["result"]:
             for li in llm["result"]["t12LineItems"]:
+                category = li["mappedCategory"]
+                if category in t12_parser.EXPENSE_CATEGORIES:
+                    bucket = "expense"
+                elif category in t12_parser.INCOME_CATEGORIES:
+                    bucket = "income"
+                else:
+                    # No category means we don't know income vs expense — mark it
+                    # unknown so aggregation surfaces it instead of silently
+                    # dropping it (previously these were mislabeled "income").
+                    bucket = "unknown"
                 line_items.append(
                     {
                         "label": li["label"],
                         "amount": li["amount"],
-                        "category": li["mappedCategory"],
-                        "bucket": "expense" if li["mappedCategory"] in t12_parser.EXPENSE_CATEGORIES else "income",
+                        "category": category,
+                        "bucket": bucket,
                         "isNonRecurring": li["isNonRecurring"],
                         "sourceRef": li["sourceRef"],
                         "source": "llm",
@@ -265,6 +275,27 @@ def _aggregate_to_fields(merged: dict) -> dict:
             fields["_noi"] = _field_entry(agg["noi"], doc_ref, confidence, source)
         if agg["totalExpenses"] is not None:
             fields["_totalExpenses"] = _field_entry(agg["totalExpenses"], doc_ref, confidence, source)
+
+        # Lines that matched no category are excluded from every field above —
+        # that exclusion must be visible, not silent: list each one in the
+        # review screen's unmatched section and summarize in a warning.
+        if agg["unclassified"]:
+            unclassified_total = sum(li["amount"] for li in agg["unclassified"])
+            for li in agg["unclassified"]:
+                merged["unmatchedExtractions"].append(
+                    {
+                        "suggestedLabel": f"T-12 line: {li['label']}",
+                        "value": li["amount"],
+                        "rawText": li["label"],
+                        "sourceRef": li.get("sourceRef") or doc_ref,
+                        "confidence": li.get("confidence", 0.5),
+                    }
+                )
+            merged["warnings"].append(
+                f"{len(agg['unclassified'])} T-12 line item(s) totaling ${unclassified_total:,.0f} "
+                "didn't match any standard income/expense category and are NOT included in any "
+                "extracted field — review them in the unmatched list below."
+            )
 
     return fields
 

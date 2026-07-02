@@ -132,11 +132,17 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
     }
 
 
+# Rows that are derivable subtotals, not data — kept in lineItems but excluded
+# from the "unclassified" list so they don't get flagged as lost information.
+_SUBTOTAL_RE = re.compile(r"^(sub ?)?total\b|^net ")
+
+
 def aggregate_categories(line_items: list[dict]) -> dict:
     income: dict[str, float] = {}
     expenses: dict[str, float] = {}
     other_expense_total = 0.0
     non_recurring = []
+    unclassified = []
     noi = None
 
     for item in line_items:
@@ -152,6 +158,11 @@ def aggregate_categories(line_items: list[dict]) -> dict:
             expenses[item["category"]] = expenses.get(item["category"], 0) + item["amount"]
         elif item["bucket"] == "expense":
             other_expense_total += item["amount"]
+        elif not _SUBTOTAL_RE.match(_normalize(item["label"])):
+            # A real line that matched no category. It must NOT vanish: callers
+            # surface these on the review screen (unmatched list + warning) so
+            # the user knows these amounts are excluded from every field.
+            unclassified.append(item)
 
     if other_expense_total:
         expenses["other"] = round(other_expense_total, 2)
@@ -164,4 +175,5 @@ def aggregate_categories(line_items: list[dict]) -> dict:
         "totalExpenses": total_expenses,
         "noi": noi,
         "nonRecurringFlags": non_recurring,
+        "unclassified": unclassified,
     }
