@@ -1,11 +1,15 @@
-import FormattedNumberInput from '../components/fields/FormattedNumberInput'
+import { useState } from 'react'
+import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
+import { saveScenario } from '../lib/api'
 import {
-  FEASIBILITY_TIER_THRESHOLDS_BPS,
+  FEASIBILITY_THRESHOLDS,
   QUICK_SCREEN_FIELD_CONFIG,
   QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
   deriveOpexRatioFromMargin,
-  solveForMarginalThreshold,
+  solveExitCapForSpread,
+  solveHardCostForSpread,
+  solveRentForSpread,
   type QuickScreenInputs,
   type QuickScreenResults,
   type SizeMode,
@@ -17,13 +21,12 @@ interface QuickScreenProps {
   onInputsChange: (inputs: QuickScreenInputs) => void
   results: QuickScreenResults
   onSendToDealInputs: () => void
-  onSaveAsScenario: () => void
 }
 
 const FEASIBILITY_LABEL: Record<string, string> = {
-  strong: `Strong — yield-on-cost clears exit cap by ${FEASIBILITY_TIER_THRESHOLDS_BPS.strong}+ bps`,
-  marginal: `Marginal — clears exit cap by ${FEASIBILITY_TIER_THRESHOLDS_BPS.marginal}–${FEASIBILITY_TIER_THRESHOLDS_BPS.strong} bps`,
-  weak: `Weak — within ${FEASIBILITY_TIER_THRESHOLDS_BPS.marginal} bps of exit cap (or below)`,
+  strong: `Strong — yield-on-cost clears exit cap by ${FEASIBILITY_THRESHOLDS.strong}+ bps`,
+  marginal: `Marginal — clears exit cap by ${FEASIBILITY_THRESHOLDS.marginal}–${FEASIBILITY_THRESHOLDS.strong} bps`,
+  weak: `Weak — within ${FEASIBILITY_THRESHOLDS.marginal} bps of exit cap (or below)`,
 }
 const FEASIBILITY_COLOR: Record<string, string> = {
   strong: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -31,14 +34,22 @@ const FEASIBILITY_COLOR: Record<string, string> = {
   weak: 'border-red-200 bg-red-50 text-red-700',
 }
 
-export default function QuickScreen({
-  inputs,
-  onInputsChange,
-  results,
-  onSendToDealInputs,
-  onSaveAsScenario,
-}: QuickScreenProps) {
-  function set<K extends keyof QuickScreenInputs>(key: K, value: QuickScreenInputs[K]) {
+export default function QuickScreen({ inputs, onInputsChange, results, onSendToDealInputs }: QuickScreenProps) {
+  const [scenarioName, setScenarioName] = useState('Quick Screen')
+  const [saving, setSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+
+  // QuickScreenInputs must stay fully numeric for computeQuickScreen to work —
+  // unlike DealInputForm's optional fields, a blank field here would propagate
+  // NaN through every downstream calculation. So unlike ScalarInput's general
+  // contract (which allows clearing to undefined), silently ignore a non-finite
+  // commit and keep showing the last-valid computed results.
+  function set<K extends keyof QuickScreenInputs>(key: K, value: unknown) {
+    if (key === 'sizeMode') {
+      onInputsChange({ ...inputs, sizeMode: value as SizeMode })
+      return
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) return
     onInputsChange({ ...inputs, [key]: value })
   }
 
@@ -55,6 +66,25 @@ export default function QuickScreen({
     }
   }
 
+  async function handleSaveAsScenario() {
+    setSaving(true)
+    setSaveMessage(null)
+    try {
+      await saveScenario({
+        scenarioName: scenarioName.trim() || 'Quick Screen',
+        kind: 'quickscreen',
+        templateId: null,
+        mappingProfileId: null,
+        inputs: inputs as unknown as Record<string, unknown>,
+      })
+      setSaveMessage('Saved — see it under "5. Scenarios".')
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const sfPerUnitHint =
     inputs.sizeMode === 'units'
       ? `≈ ${formatMoney(inputs.hardCostPerUnit / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION)}/SF hard cost, ${formatMoney(
@@ -66,9 +96,24 @@ export default function QuickScreen({
           (inputs.rent * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION) / 12,
         )}/mo rent — assumes ${QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION} SF/unit`
 
-  const solveFor = results.feasibility === 'weak' ? solveForMarginalThreshold(inputs) : null
+  const showSolveFor = results.feasibility === 'weak' || results.feasibility === 'marginal'
+  const solvedRent = showSolveFor ? solveRentForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
+  const solvedHardCost = showSolveFor ? solveHardCostForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
+  const solvedExitCap = showSolveFor ? solveExitCapForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
+  const solveForParts = [
+    solvedRent !== null ? `rent ≥ ${formatMoney(solvedRent)}${inputs.sizeMode === 'units' ? '/mo' : '/SF/yr'}` : null,
+    solvedHardCost !== null ? `hard cost ≤ ${formatMoneyCompact(solvedHardCost)}/${inputs.sizeMode === 'units' ? 'unit' : 'SF'}` : null,
+    solvedExitCap !== null ? `exit cap ≤ ${formatPct(solvedExitCap)}` : null,
+  ].filter((p): p is string => p !== null)
   const unitLabel = inputs.sizeMode === 'units' ? '/unit' : '/SF'
-  const rentUnitLabel = inputs.sizeMode === 'units' ? '/mo/unit' : '/SF/yr'
+
+  function applySensitivityCell(rentDeltaPct: number, exitCapDeltaBps: number) {
+    onInputsChange({
+      ...inputs,
+      rent: inputs.rent * (1 + rentDeltaPct),
+      exitCapRatePct: inputs.exitCapRatePct + exitCapDeltaBps / 10000,
+    })
+  }
 
   return (
     <div className="max-w-4xl">
@@ -97,8 +142,8 @@ export default function QuickScreen({
           </div>
 
           <FieldRow label={inputs.sizeMode === 'units' ? '# of Units' : 'Total Building SF'}>
-            <FormattedNumberInput
-              format="number"
+            <ScalarInput
+              type="number"
               value={inputs.quantity}
               onChange={(v) => set('quantity', v)}
               {...field('quantity')}
@@ -106,8 +151,8 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label="Land Cost">
-            <FormattedNumberInput
-              format="currency"
+            <ScalarInput
+              type="currency"
               value={inputs.landCost}
               onChange={(v) => set('landCost', v)}
               {...field('landCost')}
@@ -118,8 +163,8 @@ export default function QuickScreen({
             label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}
             hint={sfPerUnitHint}
           >
-            <FormattedNumberInput
-              format="currency"
+            <ScalarInput
+              type="currency"
               value={inputs.hardCostPerUnit}
               onChange={(v) => set('hardCostPerUnit', v)}
               {...field('hardCostPerUnit')}
@@ -127,8 +172,8 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label="Soft Costs (% of hard cost)">
-            <FormattedNumberInput
-              format="percent"
+            <ScalarInput
+              type="percent"
               value={inputs.softCostPct}
               onChange={(v) => set('softCostPct', v)}
               {...field('softCostPct')}
@@ -136,8 +181,8 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label="Contingency (% of hard + soft)">
-            <FormattedNumberInput
-              format="percent"
+            <ScalarInput
+              type="percent"
               value={inputs.contingencyPct}
               onChange={(v) => set('contingencyPct', v)}
               {...field('contingencyPct')}
@@ -145,12 +190,7 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
-            <FormattedNumberInput
-              format="currency"
-              value={inputs.rent}
-              onChange={(v) => set('rent', v)}
-              {...field('rent')}
-            />
+            <ScalarInput type="currency" value={inputs.rent} onChange={(v) => set('rent', v)} {...field('rent')} />
           </FieldRow>
 
           <div>
@@ -167,8 +207,8 @@ export default function QuickScreen({
             </div>
             {!inputs.useDetailedNoi ? (
               <div className="mt-1 max-w-xs">
-                <FormattedNumberInput
-                  format="percent"
+                <ScalarInput
+                  type="percent"
                   value={inputs.noiMarginPct}
                   onChange={(v) => set('noiMarginPct', v)}
                   {...field('noiMarginPct')}
@@ -178,8 +218,8 @@ export default function QuickScreen({
               <div className="mt-1 grid max-w-xs grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] text-slate-500">Vacancy %</label>
-                  <FormattedNumberInput
-                    format="percent"
+                  <ScalarInput
+                    type="percent"
                     value={inputs.vacancyPct}
                     onChange={(v) => set('vacancyPct', v)}
                     {...field('vacancyPct')}
@@ -187,8 +227,8 @@ export default function QuickScreen({
                 </div>
                 <div>
                   <label className="block text-[11px] text-slate-500">Opex (% of EGI)</label>
-                  <FormattedNumberInput
-                    format="percent"
+                  <ScalarInput
+                    type="percent"
                     value={inputs.opexRatioPct}
                     onChange={(v) => set('opexRatioPct', v)}
                     {...field('opexRatioPct')}
@@ -202,8 +242,8 @@ export default function QuickScreen({
           </div>
 
           <FieldRow label="Exit Cap Rate">
-            <FormattedNumberInput
-              format="percent"
+            <ScalarInput
+              type="percent"
               value={inputs.exitCapRatePct}
               onChange={(v) => set('exitCapRatePct', v)}
               {...field('exitCapRatePct')}
@@ -211,8 +251,8 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label="Loan-to-Cost (0 = all-equity)">
-            <FormattedNumberInput
-              format="percent"
+            <ScalarInput
+              type="percent"
               value={inputs.ltcPct}
               onChange={(v) => set('ltcPct', v)}
               {...field('ltcPct')}
@@ -220,8 +260,8 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow label="Construction Loan Rate (interest-only approx.)">
-            <FormattedNumberInput
-              format="percent"
+            <ScalarInput
+              type="percent"
               value={inputs.constructionInterestRatePct}
               onChange={(v) => set('constructionInterestRatePct', v)}
               {...field('constructionInterestRatePct')}
@@ -233,22 +273,10 @@ export default function QuickScreen({
           <div className={`rounded-md border p-3 text-sm ${FEASIBILITY_COLOR[results.feasibility]}`}>
             <div className="font-semibold capitalize">{results.feasibility}</div>
             <div className="mt-0.5 text-xs">{FEASIBILITY_LABEL[results.feasibility]}</div>
-            {solveFor && (
-              <ul className="mt-2 space-y-0.5 border-t border-current/20 pt-2 text-xs">
-                <li>What it would take to reach Marginal ({FEASIBILITY_TIER_THRESHOLDS_BPS.marginal}+ bps):</li>
-                {solveFor.requiredRent !== null && (
-                  <li>&bull; Rent {formatMoney(solveFor.requiredRent)}{rentUnitLabel}</li>
-                )}
-                {solveFor.requiredHardCostPerUnit !== null && (
-                  <li>
-                    &bull; Hard costs &le; {formatMoneyCompact(solveFor.requiredHardCostPerUnit)}
-                    {unitLabel}
-                  </li>
-                )}
-                {solveFor.requiredExitCapRatePct !== null && (
-                  <li>&bull; Exit cap &le; {formatPct(solveFor.requiredExitCapRatePct)}</li>
-                )}
-              </ul>
+            {solveForParts.length > 0 && (
+              <div className="mt-2 border-t border-current/20 pt-2 text-xs">
+                To reach Marginal ({FEASIBILITY_THRESHOLDS.marginal} bps): {solveForParts.join(' · or ')}
+              </div>
             )}
           </div>
 
@@ -307,21 +335,33 @@ export default function QuickScreen({
             </div>
           )}
 
-          <QuickScreenSensitivityGrid inputs={inputs} />
+          <QuickScreenSensitivityGrid inputs={inputs} onApplyCell={applySensitivityCell} />
 
-          <div className="flex gap-2">
-            <button
-              onClick={onSendToDealInputs}
-              className="flex-1 rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
-            >
-              Send to Deal Inputs →
-            </button>
-            <button
-              onClick={onSaveAsScenario}
-              className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              Save as Scenario →
-            </button>
+          <button
+            onClick={onSendToDealInputs}
+            className="w-full rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
+          >
+            Send to Deal Inputs →
+          </button>
+
+          <div className="rounded-md border border-slate-200 bg-white p-4">
+            <div className="text-xs font-semibold tracking-wide text-slate-500">SAVE AS SCENARIO</div>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={scenarioName}
+                onChange={(e) => setScenarioName(e.target.value)}
+                className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+                placeholder="Scenario name"
+              />
+              <button
+                onClick={handleSaveAsScenario}
+                disabled={saving || !scenarioName.trim()}
+                className="rounded bg-emerald-600 px-3 py-1 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {saveMessage && <div className="mt-1.5 text-xs text-slate-500">{saveMessage}</div>}
           </div>
         </div>
       </div>

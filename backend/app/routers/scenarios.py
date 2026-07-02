@@ -13,6 +13,7 @@ def _to_out(scenario: Scenario) -> ScenarioOut:
     return ScenarioOut(
         id=scenario.id,
         scenarioName=scenario.scenario_name,
+        kind=scenario.kind,
         templateId=scenario.template_id,
         mappingProfileId=scenario.mapping_profile_id,
         inputs=scenario.inputs,
@@ -23,22 +24,30 @@ def _to_out(scenario: Scenario) -> ScenarioOut:
 
 
 @router.get("", response_model=list[ScenarioOut])
-def list_scenarios(template_id: str | None = None, db: Session = Depends(get_db)):
+def list_scenarios(
+    template_id: str | None = None, kind: str | None = None, db: Session = Depends(get_db)
+):
     stmt = select(Scenario)
     if template_id:
         stmt = stmt.where(Scenario.template_id == template_id)
+    if kind:
+        stmt = stmt.where(Scenario.kind == kind)
     scenarios = db.execute(stmt.order_by(Scenario.updated_at.desc())).scalars().all()
     return [_to_out(s) for s in scenarios]
 
 
 @router.post("", response_model=ScenarioOut)
 def create_scenario(payload: ScenarioIn, db: Session = Depends(get_db)):
-    template = db.get(Template, payload.templateId)
-    if template is None:
-        raise HTTPException(404, "Template not found")
+    if payload.kind == "full":
+        if not payload.templateId or not payload.mappingProfileId:
+            raise HTTPException(400, "Full scenarios require a templateId and mappingProfileId")
+        template = db.get(Template, payload.templateId)
+        if template is None:
+            raise HTTPException(404, "Template not found")
 
     scenario = Scenario(
         scenario_name=payload.scenarioName,
+        kind=payload.kind,
         template_id=payload.templateId,
         mapping_profile_id=payload.mappingProfileId,
         inputs=payload.inputs,

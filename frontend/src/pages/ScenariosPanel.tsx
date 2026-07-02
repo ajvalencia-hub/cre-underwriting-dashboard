@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { deleteScenario, fetchScenarios, saveScenario, updateScenario } from '../lib/api'
 import { formatValue } from '../lib/formatValue'
 import { flattenFields } from '../lib/schemaFields'
+import type { QuickScreenInputs } from '../lib/quickScreenMath'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { TemplateSummary } from '../types/template'
@@ -11,8 +12,9 @@ interface ScenariosPanelProps {
   template: TemplateSummary | null
   mappingProfileId: string | null
   values: Record<string, unknown>
-  suggestedName?: string | null
+  active: boolean
   onLoadScenario: (inputs: Record<string, unknown>) => void
+  onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
 
 const MAX_COMPARE = 3
@@ -22,8 +24,9 @@ export default function ScenariosPanel({
   template,
   mappingProfileId,
   values,
-  suggestedName,
+  active,
   onLoadScenario,
+  onLoadQuickScreenScenario,
 }: ScenariosPanelProps) {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [loading, setLoading] = useState(false)
@@ -32,24 +35,36 @@ export default function ScenariosPanel({
   const [saving, setSaving] = useState(false)
   const [compareIds, setCompareIds] = useState<string[]>([])
 
-  useEffect(() => {
-    if (suggestedName) setScenarioName(suggestedName)
-  }, [suggestedName])
+  const [quickScreenScenarios, setQuickScreenScenarios] = useState<Scenario[]>([])
+  const [quickScreenLoading, setQuickScreenLoading] = useState(false)
 
   const fields = flattenFields(schema)
   const fieldById = new Map(fields.map((f) => [f.id, f]))
 
+  // All tabs stay mounted (see App.tsx), so re-fetch whenever this tab becomes
+  // active rather than only once on mount — otherwise a scenario saved from the
+  // Quick Screen tab would never show up here without a full page reload.
   useEffect(() => {
+    if (!active) return
     if (!template) {
       setScenarios([])
       return
     }
     setLoading(true)
-    fetchScenarios(template.id)
+    fetchScenarios({ templateId: template.id, kind: 'full' })
       .then(setScenarios)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load scenarios'))
       .finally(() => setLoading(false))
-  }, [template])
+  }, [template, active])
+
+  useEffect(() => {
+    if (!active) return
+    setQuickScreenLoading(true)
+    fetchScenarios({ kind: 'quickscreen' })
+      .then(setQuickScreenScenarios)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load Quick Screen scenarios'))
+      .finally(() => setQuickScreenLoading(false))
+  }, [active])
 
   async function handleSave() {
     if (!template || !mappingProfileId) return
@@ -66,6 +81,7 @@ export default function ScenariosPanel({
           })
         : await saveScenario({
             scenarioName,
+            kind: 'full',
             templateId: template.id,
             mappingProfileId,
             inputs: values,
@@ -82,6 +98,7 @@ export default function ScenariosPanel({
     try {
       await deleteScenario(id)
       setScenarios((prev) => prev.filter((s) => s.id !== id))
+      setQuickScreenScenarios((prev) => prev.filter((s) => s.id !== id))
       setCompareIds((prev) => prev.filter((cid) => cid !== id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete scenario')
@@ -108,14 +125,6 @@ export default function ScenariosPanel({
     ),
   )
 
-  if (!template) {
-    return (
-      <div className="max-w-3xl text-sm text-slate-500">
-        Upload a template under "1. Template &amp; Mapping" to save and compare scenarios.
-      </div>
-    )
-  }
-
   return (
     <div className="max-w-4xl space-y-6">
       <div>
@@ -126,58 +135,31 @@ export default function ScenariosPanel({
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        <input
-          value={scenarioName}
-          onChange={(e) => setScenarioName(e.target.value)}
-          className="rounded border border-slate-300 px-2 py-1 text-sm"
-          placeholder="Scenario name"
-        />
-        <button
-          onClick={handleSave}
-          disabled={saving || !mappingProfileId || !scenarioName.trim()}
-          className="rounded bg-emerald-600 px-3 py-1 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
-        >
-          {saving ? 'Saving…' : 'Save current inputs as scenario'}
-        </button>
-        {!mappingProfileId && (
-          <span className="text-xs text-slate-400">
-            Save a mapping profile first to enable scenarios.
-          </span>
-        )}
-      </div>
-
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       <section>
         <h2 className="text-sm font-semibold tracking-wide text-slate-500">
-          SAVED SCENARIOS ({scenarios.length})
+          QUICK SCREEN SCENARIOS ({quickScreenScenarios.length})
         </h2>
-        {loading && <div className="mt-2 text-sm text-slate-400">Loading…</div>}
-        {!loading && scenarios.length === 0 && (
-          <div className="mt-2 text-sm text-slate-400">No scenarios saved yet.</div>
+        {quickScreenLoading && <div className="mt-2 text-sm text-slate-400">Loading…</div>}
+        {!quickScreenLoading && quickScreenScenarios.length === 0 && (
+          <div className="mt-2 text-sm text-slate-400">
+            No Quick Screen scenarios saved yet — use "Save as Scenario" on the Quick Screen tab.
+          </div>
         )}
         <ul className="mt-2 divide-y divide-slate-100 rounded border border-slate-200 bg-white">
-          {scenarios.map((s) => (
+          {quickScreenScenarios.map((s) => (
             <li key={s.id} className="flex items-center justify-between px-3 py-2 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={compareIds.includes(s.id)}
-                  onChange={() => toggleCompare(s.id)}
-                  disabled={!compareIds.includes(s.id) && compareIds.length >= MAX_COMPARE}
-                />
+              <div className="flex items-center gap-2">
                 <span className="font-medium">{s.scenarioName}</span>
-                <span className="text-xs text-slate-400">
-                  {new Date(s.updatedAt).toLocaleString()}
-                </span>
-              </label>
+                <span className="text-xs text-slate-400">{new Date(s.updatedAt).toLocaleString()}</span>
+              </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => onLoadScenario(s.inputs)}
+                  onClick={() => onLoadQuickScreenScenario(s.inputs as unknown as QuickScreenInputs)}
                   className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
                 >
-                  Load
+                  Load in Quick Screen
                 </button>
                 <button
                   onClick={() => handleDelete(s.id)}
@@ -191,41 +173,113 @@ export default function ScenariosPanel({
         </ul>
       </section>
 
-      {compared.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold tracking-wide text-slate-500">
-            COMPARISON ({compared.length} of {MAX_COMPARE})
-          </h2>
-          <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left">
-                  <th className="px-3 py-2 font-medium text-slate-500">Field</th>
-                  {compared.map((s) => (
-                    <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
-                      {s.scenarioName}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {compareFieldIds.map((fieldId) => {
-                  const field = fieldById.get(fieldId)
-                  return (
-                    <tr key={fieldId} className="border-b border-slate-50">
-                      <td className="px-3 py-1.5 text-slate-500">{field?.label ?? fieldId}</td>
+      {!template ? (
+        <div className="text-sm text-slate-500">
+          Upload a template under "1. Template &amp; Mapping" to save and compare full Deal Inputs
+          scenarios.
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <input
+              value={scenarioName}
+              onChange={(e) => setScenarioName(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1 text-sm"
+              placeholder="Scenario name"
+            />
+            <button
+              onClick={handleSave}
+              disabled={saving || !mappingProfileId || !scenarioName.trim()}
+              className="rounded bg-emerald-600 px-3 py-1 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : 'Save current inputs as scenario'}
+            </button>
+            {!mappingProfileId && (
+              <span className="text-xs text-slate-400">
+                Save a mapping profile first to enable scenarios.
+              </span>
+            )}
+          </div>
+
+          <section>
+            <h2 className="text-sm font-semibold tracking-wide text-slate-500">
+              SAVED SCENARIOS ({scenarios.length})
+            </h2>
+            {loading && <div className="mt-2 text-sm text-slate-400">Loading…</div>}
+            {!loading && scenarios.length === 0 && (
+              <div className="mt-2 text-sm text-slate-400">No scenarios saved yet.</div>
+            )}
+            <ul className="mt-2 divide-y divide-slate-100 rounded border border-slate-200 bg-white">
+              {scenarios.map((s) => (
+                <li key={s.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={compareIds.includes(s.id)}
+                      onChange={() => toggleCompare(s.id)}
+                      disabled={!compareIds.includes(s.id) && compareIds.length >= MAX_COMPARE}
+                    />
+                    <span className="font-medium">{s.scenarioName}</span>
+                    <span className="text-xs text-slate-400">
+                      {new Date(s.updatedAt).toLocaleString()}
+                    </span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onLoadScenario(s.inputs)}
+                      className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
+                    >
+                      Load
+                    </button>
+                    <button
+                      onClick={() => handleDelete(s.id)}
+                      className="rounded border border-slate-300 px-2 py-0.5 text-xs text-red-500 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {compared.length > 0 && (
+            <section>
+              <h2 className="text-sm font-semibold tracking-wide text-slate-500">
+                COMPARISON ({compared.length} of {MAX_COMPARE})
+              </h2>
+              <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left">
+                      <th className="px-3 py-2 font-medium text-slate-500">Field</th>
                       {compared.map((s) => (
-                        <td key={s.id} className="px-3 py-1.5">
-                          {formatValue(field, s.inputs[fieldId])}
-                        </td>
+                        <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
+                          {s.scenarioName}
+                        </th>
                       ))}
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                  </thead>
+                  <tbody>
+                    {compareFieldIds.map((fieldId) => {
+                      const field = fieldById.get(fieldId)
+                      return (
+                        <tr key={fieldId} className="border-b border-slate-50">
+                          <td className="px-3 py-1.5 text-slate-500">{field?.label ?? fieldId}</td>
+                          {compared.map((s) => (
+                            <td key={s.id} className="px-3 py-1.5">
+                              {formatValue(field, s.inputs[fieldId])}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   )

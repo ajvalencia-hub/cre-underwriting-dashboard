@@ -5,21 +5,21 @@
 export type SizeMode = 'units' | 'sf'
 export type FeasibilityTier = 'strong' | 'marginal' | 'weak'
 
-export interface FeasibilityTierThresholdsBps {
+export interface FeasibilityThresholds {
   /** Spread over exit cap (bps) at/above which the deal is "strong". */
   strong: number
   /** Spread over exit cap (bps) at/above which the deal is "marginal" (below strong). */
   marginal: number
 }
 
-export const FEASIBILITY_TIER_THRESHOLDS_BPS: FeasibilityTierThresholdsBps = {
+export const FEASIBILITY_THRESHOLDS: FeasibilityThresholds = {
   strong: 150,
   marginal: 100,
 }
 
 export function classifyFeasibility(
   spreadBps: number,
-  thresholds: FeasibilityTierThresholdsBps = FEASIBILITY_TIER_THRESHOLDS_BPS,
+  thresholds: FeasibilityThresholds = FEASIBILITY_THRESHOLDS,
 ): FeasibilityTier {
   if (spreadBps >= thresholds.strong) return 'strong'
   if (spreadBps >= thresholds.marginal) return 'marginal'
@@ -144,8 +144,13 @@ export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResult
   // Interest-only approximation: debt service is pure interest, so the loan
   // constant collapses to the interest rate exactly (no amortization modeled).
   const loanConstant = loanAmount > 0 ? annualDebtService / loanAmount : null
+  // Break-even ratio = (opex + debt service) / GPR, where "opex" here means
+  // everything that isn't NOI (GPR - NOI) — mode-agnostic, so it's unaffected
+  // by whether the vacancy/opex detail disclosure is open.
   const breakEvenRatio =
-    grossPotentialRent > 0 ? (operatingExpenses + annualDebtService) / grossPotentialRent : 0
+    grossPotentialRent > 0
+      ? (grossPotentialRent - stabilizedNoi + annualDebtService) / grossPotentialRent
+      : 0
   const minDscr = loanAmount > 0 && annualDebtService > 0 ? stabilizedNoi / annualDebtService : null
   // Single stabilized year, interest-only debt service — min and avg DSCR are
   // identical under this approximation (no amortization schedule to vary across years).
@@ -237,48 +242,56 @@ export const QUICK_SCREEN_FIELD_CONFIG: Record<string, QuickScreenFieldConfig> =
 }
 
 // ---------------------------------------------------------------------------
-// Solve-for: "what would it take to reach the marginal threshold"
+// Solve-for: closed-form "what would it take to hit a target spread (bps)".
+// All three exploit the fact that yield on cost = stabilizedNoi / TDC is
+// linear/separable in each variable, so no iteration is needed — see the
+// algebra documented above each function.
 // ---------------------------------------------------------------------------
 
-export interface SolveForMarginalResult {
-  requiredRent: number | null
-  requiredHardCostPerUnit: number | null
-  requiredExitCapRatePct: number | null
+/**
+ * Rent: NOI is proportional to GPR (NOI = GPR * effectiveNoiMarginPct), and GPR
+ * is proportional to rent (GPR = quantity * annualFactor * rent), so NOI is
+ * linear in rent. Solve NOI_target = TDC * (exitCap + targetSpread) for rent:
+ *   rent = NOI_target / (effectiveNoiMarginPct * quantity * annualFactor)
+ */
+export function solveRentForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
+  const targetSpreadFraction = targetBps / 10000
+  const results = computeQuickScreen(inputs)
+  const annualFactor = inputs.sizeMode === 'units' ? 12 : 1
+  if (inputs.quantity <= 0 || annualFactor <= 0 || results.effectiveNoiMarginPct <= 0) return null
+
+  const requiredNoi = results.totalDevelopmentCost * (inputs.exitCapRatePct + targetSpreadFraction)
+  const requiredGpr = requiredNoi / results.effectiveNoiMarginPct
+  return requiredGpr / (inputs.quantity * annualFactor)
 }
 
-export function solveForMarginalThreshold(
-  inputs: QuickScreenInputs,
-  thresholds: FeasibilityTierThresholdsBps = FEASIBILITY_TIER_THRESHOLDS_BPS,
-): SolveForMarginalResult {
-  const targetSpreadFraction = thresholds.marginal / 10000
+/**
+ * Hard cost/unit: NOI doesn't depend on hard cost, so solve for the TDC that
+ * produces the target yield on cost (TDC_target = NOI / (exitCap + targetSpread)),
+ * then invert TDC = land + hard*(1+softCostPct)*(1+contingencyPct) for hard cost:
+ *   hardCostPerUnit = (TDC_target - land) / ((1+softCostPct)*(1+contingencyPct)*quantity)
+ */
+export function solveHardCostForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
+  const targetSpreadFraction = targetBps / 10000
   const results = computeQuickScreen(inputs)
-  const tdc = results.totalDevelopmentCost
-
-  // Rent: NOI is exactly proportional to GPR (same margin ratio), so solve linearly.
-  let requiredRent: number | null = null
-  const annualFactor = inputs.sizeMode === 'units' ? 12 : 1
-  if (inputs.quantity > 0 && annualFactor > 0 && results.effectiveNoiMarginPct > 0) {
-    const requiredNoi = tdc * (inputs.exitCapRatePct + targetSpreadFraction)
-    const requiredGpr = requiredNoi / results.effectiveNoiMarginPct
-    requiredRent = requiredGpr / (inputs.quantity * annualFactor)
-  }
-
-  // Hard cost/unit: NOI is unaffected by hard cost, so solve for the TDC that
-  // produces the target yield on cost, then back out the hard-cost component.
-  let requiredHardCostPerUnit: number | null = null
   const costMultiplier = (1 + inputs.softCostPct) * (1 + inputs.contingencyPct)
-  if (results.stabilizedNoi > 0 && costMultiplier > 0 && inputs.quantity > 0) {
-    const tdcTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
-    const requiredHardCosts = (tdcTarget - inputs.landCost) / costMultiplier
-    if (requiredHardCosts > 0) requiredHardCostPerUnit = requiredHardCosts / inputs.quantity
-  }
+  if (results.stabilizedNoi <= 0 || costMultiplier <= 0 || inputs.quantity <= 0) return null
 
-  // Exit cap: yield on cost doesn't depend on exit cap, so this is a direct solve.
-  let requiredExitCapRatePct: number | null = null
+  const tdcTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
+  const requiredHardCosts = (tdcTarget - inputs.landCost) / costMultiplier
+  return requiredHardCosts > 0 ? requiredHardCosts / inputs.quantity : null
+}
+
+/**
+ * Exit cap: yield on cost = NOI / TDC doesn't depend on exit cap at all, so
+ * this is a direct algebraic solve of spread = yieldOnCost - exitCap:
+ *   exitCap = yieldOnCost - targetSpread
+ */
+export function solveExitCapForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
+  const targetSpreadFraction = targetBps / 10000
+  const results = computeQuickScreen(inputs)
   const solvedCap = results.yieldOnCost - targetSpreadFraction
-  if (solvedCap > 0) requiredExitCapRatePct = solvedCap
-
-  return { requiredRent, requiredHardCostPerUnit, requiredExitCapRatePct }
+  return solvedCap > 0 ? solvedCap : null
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +305,6 @@ export const QUICK_SCREEN_DERIVABLE_OUTPUT_IDS = [
   'yieldOnCost',
   'developmentSpreadBps',
   'terminalValue',
-  'netSaleProceeds',
   'totalProfit',
   'ltc',
   'debtYield',
@@ -335,7 +347,6 @@ export function mapQuickScreenToOutputMetrics(
   set('yieldOnCost', results.yieldOnCost)
   set('developmentSpreadBps', results.capRateSpreadBps / 10000) // schema declares this metric as type "percent"
   set('terminalValue', results.terminalValue)
-  set('netSaleProceeds', results.netSaleProceeds)
   set('totalProfit', results.totalProfit)
   set('ltc', inputs.ltcPct)
   set('debtYield', results.debtYield)
@@ -347,20 +358,63 @@ export function mapQuickScreenToOutputMetrics(
   return out
 }
 
-/** Shared mapping from quick-screen state onto the Deal Inputs field ids — the
- *  single implementation behind both "Send to Deal Inputs" and "Save as Scenario". */
+/**
+ * Shared mapping from quick-screen state onto the Deal Inputs field ids (see
+ * backend/app/data/input_schema.json) — the single implementation behind
+ * "Send to Deal Inputs" and "Save as Scenario".
+ *
+ * NOT mapped, and why:
+ *  - propertyType / mixedUseComponents — sizeMode ('units' vs 'sf') doesn't
+ *    reliably imply a property type (SF-denominated could be office, retail,
+ *    industrial, etc.), so guessing would be worse than leaving it blank.
+ *  - operating_expenses.* (realEstateTaxes, insurance, utilities,
+ *    repairsMaintenance, payroll, generalAdmin, managementFeePct,
+ *    replacementReserves) — the quick screen only produces one aggregate opex
+ *    number; dumping it into a single arbitrary line item would misrepresent
+ *    the deal's actual expense structure, which conflicts with this app's
+ *    "never silently mis-populate financial inputs" principle.
+ *  - acquisition_specific.* (purchasePrice, closingCostsPct, dueDiligenceCosts,
+ *    acquisitionFeePct, dayOneCapex, inPlaceNoi, stabilizedNoi) — that section
+ *    is gated on dealType === 'acquisition'; irrelevant since this always maps
+ *    to dealType === 'development'.
+ *  - unit/SF count — there's no generic "quantity" field in the schema. It
+ *    only exists inside property-type-specific sections (unitMix table,
+ *    rentableSf, homeCount), which are gated on propertyType — which, per
+ *    above, the quick screen doesn't set.
+ *  - amortYears, loanTermYears, ioMonths, originationFeePct, dscrConstraint,
+ *    debtYieldConstraint — the quick screen's interest-only approximation has
+ *    no amortization schedule, loan term, fees, or sizing-constraint concepts.
+ *  - equity_structure.* (lpSplitPct, gpSplitPct, preferredReturnPct,
+ *    waterfallTiers) — no promote/waterfall is modeled.
+ *  - growth assumptions, holdPeriodYears, costOfSalePct — the quick screen is
+ *    a single stabilized-year snapshot; no multi-year growth or hold period.
+ *  - creditLossPct, otherIncome — not modeled separately from the NOI margin.
+ */
 export function mapQuickScreenToDealInputs(
   inputs: QuickScreenInputs,
   results: QuickScreenResults,
 ): Record<string, unknown> {
+  const vacancyPct = inputs.useDetailedNoi ? inputs.vacancyPct : DEFAULT_IMPLIED_VACANCY_PCT
   return {
     dealType: 'development',
+    // Development Details
     landCost: inputs.landCost,
     hardCosts: results.hardCosts,
+    hardCostsPsf: inputs.hardCostPerUnit,
+    softCosts: results.softCosts,
     contingencyPct: inputs.contingencyPct,
+    // Exit Assumptions
     exitCapRatePct: inputs.exitCapRatePct,
-    ltvOrLtc: inputs.ltcPct,
+    // Operating Income
     grossPotentialRent: results.grossPotentialRent,
+    vacancyPct,
+    // Financing
+    ltvOrLtc: inputs.ltcPct,
+    interestRate: inputs.constructionInterestRatePct,
+    totalCostBasis: results.totalDevelopmentCost,
+    loanAmount: results.loanAmount,
+    // Equity Structure
+    totalEquity: results.equityRequired,
   }
 }
 
@@ -385,7 +439,7 @@ const SENSITIVITY_EXIT_CAP_DELTAS_BPS = [-50, -25, 0, 25, 50]
 export function computeQuickScreenSensitivityGrid(
   inputs: QuickScreenInputs,
   metric: SensitivityGridMetric = 'spread',
-  thresholds: FeasibilityTierThresholdsBps = FEASIBILITY_TIER_THRESHOLDS_BPS,
+  thresholds: FeasibilityThresholds = FEASIBILITY_THRESHOLDS,
 ): SensitivityGridCell[][] {
   return SENSITIVITY_RENT_DELTAS_PCT.map((rentDelta) =>
     SENSITIVITY_EXIT_CAP_DELTAS_BPS.map((capDeltaBps) => {

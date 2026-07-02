@@ -147,14 +147,19 @@ export async function generateWorkbook(payload: {
   return { blob, filename, warnings, writtenCount, outputs }
 }
 
-export function fetchScenarios(templateId: string) {
-  return getJson<Scenario[]>(`/scenarios?template_id=${templateId}`)
+export function fetchScenarios(params: { templateId?: string; kind?: 'quickscreen' | 'full' } = {}) {
+  const query = new URLSearchParams()
+  if (params.templateId) query.set('template_id', params.templateId)
+  if (params.kind) query.set('kind', params.kind)
+  const qs = query.toString()
+  return getJson<Scenario[]>(`/scenarios${qs ? `?${qs}` : ''}`)
 }
 
 export function saveScenario(payload: {
   scenarioName: string
-  templateId: string
-  mappingProfileId: string
+  kind?: 'quickscreen' | 'full'
+  templateId?: string | null
+  mappingProfileId?: string | null
   inputs: Record<string, unknown>
 }) {
   return postJson<Scenario>('/scenarios', payload, 'POST')
@@ -164,8 +169,8 @@ export function updateScenario(
   scenarioId: string,
   payload: {
     scenarioName: string
-    templateId: string
-    mappingProfileId: string
+    templateId?: string | null
+    mappingProfileId?: string | null
     inputs: Record<string, unknown>
   },
 ) {

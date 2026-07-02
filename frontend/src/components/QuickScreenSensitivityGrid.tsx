@@ -8,15 +8,16 @@ import { formatPct } from '../lib/quickScreenFormat'
 
 interface QuickScreenSensitivityGridProps {
   inputs: QuickScreenInputs
+  onApplyCell: (rentDeltaPct: number, exitCapDeltaBps: number) => void
 }
 
 const TIER_CELL_CLASS: Record<string, string> = {
-  strong: 'bg-emerald-50 text-emerald-700',
-  marginal: 'bg-amber-50 text-amber-700',
-  weak: 'bg-red-50 text-red-700',
+  strong: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  marginal: 'bg-amber-50 text-amber-700 hover:bg-amber-100',
+  weak: 'bg-red-50 text-red-700 hover:bg-red-100',
 }
 
-export default function QuickScreenSensitivityGrid({ inputs }: QuickScreenSensitivityGridProps) {
+export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: QuickScreenSensitivityGridProps) {
   const [metric, setMetric] = useState<SensitivityGridMetric>('spread')
   const grid = useMemo(() => computeQuickScreenSensitivityGrid(inputs, metric), [inputs, metric])
 
@@ -63,7 +64,9 @@ export default function QuickScreenSensitivityGrid({ inputs }: QuickScreenSensit
               {row.map((cell) => (
                 <td
                   key={cell.exitCapDeltaBps}
-                  className={`border p-1.5 font-medium ${TIER_CELL_CLASS[cell.tier]} ${
+                  onClick={() => onApplyCell(cell.rentDeltaPct, cell.exitCapDeltaBps)}
+                  title="Click to apply this rent / exit cap pair to the inputs"
+                  className={`cursor-pointer border p-1.5 font-medium ${TIER_CELL_CLASS[cell.tier]} ${
                     cell.isCenter ? 'border-2 border-slate-900' : 'border-slate-100'
                   }`}
                 >
@@ -75,8 +78,8 @@ export default function QuickScreenSensitivityGrid({ inputs }: QuickScreenSensit
         </tbody>
       </table>
       <p className="mt-2 text-[11px] text-slate-400">
-        Center cell (boxed) is the current inputs. A preview of the full Sensitivity tab, which sweeps
-        the actual mapped template.
+        Center cell (boxed) is the current inputs — click any cell to apply that rent / exit cap pair.
+        A preview of the full Sensitivity tab, which sweeps the actual mapped template.
       </p>
     </div>
   )

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
-from app.database import Base, engine
+from app.database import Base, engine, run_migrations
 from app.routers import (
     documents,
     extraction,
@@ -16,6 +16,7 @@ from app.routers import (
 )
 
 Base.metadata.create_all(bind=engine)
+run_migrations()
 
 app = FastAPI(title="CRE Underwriting Dashboard API")
 

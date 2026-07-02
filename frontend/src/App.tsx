@@ -49,8 +49,6 @@ function App() {
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(
     () => parseQuickScreenInputs(new URLSearchParams(window.location.search)) ?? QUICK_SCREEN_DEFAULTS,
   )
-  const [pendingScenarioName, setPendingScenarioName] = useState<string | null>(null)
-
   const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
   const quickScreenOutputs = useMemo(
     () => mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
@@ -77,13 +75,9 @@ function App() {
     setTab('dashboard')
   }
 
-  function handleSaveQuickScreenAsScenario() {
-    setFormValues((prev) => ({
-      ...prev,
-      ...mapQuickScreenToDealInputs(quickScreenInputs, quickScreenResults),
-    }))
-    setPendingScenarioName(`Quick Screen ${new Date().toLocaleString()}`)
-    setTab('scenarios')
+  function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
+    setQuickScreenInputs(inputs)
+    setTab('quickscreen')
   }
 
   useEffect(() => {
@@ -166,28 +160,33 @@ function App() {
                 {schema.outputs
                   .filter((m) => (m.group ?? 'Metrics') === group)
                   .map((metric) => {
-                    const source = tab === 'quickscreen' ? quickScreenOutputs : computedOutputs
-                    const isFullModelOnly = tab === 'quickscreen' && quickScreenFullModelOnlyIds.has(metric.id)
+                    // Real computedOutputs values always win — an estimate never
+                    // overwrites a real server-recalculated value, and estimates
+                    // only ever appear while the Quick Screen tab is active.
+                    const real = computedOutputs[metric.id]
+                    const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
+                    const isEstimate = real === undefined && estimate !== undefined
+                    const displayValue = real !== undefined ? real : estimate
+                    const isFullModelOnly =
+                      tab === 'quickscreen' && displayValue === undefined && quickScreenFullModelOnlyIds.has(metric.id)
                     return (
                       <li key={metric.id} className="flex items-center justify-between text-slate-500">
                         <span>{metric.label}</span>
-                        {isFullModelOnly ? (
-                          <button
-                            onClick={() => setTab('dashboard')}
-                            title="Requires the full underwriting model — head to Deal Inputs, map a template, and Generate."
-                            className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                          >
-                            full underwriting
-                          </button>
-                        ) : (
-                          <span
-                            className={
-                              source[metric.id] !== undefined ? 'font-medium text-slate-800' : 'text-slate-400'
-                            }
-                          >
-                            {formatOutputValue(metric, source[metric.id])}
-                          </span>
-                        )}
+                        <span
+                          title={
+                            isFullModelOnly ? 'Requires full underwriting — map a template and generate.' : undefined
+                          }
+                          className={
+                            real !== undefined
+                              ? 'font-medium text-slate-800'
+                              : isEstimate
+                                ? 'italic text-slate-400'
+                                : 'text-slate-400'
+                          }
+                        >
+                          {formatOutputValue(metric, displayValue)}
+                          {isEstimate && <span className="ml-1 not-italic text-slate-300">est.</span>}
+                        </span>
                       </li>
                     )
                   })}
@@ -196,7 +195,7 @@ function App() {
           ))}
           <p className="mt-4 text-xs text-slate-400">
             {tab === 'quickscreen'
-              ? 'Live from the Back-of-Napkin Quick Screen — an approximation, not a substitute for the full model.'
+              ? 'Bold values are from the last server-side generation; muted italic values marked "est." are Quick Screen approximations.'
               : Object.keys(computedOutputs).length > 0
                 ? 'From the most recent server-side recalculated generation.'
                 : 'Metrics populate after generating with "Recalculate on server" enabled, and only for output fields mapped in "1. Template & Mapping".'}
@@ -237,7 +236,6 @@ function App() {
           onInputsChange={setQuickScreenInputs}
           results={quickScreenResults}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
-          onSaveAsScenario={handleSaveQuickScreenAsScenario}
         />
       </div>
 
@@ -285,11 +283,12 @@ function App() {
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
           values={formValues}
-          suggestedName={pendingScenarioName}
+          active={tab === 'scenarios'}
           onLoadScenario={(inputs) => {
             setFormValues(inputs)
             setTab('dashboard')
           }}
+          onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
       </div>
     </Layout>

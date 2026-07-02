@@ -105,16 +105,18 @@ class SensitivityResponse(BaseModel):
 
 class ScenarioIn(BaseModel):
     scenarioName: str
-    templateId: str
-    mappingProfileId: str
+    kind: Literal["quickscreen", "full"] = "full"
+    templateId: str | None = None
+    mappingProfileId: str | None = None
     inputs: dict[str, Any]
 
 
 class ScenarioOut(BaseModel):
     id: str
     scenarioName: str
-    templateId: str
-    mappingProfileId: str
+    kind: Literal["quickscreen", "full"]
+    templateId: str | None
+    mappingProfileId: str | None
     inputs: dict[str, Any]
     outputs: dict[str, Any]
     createdAt: datetime

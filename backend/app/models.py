@@ -43,8 +43,12 @@ class Scenario(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     scenario_name: Mapped[str] = mapped_column(String)
-    template_id: Mapped[str] = mapped_column(String, index=True)
-    mapping_profile_id: Mapped[str] = mapped_column(String, index=True)
+    # "full" scenarios are tied to a template + mapping profile (existing Deal
+    # Inputs flow). "quickscreen" scenarios store raw QuickScreenInputs and have
+    # neither, since the back-of-napkin screen doesn't require a template.
+    kind: Mapped[str] = mapped_column(String, default="full")
+    template_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    mapping_profile_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     inputs: Mapped[dict] = mapped_column(JSON, default=dict)
     outputs: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
