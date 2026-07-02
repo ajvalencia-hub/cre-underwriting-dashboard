@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "C:\\Users\\adolfo\\OneDrive - Fenix Contractors\\Desktop\\CRE Dashboard\\backend\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+      "cwd": "C:\\Users\\adolfo\\OneDrive - Fenix Contractors\\Desktop\\CRE Dashboard\\backend",
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["C:\\Users\\adolfo\\OneDrive - Fenix Contractors\\Desktop\\CRE Dashboard\\frontend\\node_modules\\vite\\bin\\vite.js"],
+      "cwd": "C:\\Users\\adolfo\\OneDrive - Fenix Contractors\\Desktop\\CRE Dashboard\\frontend",
+      "port": 5173
+    }
+  ]
+}

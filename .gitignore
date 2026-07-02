@@ -1,0 +1,27 @@
+# Secrets
+backend/.env
+*.env
+!*.env.example
+
+# Backend (Python)
+backend/.venv/
+**/__pycache__/
+*.pyc
+
+# Backend runtime data (uploaded documents, generated files, database)
+backend/storage/
+
+# Frontend (Node)
+frontend/node_modules/
+frontend/dist/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Leftover local test fixture (not used by the app)
+/sample_template.xlsx
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp

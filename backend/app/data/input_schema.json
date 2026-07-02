@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "dealTypes": ["acquisition", "development"],
+  "propertyTypes": [
+    "multifamily", "single_family", "townhouse", "retail",
+    "industrial", "hotel", "office", "mixed_use", "other"
+  ],
+  "outputs": [
+    { "id": "unleveredIrr", "label": "Unlevered IRR", "type": "percent", "group": "Returns" },
+    { "id": "leveredIrr", "label": "Levered IRR", "type": "percent", "group": "Returns" },
+    { "id": "lpIrr", "label": "LP IRR", "type": "percent", "group": "Returns" },
+    { "id": "gpIrr", "label": "GP IRR", "type": "percent", "group": "Returns" },
+    { "id": "equityMultiple", "label": "Equity Multiple", "type": "multiple", "group": "Returns" },
+    { "id": "unleveredEquityMultiple", "label": "Unlevered Equity Multiple", "type": "multiple", "group": "Returns" },
+    { "id": "lpEquityMultiple", "label": "LP Equity Multiple", "type": "multiple", "group": "Returns" },
+    { "id": "moic", "label": "MOIC", "type": "multiple", "group": "Returns" },
+    { "id": "avgCashOnCash", "label": "Avg Cash-on-Cash", "type": "percent", "group": "Returns" },
+    { "id": "cashOnCashYear1", "label": "Year 1 Cash-on-Cash", "type": "percent", "group": "Returns" },
+    { "id": "stabilizedCashOnCash", "label": "Stabilized Cash-on-Cash", "type": "percent", "group": "Returns" },
+    { "id": "annualizedReturn", "label": "Annualized Return", "type": "percent", "group": "Returns" },
+    { "id": "paybackPeriodYears", "label": "Payback Period", "type": "years", "group": "Returns" },
+
+    { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
+    { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
+    { "id": "developmentSpreadBps", "label": "Development Spread (over exit cap)", "type": "percent", "group": "Yield & Value" },
+    { "id": "breakEvenOccupancy", "label": "Breakeven Occupancy", "type": "percent", "group": "Yield & Value" },
+    { "id": "terminalValue", "label": "Terminal / Reversion Value", "type": "currency", "group": "Yield & Value" },
+    { "id": "netSaleProceeds", "label": "Net Sale Proceeds", "type": "currency", "group": "Yield & Value" },
+    { "id": "totalProfit", "label": "Total Profit", "type": "currency", "group": "Yield & Value" },
+    { "id": "npv", "label": "Net Present Value", "type": "currency", "group": "Yield & Value" },
+    { "id": "profitabilityIndex", "label": "Profitability Index", "type": "multiple", "group": "Yield & Value" },
+
+    { "id": "minDscr", "label": "Min DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "avgDscr", "label": "Avg DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "debtYield", "label": "Debt Yield", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "ltv", "label": "LTV", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "ltc", "label": "LTC", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "loanConstant", "label": "Loan Constant", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "breakEvenRatio", "label": "Break-Even Ratio", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "interestCoverageRatio", "label": "Interest Coverage Ratio", "type": "multiple", "group": "Debt & Leverage" }
+  ],
+  "sections": [
+    {
+      "id": "deal_basics",
+      "label": "Deal Basics",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "dealName", "label": "Deal Name", "type": "text", "required": true },
+        { "id": "address", "label": "Address", "type": "text" },
+        { "id": "market", "label": "Market", "type": "text" },
+        { "id": "submarket", "label": "Submarket", "type": "text" },
+        { "id": "dealType", "label": "Deal Type", "type": "select", "options": ["acquisition", "development"], "required": true, "default": "acquisition" },
+        { "id": "propertyType", "label": "Property Type", "type": "select",
+          "options": ["multifamily", "single_family", "townhouse", "retail", "industrial", "hotel", "office", "mixed_use", "other"],
+          "required": true },
+        { "id": "mixedUseComponents", "label": "Mixed-Use Components", "type": "multiselect",
+          "options": ["multifamily", "retail", "industrial", "hotel", "office", "single_family", "townhouse"],
+          "visibleWhen": { "all": [{ "field": "propertyType", "equals": "mixed_use" }] } }
+      ]
+    },
+    {
+      "id": "financing",
+      "label": "Financing",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "totalCostBasis", "label": "Purchase / Total Cost Basis", "type": "currency", "min": 0, "required": true },
+        { "id": "ltvOrLtc", "label": "LTV / LTC", "type": "percent", "min": 0, "max": 1, "default": 0.65 },
+        { "id": "loanAmount", "label": "Loan Amount", "type": "currency", "min": 0 },
+        { "id": "interestRate", "label": "Interest Rate", "type": "percent", "min": 0, "max": 0.25, "default": 0.065 },
+        { "id": "amortYears", "label": "Amortization (yrs)", "type": "number", "min": 0, "max": 40, "default": 30 },
+        { "id": "loanTermYears", "label": "Loan Term (yrs)", "type": "number", "min": 0, "max": 40, "default": 10 },
+        { "id": "ioMonths", "label": "Interest-Only Period (mo)", "type": "number", "min": 0, "default": 0 },
+        { "id": "originationFeePct", "label": "Origination / Loan Fees", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
+        { "id": "dscrConstraint", "label": "Min DSCR Sizing Constraint", "type": "number", "min": 1, "max": 3, "default": 1.25 },
+        { "id": "debtYieldConstraint", "label": "Min Debt Yield Sizing Constraint", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 }
+      ]
+    },
+    {
+      "id": "equity_structure",
+      "label": "Equity Structure",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "totalEquity", "label": "Total Equity", "type": "currency", "min": 0 },
+        { "id": "lpSplitPct", "label": "LP Split", "type": "percent", "min": 0, "max": 1, "default": 0.9 },
+        { "id": "gpSplitPct", "label": "GP Split", "type": "percent", "min": 0, "max": 1, "default": 0.1 },
+        { "id": "preferredReturnPct", "label": "Preferred Return", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 },
+        { "id": "waterfallTiers", "label": "Promote / Waterfall Tiers", "type": "table", "minRows": 2, "maxRows": 3,
+          "columns": [
+            { "id": "tierName", "label": "Tier", "type": "text" },
+            { "id": "irrHurdle", "label": "IRR Hurdle", "type": "percent" },
+            { "id": "lpSplitAboveHurdle", "label": "LP Split Above", "type": "percent" },
+            { "id": "gpSplitAboveHurdle", "label": "GP Split Above (Promote)", "type": "percent" }
+          ] }
+      ]
+    },
+    {
+      "id": "operating_income",
+      "label": "Operating Income",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "grossPotentialRent", "label": "Gross Potential Rent", "type": "currency", "min": 0 },
+        { "id": "vacancyPct", "label": "Vacancy", "type": "percent", "min": 0, "max": 1, "default": 0.05 },
+        { "id": "creditLossPct", "label": "Credit Loss", "type": "percent", "min": 0, "max": 1, "default": 0.01 },
+        { "id": "otherIncome", "label": "Other Income", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "operating_expenses",
+      "label": "Operating Expenses",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "realEstateTaxes", "label": "Real Estate Taxes", "type": "currency", "min": 0 },
+        { "id": "insurance", "label": "Insurance", "type": "currency", "min": 0 },
+        { "id": "utilities", "label": "Utilities", "type": "currency", "min": 0 },
+        { "id": "repairsMaintenance", "label": "Repairs & Maintenance", "type": "currency", "min": 0 },
+        { "id": "payroll", "label": "Payroll", "type": "currency", "min": 0 },
+        { "id": "generalAdmin", "label": "General & Admin", "type": "currency", "min": 0 },
+        { "id": "managementFeePct", "label": "Management Fee", "type": "percent", "min": 0, "max": 0.2, "default": 0.03 },
+        { "id": "replacementReserves", "label": "Replacement Reserves", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "growth_assumptions",
+      "label": "Growth Assumptions",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "rentGrowthMode", "label": "Rent Growth Mode", "type": "select", "options": ["flat", "per_year"], "default": "per_year" },
+        { "id": "rentGrowthPct", "label": "Rent Growth", "type": "percent", "min": -0.1, "max": 0.2, "default": 0.03 },
+        { "id": "expenseGrowthMode", "label": "Expense Growth Mode", "type": "select", "options": ["flat", "per_year"], "default": "per_year" },
+        { "id": "expenseGrowthPct", "label": "Expense Growth", "type": "percent", "min": -0.1, "max": 0.2, "default": 0.025 }
+      ]
+    },
+    {
+      "id": "exit_assumptions",
+      "label": "Exit Assumptions",
+      "visibleWhen": null,
+      "fields": [
+        { "id": "holdPeriodYears", "label": "Hold Period (yrs)", "type": "number", "min": 1, "max": 30, "default": 5 },
+        { "id": "exitCapRatePct", "label": "Exit / Terminal Cap Rate", "type": "percent", "min": 0, "max": 0.2, "default": 0.06 },
+        { "id": "costOfSalePct", "label": "Cost of Sale", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 }
+      ]
+    },
+    {
+      "id": "acquisition_specific",
+      "label": "Acquisition Details",
+      "visibleWhen": { "all": [{ "field": "dealType", "equals": "acquisition" }] },
+      "fields": [
+        { "id": "purchasePrice", "label": "Purchase Price", "type": "currency", "min": 0, "required": true },
+        { "id": "closingCostsPct", "label": "Closing Costs", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 },
+        { "id": "dueDiligenceCosts", "label": "Due Diligence Costs", "type": "currency", "min": 0 },
+        { "id": "acquisitionFeePct", "label": "Acquisition Fee", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
+        { "id": "dayOneCapex", "label": "Day-1 Capex / Reno Budget", "type": "currency", "min": 0 },
+        { "id": "inPlaceNoi", "label": "In-Place NOI", "type": "currency", "min": 0 },
+        { "id": "stabilizedNoi", "label": "Stabilized NOI", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "development_specific",
+      "label": "Development Details",
+      "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] },
+      "fields": [
+        { "id": "landCost", "label": "Land Cost", "type": "currency", "min": 0, "required": true },
+        { "id": "hardCosts", "label": "Hard Costs", "type": "currency", "min": 0 },
+        { "id": "hardCostsPsf", "label": "Hard Costs (PSF/Unit, optional)", "type": "currency", "min": 0 },
+        { "id": "softCosts", "label": "Soft Costs", "type": "currency", "min": 0 },
+        { "id": "contingencyPct", "label": "Contingency", "type": "percent", "min": 0, "max": 0.3, "default": 0.05 },
+        { "id": "developerFeePct", "label": "Developer Fee", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
+        { "id": "constructionMonths", "label": "Construction Period (mo)", "type": "number", "min": 0, "max": 96 },
+        { "id": "leaseUpMonths", "label": "Lease-Up / Absorption Period (mo)", "type": "number", "min": 0, "max": 60 },
+        { "id": "stabilizationMonth", "label": "Stabilization Month", "type": "number", "min": 0, "max": 120 },
+        { "id": "constructionDrawSchedule", "label": "Construction Loan Draw Schedule", "type": "table",
+          "columns": [
+            { "id": "month", "label": "Month", "type": "number" },
+            { "id": "drawAmount", "label": "Draw Amount", "type": "currency" }
+          ] }
+      ]
+    },
+    {
+      "id": "multifamily_unit_mix",
+      "label": "Unit Mix",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "multifamily" },
+        { "field": "mixedUseComponents", "contains": "multifamily" }
+      ] },
+      "fields": [
+        { "id": "unitMix", "label": "Unit Mix", "type": "table",
+          "columns": [
+            { "id": "unitType", "label": "Unit Type", "type": "text" },
+            { "id": "unitCount", "label": "# Units", "type": "number" },
+            { "id": "avgSf", "label": "Avg SF", "type": "number" },
+            { "id": "inPlaceRent", "label": "In-Place Rent", "type": "currency" },
+            { "id": "marketRent", "label": "Market Rent", "type": "currency" }
+          ] },
+        { "id": "lossToLeasePct", "label": "Loss to Lease", "type": "percent", "min": 0, "max": 0.3 },
+        { "id": "concessionsPct", "label": "Concessions", "type": "percent", "min": 0, "max": 0.3 },
+        { "id": "parkingIncome", "label": "Parking Income", "type": "currency", "min": 0 },
+        { "id": "rubsIncome", "label": "RUBS Income", "type": "currency", "min": 0 },
+        { "id": "otherFeeIncome", "label": "Other Fee Income", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "sf_townhouse",
+      "label": "Single-Family / Townhouse",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "single_family" },
+        { "field": "propertyType", "equals": "townhouse" },
+        { "field": "mixedUseComponents", "contains": "single_family" },
+        { "field": "mixedUseComponents", "contains": "townhouse" }
+      ] },
+      "fields": [
+        { "id": "homeCount", "label": "# Homes / Lots", "type": "number", "min": 0 },
+        { "id": "buildCostPerHome", "label": "Build Cost per Home", "type": "currency", "min": 0 },
+        { "id": "absorptionPerMonth", "label": "Sales / Lease-Up Pace (per mo)", "type": "number", "min": 0 },
+        { "id": "isForSale", "label": "Model as For-Sale (vs. Rental)", "type": "boolean", "default": true },
+        { "id": "salePricePerHome", "label": "Sale Price per Home", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "isForSale", "equals": true }] } },
+        { "id": "rentPerHome", "label": "Rent per Home", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "isForSale", "equals": false }] } }
+      ]
+    },
+    {
+      "id": "retail_rent_roll",
+      "label": "Retail Rent Roll",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "retail" },
+        { "field": "mixedUseComponents", "contains": "retail" }
+      ] },
+      "fields": [
+        { "id": "rentRoll", "label": "Rent Roll", "type": "table",
+          "columns": [
+            { "id": "tenant", "label": "Tenant", "type": "text" },
+            { "id": "sf", "label": "SF", "type": "number" },
+            { "id": "baseRentPsf", "label": "Base Rent PSF", "type": "currency" },
+            { "id": "leaseType", "label": "Lease Type", "type": "select", "options": ["NNN", "gross", "modified_gross"] },
+            { "id": "camRecoveriesPsf", "label": "CAM/Recoveries PSF", "type": "currency" },
+            { "id": "leaseStart", "label": "Lease Start", "type": "date" },
+            { "id": "leaseExpiry", "label": "Lease Expiry", "type": "date" },
+            { "id": "tiLcPsf", "label": "TI/LC PSF", "type": "currency" },
+            { "id": "percentageRentPct", "label": "Percentage Rent", "type": "percent" }
+          ] },
+        { "id": "retailVacancyPct", "label": "Vacancy / Rollover Reserve", "type": "percent", "min": 0, "max": 0.5 }
+      ]
+    },
+    {
+      "id": "industrial_details",
+      "label": "Industrial Details",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "industrial" },
+        { "field": "mixedUseComponents", "contains": "industrial" }
+      ] },
+      "fields": [
+        { "id": "rentableSf", "label": "Rentable SF", "type": "number", "min": 0 },
+        { "id": "clearHeightFt", "label": "Clear Height (ft)", "type": "number", "min": 0 },
+        { "id": "rentPsf", "label": "Rent PSF", "type": "currency", "min": 0 },
+        { "id": "nnnRecoveriesPsf", "label": "NNN Recoveries PSF", "type": "currency", "min": 0 },
+        { "id": "tenancyType", "label": "Tenancy", "type": "select", "options": ["single_tenant", "multi_tenant"] },
+        { "id": "tiLcPsf", "label": "TI/LC PSF", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "hotel_details",
+      "label": "Hotel Details",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "hotel" },
+        { "field": "mixedUseComponents", "contains": "hotel" }
+      ] },
+      "fields": [
+        { "id": "keys", "label": "# Keys", "type": "number", "min": 0 },
+        { "id": "adr", "label": "ADR", "type": "currency", "min": 0 },
+        { "id": "occupancyPct", "label": "Occupancy", "type": "percent", "min": 0, "max": 1 },
+        { "id": "fnbRevenue", "label": "F&B Revenue", "type": "currency", "min": 0 },
+        { "id": "otherRevenue", "label": "Other Revenue", "type": "currency", "min": 0 },
+        { "id": "departmentalExpenseRatioPct", "label": "Departmental Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "undistributedExpenseRatioPct", "label": "Undistributed Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "ffeReservePct", "label": "FF&E Reserve", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
+        { "id": "franchiseFeePct", "label": "Franchise Fee", "type": "percent", "min": 0, "max": 0.15 },
+        { "id": "managementFeeHotelPct", "label": "Hotel Management Fee", "type": "percent", "min": 0, "max": 0.15 }
+      ]
+    },
+    {
+      "id": "office_details",
+      "label": "Office Details",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "office" },
+        { "field": "mixedUseComponents", "contains": "office" }
+      ] },
+      "fields": [
+        { "id": "officeRentableSf", "label": "Rentable SF", "type": "number", "min": 0 },
+        { "id": "officeRentPsf", "label": "Rent PSF", "type": "currency", "min": 0 },
+        { "id": "officeTiLcPsf", "label": "TI/LC PSF", "type": "currency", "min": 0 },
+        { "id": "parkingIncomeOffice", "label": "Parking Income", "type": "currency", "min": 0 }
+      ]
+    },
+    {
+      "id": "custom_other",
+      "label": "Custom Inputs",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "other" }
+      ] },
+      "fields": [
+        { "id": "customKeyValues", "label": "Custom Key/Value Inputs", "type": "keyvalue" }
+      ]
+    }
+  ]
+}
