@@ -360,6 +360,18 @@ def run_extraction(documents: list[Document]) -> dict:
             merged[key].extend(result[key])
         merged["warnings"].extend(result["warnings"])
 
+    # Multiple documents of the same type are summed/combined into single
+    # fields below — a YTD plus a prior-year T-12 would double every category.
+    # That can be intended (one statement per building) but must never be silent.
+    for doc_type, label in (("t12_operating_statement", "T-12"), ("rent_roll", "rent roll")):
+        names = [d.filename for d in documents if d.document_type == doc_type]
+        if len(names) > 1:
+            merged["warnings"].append(
+                f"{len(names)} {label} documents were merged ({', '.join(names)}) — their "
+                "line items are combined into single fields, so overlapping periods or "
+                "duplicate rolls will double-count. Deselect duplicates if that's not intended."
+            )
+
     fields = _aggregate_to_fields(merged)
 
     # "asking price"-style scalars from an OM feed cross-validation even
