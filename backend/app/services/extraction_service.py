@@ -49,19 +49,62 @@ def _load_grid_and_text(doc: Document) -> tuple[dict | None, str, list[str]]:
             warnings.append(f"{doc.filename}: {pdf_data['ocrNote']}")
         text = pdf_extractor.full_text(pdf_data)
 
-        best_table, best_page = None, None
-        for page in pdf_data["pages"]:
-            for table in page["tables"]:
-                if table and len(table) > len(best_table or []):
-                    best_table, best_page = table, page["pageNumber"]
-
-        grid = None
-        if best_table and len(best_table) >= 2:
-            headers = [str(h) if h is not None else "" for h in best_table[0]]
-            grid = {"headers": headers, "rows": best_table[1:], "sheet": f"page {best_page}"}
+        grid, table_warnings = _grid_from_pdf_tables(pdf_data["pages"])
+        warnings.extend(f"{doc.filename}: {w}" for w in table_warnings)
         return grid, text, warnings
 
     return None, "", [f"{doc.filename}: unsupported file type for extraction"]
+
+
+def _grid_from_pdf_tables(pages: list[dict]) -> tuple[dict | None, list[str]]:
+    """Merge same-shape tables across pages into one grid. Rent rolls routinely
+    span many PDF pages as one logical table (with or without repeated header
+    rows); keeping only the single largest table silently truncated the roll
+    to one page's units (FINDINGS.md C2). Tables whose column count differs
+    from the main table's (summaries, disclaimers) are left out.
+    """
+    tables: list[tuple[int, list[list]]] = []  # (pageNumber, table) in document order
+    for page in pages:
+        for table in page["tables"]:
+            if table and any(row for row in table):
+                tables.append((page["pageNumber"], table))
+    if not tables:
+        return None, []
+
+    # The main table shape = the column count whose tables carry the most rows.
+    rows_by_width: dict[int, int] = {}
+    for _, table in tables:
+        width = max(len(row) for row in table)
+        rows_by_width[width] = rows_by_width.get(width, 0) + len(table)
+    main_width = max(rows_by_width, key=lambda w: rows_by_width[w])
+    group = [(p, t) for p, t in tables if max(len(row) for row in t) == main_width]
+
+    first_page, first_table = group[0]
+    headers = [str(h).strip() if h is not None else "" for h in first_table[0]]
+    norm_headers = [h.lower() for h in headers]
+
+    rows: list[list] = list(first_table[1:])
+    for _, table in group[1:]:
+        first_row_norm = [str(c).strip().lower() if c is not None else "" for c in table[0]]
+        # Continuation pages often repeat the header row — drop the repeat.
+        rows.extend(table[1:] if first_row_norm == norm_headers else table)
+
+    if not rows:
+        return None, []
+
+    last_page = group[-1][0]
+    grid = {
+        "headers": headers,
+        "rows": rows,
+        "sheet": f"page {first_page}" if len(group) == 1 else f"pages {first_page}-{last_page}",
+    }
+    warnings = []
+    if len(group) > 1:
+        warnings.append(
+            f"merged {len(group)} tables (pages {first_page}-{last_page}) into one grid — "
+            "verify no unrelated tables were combined."
+        )
+    return grid, warnings
 
 
 def _extract_rent_roll(doc: Document, grid: dict | None, text: str, warnings: list[str]) -> dict:
