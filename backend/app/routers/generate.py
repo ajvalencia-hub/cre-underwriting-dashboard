@@ -1,6 +1,7 @@
 import json
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -15,6 +16,16 @@ router = APIRouter(prefix="/api/generate", tags=["generate"])
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 XLSM_MEDIA_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.12"
+
+
+def _content_disposition(filename: str) -> str:
+    """ASGI response headers must encode as latin-1, so a template filename
+    containing non-ASCII characters crashed every download, and an embedded
+    double quote corrupted the header. Send an ASCII-safe fallback in
+    filename= plus the real name RFC 5987-encoded in filename*.
+    """
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
 @router.post("")
@@ -56,7 +67,7 @@ def generate(payload: GenerateRequest, db: Session = Depends(get_db)):
 
     media_type = XLSM_MEDIA_TYPE if template_path.suffix.lower() == ".xlsm" else XLSX_MEDIA_TYPE
     headers = {
-        "Content-Disposition": f'attachment; filename="{template.filename}"',
+        "Content-Disposition": _content_disposition(template.filename),
         "X-Generation-Warnings": json.dumps(result["warnings"]),
         "X-Generation-Written-Count": str(len(result["written"])),
         "X-Generation-Outputs": json.dumps(outputs, default=str),
