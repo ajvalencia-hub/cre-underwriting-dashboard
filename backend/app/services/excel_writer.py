@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+from openpyxl.cell.cell import MergedCell
 from openpyxl.utils.cell import column_index_from_string, coordinate_from_string
 
 
@@ -51,6 +52,19 @@ def _is_formula_cell(cell) -> bool:
     return isinstance(cell.value, str) and cell.value.startswith("=")
 
 
+def _merge_anchor(ws, cell):
+    """A MergedCell (any cell of a merged range except its top-left) is
+    read-only — writing to it raises AttributeError. Mapping UIs display a
+    merged range as one cell, so the user's intent is the anchor: remap there.
+    """
+    if not isinstance(cell, MergedCell):
+        return cell
+    for rng in ws.merged_cells.ranges:
+        if cell.coordinate in rng:
+            return ws.cell(row=rng.min_row, column=rng.min_col)
+    return cell
+
+
 def inject_values(
     template_path: Path, output_path: Path, mappings: dict, values: dict
 ) -> dict:
@@ -85,7 +99,7 @@ def inject_values(
                     "value NOT written; map it to a single cell instead"
                 )
                 continue
-            cell = ws[coord]
+            cell = _merge_anchor(ws, ws[coord])
             if _is_formula_cell(cell):
                 warnings.append(
                     f"'{field_id}' maps to a formula cell {ws.title}!{coord} — "
@@ -107,17 +121,27 @@ def inject_values(
             column_order = entry.get("columnOrder") or ["key", "value"]
 
             rows = value if isinstance(value, list) else []
-            skipped_formula_rows = 0
+            skipped_formula_cells = 0
+            skipped_merged_cells = 0
             for r_offset, row in enumerate(rows):
                 for c_offset, col_id in enumerate(column_order):
                     cell = ws.cell(row=start_row + r_offset, column=start_col_idx + c_offset)
+                    if isinstance(cell, MergedCell):
+                        # Writing to the anchor here could clobber layout the
+                        # template author merged deliberately — skip and count.
+                        skipped_merged_cells += 1
+                        continue
                     if _is_formula_cell(cell):
-                        skipped_formula_rows += 1
+                        skipped_formula_cells += 1
                         continue
                     cell.value = _coerce_value(row.get(col_id))
-            if skipped_formula_rows:
+            if skipped_formula_cells:
                 warnings.append(
-                    f"'{field_id}' skipped {skipped_formula_rows} cell(s) that contained formulas"
+                    f"'{field_id}' skipped {skipped_formula_cells} cell(s) that contained formulas"
+                )
+            if skipped_merged_cells:
+                warnings.append(
+                    f"'{field_id}' skipped {skipped_merged_cells} cell(s) inside merged ranges"
                 )
             written.append(field_id)
 
@@ -145,7 +169,7 @@ def read_output_values(path: Path, mappings: dict, output_field_ids: list[str]) 
         ws, coord = resolved
         if ":" in coord:
             continue
-        value = ws[coord].value
+        value = _merge_anchor(ws, ws[coord]).value
         if value is not None:
             results[field_id] = value
 
