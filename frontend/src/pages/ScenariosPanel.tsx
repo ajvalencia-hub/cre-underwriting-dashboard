@@ -11,6 +11,7 @@ interface ScenariosPanelProps {
   template: TemplateSummary | null
   mappingProfileId: string | null
   values: Record<string, unknown>
+  suggestedName?: string | null
   onLoadScenario: (inputs: Record<string, unknown>) => void
 }
 
@@ -21,6 +22,7 @@ export default function ScenariosPanel({
   template,
   mappingProfileId,
   values,
+  suggestedName,
   onLoadScenario,
 }: ScenariosPanelProps) {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
@@ -29,6 +31,10 @@ export default function ScenariosPanel({
   const [scenarioName, setScenarioName] = useState('Base Case')
   const [saving, setSaving] = useState(false)
   const [compareIds, setCompareIds] = useState<string[]>([])
+
+  useEffect(() => {
+    if (suggestedName) setScenarioName(suggestedName)
+  }, [suggestedName])
 
   const fields = flattenFields(schema)
   const fieldById = new Map(fields.map((f) => [f.id, f]))

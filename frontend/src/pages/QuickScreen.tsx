@@ -1,28 +1,29 @@
-import { useState } from 'react'
-import ScalarInput from '../components/fields/ScalarInput'
+import FormattedNumberInput from '../components/fields/FormattedNumberInput'
+import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
 import {
-  computeQuickScreen,
-  QUICK_SCREEN_DEFAULTS,
+  FEASIBILITY_TIER_THRESHOLDS_BPS,
+  QUICK_SCREEN_FIELD_CONFIG,
+  QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
+  deriveOpexRatioFromMargin,
+  solveForMarginalThreshold,
   type QuickScreenInputs,
+  type QuickScreenResults,
   type SizeMode,
 } from '../lib/quickScreenMath'
+import { formatMoney, formatMoneyCompact, formatPct } from '../lib/quickScreenFormat'
 
 interface QuickScreenProps {
-  onSendToDealInputs: (values: Record<string, unknown>) => void
-}
-
-function pct(v: number): string {
-  return `${(v * 100).toFixed(2)}%`
-}
-
-function money(v: number): string {
-  return `$${Math.round(v).toLocaleString()}`
+  inputs: QuickScreenInputs
+  onInputsChange: (inputs: QuickScreenInputs) => void
+  results: QuickScreenResults
+  onSendToDealInputs: () => void
+  onSaveAsScenario: () => void
 }
 
 const FEASIBILITY_LABEL: Record<string, string> = {
-  strong: 'Strong — yield-on-cost clears exit cap by 200+ bps',
-  marginal: 'Marginal — yield-on-cost clears exit cap by 100–200 bps',
-  weak: 'Weak — yield-on-cost is within 100 bps of (or below) exit cap',
+  strong: `Strong — yield-on-cost clears exit cap by ${FEASIBILITY_TIER_THRESHOLDS_BPS.strong}+ bps`,
+  marginal: `Marginal — clears exit cap by ${FEASIBILITY_TIER_THRESHOLDS_BPS.marginal}–${FEASIBILITY_TIER_THRESHOLDS_BPS.strong} bps`,
+  weak: `Weak — within ${FEASIBILITY_TIER_THRESHOLDS_BPS.marginal} bps of exit cap (or below)`,
 }
 const FEASIBILITY_COLOR: Record<string, string> = {
   strong: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -30,30 +31,44 @@ const FEASIBILITY_COLOR: Record<string, string> = {
   weak: 'border-red-200 bg-red-50 text-red-700',
 }
 
-export default function QuickScreen({ onSendToDealInputs }: QuickScreenProps) {
-  const [inputs, setInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
-  const results = computeQuickScreen(inputs)
-
+export default function QuickScreen({
+  inputs,
+  onInputsChange,
+  results,
+  onSendToDealInputs,
+  onSaveAsScenario,
+}: QuickScreenProps) {
   function set<K extends keyof QuickScreenInputs>(key: K, value: QuickScreenInputs[K]) {
-    setInputs((prev) => ({ ...prev, [key]: value }))
+    onInputsChange({ ...inputs, [key]: value })
   }
 
-  function setNum(key: keyof QuickScreenInputs, value: unknown) {
-    const num = Number(value)
-    setInputs((prev) => ({ ...prev, [key]: Number.isFinite(num) ? num : 0 }))
+  function field(key: keyof QuickScreenInputs) {
+    return QUICK_SCREEN_FIELD_CONFIG[key]
   }
 
-  function handleSendToDealInputs() {
-    onSendToDealInputs({
-      dealType: 'development',
-      landCost: inputs.landCost,
-      hardCosts: results.hardCosts,
-      contingencyPct: inputs.contingencyPct,
-      exitCapRatePct: inputs.exitCapRatePct,
-      ltvOrLtc: inputs.ltcPct,
-      grossPotentialRent: results.grossPotentialRent,
-    })
+  function toggleDetailedNoi() {
+    if (!inputs.useDetailedNoi) {
+      const opexRatioPct = deriveOpexRatioFromMargin(inputs.noiMarginPct, inputs.vacancyPct)
+      onInputsChange({ ...inputs, useDetailedNoi: true, opexRatioPct })
+    } else {
+      onInputsChange({ ...inputs, useDetailedNoi: false, noiMarginPct: results.effectiveNoiMarginPct })
+    }
   }
+
+  const sfPerUnitHint =
+    inputs.sizeMode === 'units'
+      ? `≈ ${formatMoney(inputs.hardCostPerUnit / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION)}/SF hard cost, ${formatMoney(
+          (inputs.rent * 12) / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
+        )}/SF/yr rent — assumes ${QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION} SF/unit`
+      : `≈ ${formatMoney(
+          inputs.hardCostPerUnit * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
+        )}/unit hard cost, ${formatMoney(
+          (inputs.rent * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION) / 12,
+        )}/mo rent — assumes ${QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION} SF/unit`
+
+  const solveFor = results.feasibility === 'weak' ? solveForMarginalThreshold(inputs) : null
+  const unitLabel = inputs.sizeMode === 'units' ? '/unit' : '/SF'
+  const rentUnitLabel = inputs.sizeMode === 'units' ? '/mo/unit' : '/SF/yr'
 
   return (
     <div className="max-w-4xl">
@@ -82,66 +97,134 @@ export default function QuickScreen({ onSendToDealInputs }: QuickScreenProps) {
           </div>
 
           <FieldRow label={inputs.sizeMode === 'units' ? '# of Units' : 'Total Building SF'}>
-            <ScalarInput type="number" value={inputs.quantity} onChange={(v) => setNum('quantity', v)} />
+            <FormattedNumberInput
+              format="number"
+              value={inputs.quantity}
+              onChange={(v) => set('quantity', v)}
+              {...field('quantity')}
+            />
           </FieldRow>
 
           <FieldRow label="Land Cost">
-            <ScalarInput type="currency" value={inputs.landCost} onChange={(v) => setNum('landCost', v)} />
+            <FormattedNumberInput
+              format="currency"
+              value={inputs.landCost}
+              onChange={(v) => set('landCost', v)}
+              {...field('landCost')}
+            />
           </FieldRow>
 
-          <FieldRow label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}>
-            <ScalarInput
-              type="currency"
+          <FieldRow
+            label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}
+            hint={sfPerUnitHint}
+          >
+            <FormattedNumberInput
+              format="currency"
               value={inputs.hardCostPerUnit}
-              onChange={(v) => setNum('hardCostPerUnit', v)}
+              onChange={(v) => set('hardCostPerUnit', v)}
+              {...field('hardCostPerUnit')}
             />
           </FieldRow>
 
           <FieldRow label="Soft Costs (% of hard cost)">
-            <ScalarInput
-              type="percent"
+            <FormattedNumberInput
+              format="percent"
               value={inputs.softCostPct}
-              onChange={(v) => setNum('softCostPct', v)}
+              onChange={(v) => set('softCostPct', v)}
+              {...field('softCostPct')}
             />
           </FieldRow>
 
           <FieldRow label="Contingency (% of hard + soft)">
-            <ScalarInput
-              type="percent"
+            <FormattedNumberInput
+              format="percent"
               value={inputs.contingencyPct}
-              onChange={(v) => setNum('contingencyPct', v)}
+              onChange={(v) => set('contingencyPct', v)}
+              {...field('contingencyPct')}
             />
           </FieldRow>
 
           <FieldRow label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
-            <ScalarInput type="currency" value={inputs.rent} onChange={(v) => setNum('rent', v)} />
-          </FieldRow>
-
-          <FieldRow label="Stabilized NOI Margin (% of gross rent)">
-            <ScalarInput
-              type="percent"
-              value={inputs.noiMarginPct}
-              onChange={(v) => setNum('noiMarginPct', v)}
+            <FormattedNumberInput
+              format="currency"
+              value={inputs.rent}
+              onChange={(v) => set('rent', v)}
+              {...field('rent')}
             />
           </FieldRow>
 
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-medium text-slate-600">
+                Stabilized NOI Margin (% of gross rent)
+              </label>
+              <button
+                onClick={toggleDetailedNoi}
+                className="text-[11px] text-slate-400 underline hover:text-slate-600"
+              >
+                {inputs.useDetailedNoi ? 'Use simple margin' : 'Split vacancy / opex'}
+              </button>
+            </div>
+            {!inputs.useDetailedNoi ? (
+              <div className="mt-1 max-w-xs">
+                <FormattedNumberInput
+                  format="percent"
+                  value={inputs.noiMarginPct}
+                  onChange={(v) => set('noiMarginPct', v)}
+                  {...field('noiMarginPct')}
+                />
+              </div>
+            ) : (
+              <div className="mt-1 grid max-w-xs grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] text-slate-500">Vacancy %</label>
+                  <FormattedNumberInput
+                    format="percent"
+                    value={inputs.vacancyPct}
+                    onChange={(v) => set('vacancyPct', v)}
+                    {...field('vacancyPct')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500">Opex (% of EGI)</label>
+                  <FormattedNumberInput
+                    format="percent"
+                    value={inputs.opexRatioPct}
+                    onChange={(v) => set('opexRatioPct', v)}
+                    {...field('opexRatioPct')}
+                  />
+                </div>
+                <div className="col-span-2 text-[11px] text-slate-400">
+                  Implied NOI margin: {formatPct(results.effectiveNoiMarginPct)}
+                </div>
+              </div>
+            )}
+          </div>
+
           <FieldRow label="Exit Cap Rate">
-            <ScalarInput
-              type="percent"
+            <FormattedNumberInput
+              format="percent"
               value={inputs.exitCapRatePct}
-              onChange={(v) => setNum('exitCapRatePct', v)}
+              onChange={(v) => set('exitCapRatePct', v)}
+              {...field('exitCapRatePct')}
             />
           </FieldRow>
 
           <FieldRow label="Loan-to-Cost (0 = all-equity)">
-            <ScalarInput type="percent" value={inputs.ltcPct} onChange={(v) => setNum('ltcPct', v)} />
+            <FormattedNumberInput
+              format="percent"
+              value={inputs.ltcPct}
+              onChange={(v) => set('ltcPct', v)}
+              {...field('ltcPct')}
+            />
           </FieldRow>
 
           <FieldRow label="Construction Loan Rate (interest-only approx.)">
-            <ScalarInput
-              type="percent"
+            <FormattedNumberInput
+              format="percent"
               value={inputs.constructionInterestRatePct}
-              onChange={(v) => setNum('constructionInterestRatePct', v)}
+              onChange={(v) => set('constructionInterestRatePct', v)}
+              {...field('constructionInterestRatePct')}
             />
           </FieldRow>
         </div>
@@ -150,34 +233,58 @@ export default function QuickScreen({ onSendToDealInputs }: QuickScreenProps) {
           <div className={`rounded-md border p-3 text-sm ${FEASIBILITY_COLOR[results.feasibility]}`}>
             <div className="font-semibold capitalize">{results.feasibility}</div>
             <div className="mt-0.5 text-xs">{FEASIBILITY_LABEL[results.feasibility]}</div>
+            {solveFor && (
+              <ul className="mt-2 space-y-0.5 border-t border-current/20 pt-2 text-xs">
+                <li>What it would take to reach Marginal ({FEASIBILITY_TIER_THRESHOLDS_BPS.marginal}+ bps):</li>
+                {solveFor.requiredRent !== null && (
+                  <li>&bull; Rent {formatMoney(solveFor.requiredRent)}{rentUnitLabel}</li>
+                )}
+                {solveFor.requiredHardCostPerUnit !== null && (
+                  <li>
+                    &bull; Hard costs &le; {formatMoneyCompact(solveFor.requiredHardCostPerUnit)}
+                    {unitLabel}
+                  </li>
+                )}
+                {solveFor.requiredExitCapRatePct !== null && (
+                  <li>&bull; Exit cap &le; {formatPct(solveFor.requiredExitCapRatePct)}</li>
+                )}
+              </ul>
+            )}
           </div>
 
           <div className="rounded-md border border-slate-200 bg-white p-4">
             <div className="text-xs font-semibold tracking-wide text-slate-500">DEVELOPMENT COST</div>
             <dl className="mt-2 space-y-1 text-sm">
-              <Row label="Hard Costs" value={money(results.hardCosts)} />
-              <Row label="Soft Costs" value={money(results.softCosts)} />
-              <Row label="Contingency" value={money(results.contingency)} />
-              <Row label="Land Cost" value={money(inputs.landCost)} />
-              <Row label="Total Development Cost" value={money(results.totalDevelopmentCost)} strong />
+              <Row label="Hard Costs" value={formatMoney(results.hardCosts)} />
+              <Row label="Soft Costs" value={formatMoney(results.softCosts)} />
+              <Row label="Contingency" value={formatMoney(results.contingency)} />
+              <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
+              <Row label="Total Development Cost" value={formatMoney(results.totalDevelopmentCost)} strong />
             </dl>
           </div>
 
           <div className="rounded-md border border-slate-200 bg-white p-4">
             <div className="text-xs font-semibold tracking-wide text-slate-500">STABILIZED VALUE</div>
             <dl className="mt-2 space-y-1 text-sm">
-              <Row label="Gross Potential Rent" value={money(results.grossPotentialRent)} />
-              <Row label="Stabilized NOI" value={money(results.stabilizedNoi)} />
-              <Row label="Stabilized Value (NOI / exit cap)" value={money(results.stabilizedValue)} strong />
+              <Row label="Gross Potential Rent" value={formatMoney(results.grossPotentialRent)} />
+              <Row
+                label="Operating Expenses"
+                value={`${formatMoney(results.operatingExpenses)} (${formatMoney(results.opexPerUnit)}${unitLabel})`}
+              />
+              <Row
+                label="Stabilized NOI"
+                value={`${formatMoney(results.stabilizedNoi)} (${formatMoney(results.noiPerUnit)}${unitLabel})`}
+              />
+              <Row label="Stabilized Value (NOI / exit cap)" value={formatMoney(results.stabilizedValue)} strong />
             </dl>
           </div>
 
           <div className="rounded-md border border-slate-200 bg-white p-4">
             <div className="text-xs font-semibold tracking-wide text-slate-500">FEASIBILITY</div>
             <dl className="mt-2 space-y-1 text-sm">
-              <Row label="Profit" value={money(results.profit)} />
-              <Row label="Profit Margin" value={pct(results.profitMarginPct)} />
-              <Row label="Yield on Cost" value={pct(results.yieldOnCost)} />
+              <Row label="Profit" value={formatMoney(results.profit)} />
+              <Row label="Profit Margin" value={formatPct(results.profitMarginPct)} />
+              <Row label="Yield on Cost" value={formatPct(results.yieldOnCost)} />
               <Row label="Spread over Exit Cap" value={`${results.capRateSpreadBps.toFixed(0)} bps`} strong />
             </dl>
           </div>
@@ -188,35 +295,54 @@ export default function QuickScreen({ onSendToDealInputs }: QuickScreenProps) {
                 SIMPLE LEVERAGE (stabilized year, interest-only approximation)
               </div>
               <dl className="mt-2 space-y-1 text-sm">
-                <Row label="Loan Amount" value={money(results.loanAmount)} />
-                <Row label="Equity Required" value={money(results.equityRequired)} />
-                <Row label="Levered Cash Flow" value={money(results.leveredCashFlow)} />
+                <Row label="Loan Amount" value={formatMoney(results.loanAmount)} />
+                <Row label="Equity Required" value={formatMoney(results.equityRequired)} />
+                <Row label="Levered Cash Flow" value={formatMoney(results.leveredCashFlow)} />
                 <Row
                   label="Cash-on-Cash"
-                  value={results.cashOnCashPct === null ? '—' : pct(results.cashOnCashPct)}
+                  value={results.cashOnCashPct === null ? '—' : formatPct(results.cashOnCashPct)}
                   strong
                 />
               </dl>
             </div>
           )}
 
-          <button
-            onClick={handleSendToDealInputs}
-            className="w-full rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
-          >
-            Send to Deal Inputs →
-          </button>
+          <QuickScreenSensitivityGrid inputs={inputs} />
+
+          <div className="flex gap-2">
+            <button
+              onClick={onSendToDealInputs}
+              className="flex-1 rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
+            >
+              Send to Deal Inputs →
+            </button>
+            <button
+              onClick={onSaveAsScenario}
+              className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Save as Scenario →
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldRow({
+  label,
+  children,
+  hint,
+}: {
+  label: string
+  children: React.ReactNode
+  hint?: string
+}) {
   return (
     <div>
       <label className="block text-xs font-medium text-slate-600">{label}</label>
       <div className="mt-1 max-w-xs">{children}</div>
+      {hint && <div className="mt-0.5 max-w-xs text-[11px] text-slate-400">{hint}</div>}
     </div>
   )
 }

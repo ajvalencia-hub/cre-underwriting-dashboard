@@ -9,7 +9,7 @@ export function formatOutputValue(metric: OutputMetric, value: unknown): string 
     case 'percent':
       return `${(num * 100).toFixed(2)}%`
     case 'currency':
-      return `$${num.toLocaleString()}`
+      return `$${Math.round(num).toLocaleString()}`
     case 'multiple':
       return `${num.toFixed(2)}x`
     case 'years':
