@@ -96,14 +96,17 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
         label_str = str(label).strip()
         norm_label = _normalize(label_str)
 
+        amount = None
         if total_col is not None and total_col < len(row):
             amount = parse_numeric(row[total_col])
-        elif month_cols:
+        # Fall back to summing the month columns when there is no Total column
+        # OR the row's total cell didn't parse (blank, dash, or a formula whose
+        # cached value is missing) — otherwise a row with twelve perfectly good
+        # monthly values would be dropped outright (FINDINGS.md C3).
+        if amount is None and month_cols:
             monthly_values = [parse_numeric(row[c]) for c in month_cols if c < len(row)]
             monthly_values = [v for v in monthly_values if v is not None]
             amount = sum(monthly_values) * annualize_factor if monthly_values else None
-        else:
-            amount = None
 
         if amount is None:
             continue
