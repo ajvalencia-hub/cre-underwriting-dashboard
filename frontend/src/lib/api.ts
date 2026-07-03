@@ -1,6 +1,7 @@
 import type { InputSchema } from '../types/schema'
 import type { SheetGrid, TemplateSummary } from '../types/template'
 import type { AutoMatchResult, MappingProfile, MappingsById } from '../types/mapping'
+import type { Deal } from '../types/deal'
 import type { Scenario } from '../types/scenario'
 import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
@@ -147,10 +148,13 @@ export async function generateWorkbook(payload: {
   return { blob, filename, warnings, writtenCount, outputs }
 }
 
-export function fetchScenarios(params: { templateId?: string; kind?: 'quickscreen' | 'full' } = {}) {
+export function fetchScenarios(
+  params: { templateId?: string; kind?: 'quickscreen' | 'full'; dealId?: string } = {},
+) {
   const query = new URLSearchParams()
   if (params.templateId) query.set('template_id', params.templateId)
   if (params.kind) query.set('kind', params.kind)
+  if (params.dealId) query.set('deal_id', params.dealId)
   const qs = query.toString()
   return getJson<Scenario[]>(`/scenarios${qs ? `?${qs}` : ''}`)
 }
@@ -158,6 +162,7 @@ export function fetchScenarios(params: { templateId?: string; kind?: 'quickscree
 export function saveScenario(payload: {
   scenarioName: string
   kind?: 'quickscreen' | 'full'
+  dealId?: string | null
   templateId?: string | null
   mappingProfileId?: string | null
   inputs: Record<string, unknown>
@@ -169,12 +174,41 @@ export function updateScenario(
   scenarioId: string,
   payload: {
     scenarioName: string
+    dealId?: string | null
     templateId?: string | null
     mappingProfileId?: string | null
     inputs: Record<string, unknown>
   },
 ) {
   return postJson<Scenario>(`/scenarios/${scenarioId}`, payload, 'PUT')
+}
+
+export function fetchDeals() {
+  return getJson<Deal[]>('/deals')
+}
+
+export function fetchDeal(dealId: string) {
+  return getJson<Deal>(`/deals/${dealId}`)
+}
+
+export function createDeal(payload: { name: string; inputs?: Record<string, unknown> }) {
+  return postJson<Deal>('/deals', payload, 'POST')
+}
+
+export function updateDeal(
+  dealId: string,
+  payload: {
+    name?: string
+    inputs?: Record<string, unknown>
+    activeTemplateId?: string | null
+    activeMappingProfileId?: string | null
+  },
+) {
+  return postJson<Deal>(`/deals/${dealId}`, payload, 'PUT')
+}
+
+export async function deleteDeal(dealId: string): Promise<void> {
+  return del(`/deals/${dealId}`)
 }
 
 export async function deleteScenario(scenarioId: string): Promise<void> {

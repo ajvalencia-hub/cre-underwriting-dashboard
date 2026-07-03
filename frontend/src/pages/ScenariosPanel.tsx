@@ -13,6 +13,7 @@ interface ScenariosPanelProps {
   mappingProfileId: string | null
   values: Record<string, unknown>
   active: boolean
+  dealId: string | null
   onLoadScenario: (inputs: Record<string, unknown>) => void
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
@@ -25,6 +26,7 @@ export default function ScenariosPanel({
   mappingProfileId,
   values,
   active,
+  dealId,
   onLoadScenario,
   onLoadQuickScreenScenario,
 }: ScenariosPanelProps) {
@@ -46,25 +48,25 @@ export default function ScenariosPanel({
   // Quick Screen tab would never show up here without a full page reload.
   useEffect(() => {
     if (!active) return
-    if (!template) {
+    if (!template || !dealId) {
       setScenarios([])
       return
     }
     setLoading(true)
-    fetchScenarios({ templateId: template.id, kind: 'full' })
+    fetchScenarios({ templateId: template.id, kind: 'full', dealId })
       .then(setScenarios)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load scenarios'))
       .finally(() => setLoading(false))
-  }, [template, active])
+  }, [template, active, dealId])
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !dealId) return
     setQuickScreenLoading(true)
-    fetchScenarios({ kind: 'quickscreen' })
+    fetchScenarios({ kind: 'quickscreen', dealId })
       .then(setQuickScreenScenarios)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load Quick Screen scenarios'))
       .finally(() => setQuickScreenLoading(false))
-  }, [active])
+  }, [active, dealId])
 
   async function handleSave() {
     if (!template || !mappingProfileId) return
@@ -75,6 +77,7 @@ export default function ScenariosPanel({
       const saved = existing
         ? await updateScenario(existing.id, {
             scenarioName,
+            dealId,
             templateId: template.id,
             mappingProfileId,
             inputs: values,
@@ -82,6 +85,7 @@ export default function ScenariosPanel({
         : await saveScenario({
             scenarioName,
             kind: 'full',
+            dealId,
             templateId: template.id,
             mappingProfileId,
             inputs: values,

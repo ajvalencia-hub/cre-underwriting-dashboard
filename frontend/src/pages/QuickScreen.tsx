@@ -21,6 +21,7 @@ interface QuickScreenProps {
   onInputsChange: (inputs: QuickScreenInputs) => void
   results: QuickScreenResults
   onSendToDealInputs: () => void
+  dealId: string | null
 }
 
 const FEASIBILITY_LABEL: Record<string, string> = {
@@ -34,7 +35,7 @@ const FEASIBILITY_COLOR: Record<string, string> = {
   weak: 'border-red-200 bg-red-50 text-red-700',
 }
 
-export default function QuickScreen({ inputs, onInputsChange, results, onSendToDealInputs }: QuickScreenProps) {
+export default function QuickScreen({ inputs, onInputsChange, results, onSendToDealInputs, dealId }: QuickScreenProps) {
   const [scenarioName, setScenarioName] = useState('Quick Screen')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -73,6 +74,7 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
       await saveScenario({
         scenarioName: scenarioName.trim() || 'Quick Screen',
         kind: 'quickscreen',
+        dealId,
         templateId: null,
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,

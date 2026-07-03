@@ -103,9 +103,34 @@ class SensitivityResponse(BaseModel):
     points: list[SensitivityPoint]
 
 
+class DealIn(BaseModel):
+    name: str
+    inputs: dict[str, Any] = {}
+
+
+class DealUpdate(BaseModel):
+    # All-optional partial update: autosave PUTs only the inputs blob, the
+    # switcher PUTs only the name, template selection PUTs only the ids.
+    name: str | None = None
+    inputs: dict[str, Any] | None = None
+    activeTemplateId: str | None = None
+    activeMappingProfileId: str | None = None
+
+
+class DealOut(BaseModel):
+    id: str
+    name: str
+    inputs: dict[str, Any]
+    activeTemplateId: str | None
+    activeMappingProfileId: str | None
+    createdAt: datetime
+    updatedAt: datetime
+
+
 class ScenarioIn(BaseModel):
     scenarioName: str
     kind: Literal["quickscreen", "full"] = "full"
+    dealId: str | None = None
     templateId: str | None = None
     mappingProfileId: str | None = None
     inputs: dict[str, Any]
@@ -117,6 +142,7 @@ class ScenarioUpdate(BaseModel):
     # explicit (rejected) attempt to change it.
     scenarioName: str
     kind: Literal["quickscreen", "full"] | None = None
+    dealId: str | None = None
     templateId: str | None = None
     mappingProfileId: str | None = None
     inputs: dict[str, Any]
@@ -126,6 +152,7 @@ class ScenarioOut(BaseModel):
     id: str
     scenarioName: str
     kind: Literal["quickscreen", "full"]
+    dealId: str | None
     templateId: str | None
     mappingProfileId: str | None
     inputs: dict[str, Any]

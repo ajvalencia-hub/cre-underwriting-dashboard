@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
@@ -7,7 +7,24 @@ import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
 import TemplateUpload from './pages/TemplateUpload'
-import { fetchHealth, fetchInputSchema } from './lib/api'
+import {
+  createDeal,
+  deleteDeal,
+  fetchDeal,
+  fetchDeals,
+  fetchHealth,
+  fetchInputSchema,
+  fetchTemplate,
+  updateDeal,
+} from './lib/api'
+import {
+  ACTIVE_DEAL_STORAGE_KEY,
+  createAutosaver,
+  hydrateDealState,
+  serializeDealInputs,
+  type Autosaver,
+  type AutosaveState,
+} from './lib/dealPersistence'
 import { formatOutputValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
@@ -17,10 +34,10 @@ import {
   computeQuickScreen,
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
-  parseQuickScreenInputs,
   serializeQuickScreenInputs,
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
+import type { Deal } from './types/deal'
 import type { InputSchema } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
@@ -39,6 +56,14 @@ function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   return values
 }
 
+const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
+  idle: '',
+  pending: 'Saving…',
+  saving: 'Saving…',
+  saved: 'Saved',
+  error: 'Save failed — retrying on next change',
+}
+
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>('quickscreen')
@@ -46,9 +71,25 @@ function App() {
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
   const [computedOutputs, setComputedOutputs] = useState<Record<string, unknown>>({})
-  const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(
-    () => parseQuickScreenInputs(new URLSearchParams(window.location.search)) ?? QUICK_SCREEN_DEFAULTS,
-  )
+  const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
+
+  const [deals, setDeals] = useState<Deal[]>([])
+  const [activeDealId, setActiveDealId] = useState<string | null>(null)
+  const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
+  const [renamingName, setRenamingName] = useState<string | null>(null)
+
+  const activeDealIdRef = useRef<string | null>(null)
+  const hydratedRef = useRef(false)
+  // JSON of the state as last hydrated/saved — suppresses the no-op autosave
+  // that hydration itself would otherwise trigger.
+  const lastPersistedJsonRef = useRef('')
+  const autosaverRef = useRef<Autosaver<{ dealId: string; inputs: Record<string, unknown> }> | null>(null)
+  if (autosaverRef.current === null) {
+    autosaverRef.current = createAutosaver(async ({ dealId, inputs }) => {
+      await updateDeal(dealId, { inputs })
+    })
+  }
+
   const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
   const quickScreenOutputs = useMemo(
     () => mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
@@ -59,6 +100,68 @@ function App() {
     [],
   )
 
+  // Cleanup only unsubscribes — never dispose here: StrictMode's simulated
+  // remount would permanently kill the ref'd autosaver otherwise.
+  useEffect(() => autosaverRef.current!.subscribe(setAutosaveState), [])
+
+  function applyDealState(schema: InputSchema, deal: Deal, urlParams: URLSearchParams) {
+    const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
+    setFormValues(hydrated.formValues)
+    setQuickScreenInputs(hydrated.quickScreen)
+    setComputedOutputs({})
+    setActiveMappingProfileId(deal.activeMappingProfileId)
+    if (deal.activeTemplateId) {
+      fetchTemplate(deal.activeTemplateId)
+        .then(setActiveTemplate)
+        .catch(() => setActiveTemplate(null))
+    } else {
+      setActiveTemplate(null)
+    }
+    lastPersistedJsonRef.current = hydrated.quickScreenFromUrl
+      ? '' // URL override differs from the stored deal — let the autosave sync it in
+      : JSON.stringify(serializeDealInputs(hydrated.formValues, hydrated.quickScreen))
+    activeDealIdRef.current = deal.id
+    hydratedRef.current = true
+  }
+
+  const bootStartedRef = useRef(false)
+  useEffect(() => {
+    // StrictMode double-invokes effects in dev; without this guard the boot
+    // would run twice and could create two "Default Deal" rows.
+    if (bootStartedRef.current) return
+    bootStartedRef.current = true
+    Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
+      .then(async ([schema, health, dealList]) => {
+        let list = dealList
+        if (list.length === 0) {
+          list = [await createDeal({ name: 'Default Deal' })]
+        }
+        const storedId = localStorage.getItem(ACTIVE_DEAL_STORAGE_KEY)
+        const active = list.find((d) => d.id === storedId) ?? list[0]
+        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
+        // URL quick-screen params only override on first load.
+        applyDealState(schema, active, new URLSearchParams(window.location.search))
+        setDeals(list)
+        setActiveDealId(active.id)
+        setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
+      })
+      .catch((err: Error) => {
+        setState({ status: 'error', message: err.message })
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Debounced autosave of the whole working state into the active deal.
+  useEffect(() => {
+    if (!hydratedRef.current || activeDealId === null) return
+    const blob = serializeDealInputs(formValues, quickScreenInputs)
+    const json = JSON.stringify(blob)
+    if (json === lastPersistedJsonRef.current) return
+    lastPersistedJsonRef.current = json
+    autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
+  }, [formValues, quickScreenInputs, activeDealId])
+
+  // Keep the sharable URL in sync with the quick screen (pre-existing behavior).
   useEffect(() => {
     const handle = setTimeout(() => {
       const params = serializeQuickScreenInputs(quickScreenInputs)
@@ -66,6 +169,57 @@ function App() {
     }, 500)
     return () => clearTimeout(handle)
   }, [quickScreenInputs])
+
+  async function switchDeal(dealId: string) {
+    if (state.status !== 'ready' || dealId === activeDealId) return
+    await autosaverRef.current!.flush()
+    const deal = await fetchDeal(dealId)
+    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    // Deal switches never re-apply URL params — those are first-load-only.
+    applyDealState(state.schema, deal, new URLSearchParams())
+    setActiveDealId(deal.id)
+    setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+  }
+
+  async function handleNewDeal() {
+    if (state.status !== 'ready') return
+    await autosaverRef.current!.flush()
+    const deal = await createDeal({ name: `Untitled Deal ${deals.length + 1}` })
+    setDeals((prev) => [deal, ...prev])
+    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    applyDealState(state.schema, deal, new URLSearchParams())
+    setActiveDealId(deal.id)
+  }
+
+  async function handleRenameDeal(name: string) {
+    if (!activeDealId || !name.trim()) {
+      setRenamingName(null)
+      return
+    }
+    const updated = await updateDeal(activeDealId, { name: name.trim() })
+    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    setRenamingName(null)
+  }
+
+  async function handleDeleteDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const deal = deals.find((d) => d.id === activeDealId)
+    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?`)) return
+    await deleteDeal(activeDealId)
+    const remaining = deals.filter((d) => d.id !== activeDealId)
+    if (remaining.length === 0) {
+      const fresh = await createDeal({ name: 'Default Deal' })
+      setDeals([fresh])
+      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
+      applyDealState(state.schema, fresh, new URLSearchParams())
+      setActiveDealId(fresh.id)
+      return
+    }
+    setDeals(remaining)
+    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, remaining[0].id)
+    applyDealState(state.schema, remaining[0], new URLSearchParams())
+    setActiveDealId(remaining[0].id)
+  }
 
   function handleSendQuickScreenToDealInputs() {
     setFormValues((prev) => ({
@@ -79,17 +233,6 @@ function App() {
     setQuickScreenInputs(inputs)
     setTab('quickscreen')
   }
-
-  useEffect(() => {
-    Promise.all([fetchInputSchema(), fetchHealth()])
-      .then(([schema, health]) => {
-        setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
-        setFormValues(defaultValuesFor(schema))
-      })
-      .catch((err: Error) => {
-        setState({ status: 'error', message: err.message })
-      })
-  }, [])
 
   const visibleSections = useMemo(() => {
     if (state.status !== 'ready') return []
@@ -114,6 +257,7 @@ function App() {
   }
 
   const { schema, apiOk } = state
+  const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
 
   function handleFieldChange(fieldId: string, value: unknown) {
     setFormValues((prev) => ({ ...prev, [fieldId]: value }))
@@ -203,6 +347,60 @@ function App() {
         </>
       }
     >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
+        <select
+          value={activeDealId ?? ''}
+          onChange={(e) => void switchDeal(e.target.value)}
+          className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+        >
+          {deals.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        {renamingName === null ? (
+          <button
+            onClick={() => setRenamingName(activeDeal?.name ?? '')}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          >
+            Rename
+          </button>
+        ) : (
+          <input
+            autoFocus
+            value={renamingName}
+            onChange={(e) => setRenamingName(e.target.value)}
+            onBlur={() => void handleRenameDeal(renamingName)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleRenameDeal(renamingName)
+              if (e.key === 'Escape') setRenamingName(null)
+            }}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+          />
+        )}
+        <button
+          onClick={() => void handleNewDeal()}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          New Deal
+        </button>
+        <button
+          onClick={() => void handleDeleteDeal()}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+        >
+          Delete
+        </button>
+        <span
+          className={`ml-auto text-xs ${
+            autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
+          }`}
+        >
+          {AUTOSAVE_LABEL[autosaveState]}
+        </span>
+      </div>
+
       <div className="mb-6 flex gap-1 border-b border-slate-200">
         {(
           [
@@ -236,6 +434,7 @@ function App() {
           onInputsChange={setQuickScreenInputs}
           results={quickScreenResults}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
+          dealId={activeDealId}
         />
       </div>
 
@@ -254,6 +453,12 @@ function App() {
           onTemplateReady={(template, mappingProfileId) => {
             setActiveTemplate(template)
             setActiveMappingProfileId(mappingProfileId)
+            if (activeDealId) {
+              void updateDeal(activeDealId, {
+                activeTemplateId: template?.id ?? null,
+                activeMappingProfileId: mappingProfileId,
+              })
+            }
           }}
         />
       </div>
@@ -284,6 +489,7 @@ function App() {
           mappingProfileId={activeMappingProfileId}
           values={formValues}
           active={tab === 'scenarios'}
+          dealId={activeDealId}
           onLoadScenario={(inputs) => {
             setFormValues(inputs)
             setTab('dashboard')

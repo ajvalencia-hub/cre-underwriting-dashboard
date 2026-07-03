@@ -4,6 +4,7 @@ export interface Scenario {
   id: string
   scenarioName: string
   kind: ScenarioKind
+  dealId: string | null
   templateId: string | null
   mappingProfileId: string | null
   inputs: Record<string, unknown>

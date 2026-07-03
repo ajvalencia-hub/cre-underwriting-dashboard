@@ -38,11 +38,28 @@ class MappingProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class Deal(Base):
+    __tablename__ = "deals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String)
+    # The full Deal Inputs form values, plus a "quickScreen" key holding the
+    # Quick Screen inputs — one JSON blob per deal, autosaved from the client.
+    inputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    active_template_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    active_mapping_profile_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class Scenario(Base):
     __tablename__ = "scenarios"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     scenario_name: Mapped[str] = mapped_column(String)
+    # Nullable for legacy rows created before deals existed; the startup
+    # migration backfills them onto a "Default Deal".
+    deal_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     # "full" scenarios are tied to a template + mapping profile (existing Deal
     # Inputs flow). "quickscreen" scenarios store raw QuickScreenInputs and have
     # neither, since the back-of-napkin screen doesn't require a template.
