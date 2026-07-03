@@ -14,7 +14,7 @@ _NUMERIC_RE = re.compile(r"[^0-9.\-]")
 
 
 def parse_numeric(value) -> float | None:
-    """'$1,234.50' -> 1234.5, '(1,234)' -> -1234.0, '-' -> None, 12.3 -> 12.3."""
+    """'$1,234.50' -> 1234.5, '(1,234)' -> -1234.0, '12%' -> 0.12, '-' -> None."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -25,6 +25,10 @@ def parse_numeric(value) -> float | None:
     negative = text.startswith("(") and text.endswith(")")
     if negative:
         text = text[1:-1]
+    # A trailing % means the string carries a whole-percent number; the app's
+    # percent fields are decimal fractions, so scale it down here rather than
+    # letting "12%" flow through as 12.0 (100x too large).
+    is_percent = "%" in text
     text = text.replace("%", "")
     cleaned = _NUMERIC_RE.sub("", text)
     if cleaned in ("", "-", "."):
@@ -33,6 +37,8 @@ def parse_numeric(value) -> float | None:
         num = float(cleaned)
     except ValueError:
         return None
+    if is_percent:
+        num /= 100
     return -num if negative else num
 
 
