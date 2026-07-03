@@ -86,6 +86,7 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
 
     annualized = annualize_factor != 1
     line_items = []
+    labeled_rows = 0
 
     label_col = 0  # first column is conventionally the line-item label
 
@@ -93,6 +94,7 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
         label = row[label_col] if label_col < len(row) else None
         if label is None or str(label).strip() == "":
             continue
+        labeled_rows += 1
         label_str = str(label).strip()
         norm_label = _normalize(label_str)
 
@@ -126,12 +128,28 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
             }
         )
 
+    # Confidence blends two signals. Period-column structure: a 10-12-month
+    # grid is near-certain regardless of labels. Parse quality: the share of
+    # labeled rows that yielded an amount times the share of substantive
+    # (non-subtotal) lines that classified to a known category. The quality
+    # signal is what lets a clean annual-only statement (Total column, no
+    # month columns) pass the deterministic gate instead of always scoring
+    # (0 months + 1)/12 = 0.08 and falling to the LLM (FINDINGS.md M7) —
+    # while a statement whose labels mostly don't classify still falls
+    # through to the LLM, which handles unusual charts of accounts better.
+    period_conf = min(1.0, (len(month_cols) + (1 if total_col is not None else 0)) / 12)
+    parse_rate = len(line_items) / labeled_rows if labeled_rows else 0.0
+    substantive = [li for li in line_items if not _SUBTOTAL_RE.match(_normalize(li["label"]))]
+    classified = sum(1 for li in substantive if li["category"] is not None)
+    classification_rate = classified / len(substantive) if substantive else 0.0
+    quality_conf = parse_rate * classification_rate
+
     return {
         "periodType": period_type,
         "annualized": annualized,
         "annualizeFactor": annualize_factor,
         "lineItems": line_items,
-        "confidence": round(min(1.0, (len(month_cols) + (1 if total_col is not None else 0)) / 12), 2),
+        "confidence": round(min(1.0, max(period_conf, quality_conf)), 2),
     }
 
 
