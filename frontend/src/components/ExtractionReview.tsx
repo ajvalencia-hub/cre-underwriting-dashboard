@@ -44,8 +44,15 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState(false)
+  const [failuresAcknowledged, setFailuresAcknowledged] = useState(false)
 
   const fieldEntries = Object.entries(result.fields)
+  const checksByStatus = {
+    pass: result.crossValidation.filter((c) => c.status === 'pass'),
+    warn: result.crossValidation.filter((c) => c.status === 'warn'),
+    fail: result.crossValidation.filter((c) => c.status === 'fail'),
+  }
+  const applyBlockedByFailures = checksByStatus.fail.length > 0 && !failuresAcknowledged
 
   function acceptAllHighConfidence() {
     setAccepted((prev) => {
@@ -100,19 +107,52 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
       )}
 
       {result.crossValidation.length > 0 && (
-        <div className="space-y-1">
-          {result.crossValidation.map((check, i) => (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold tracking-wide text-slate-500">
+            CROSS-VALIDATION ({checksByStatus.pass.length} pass · {checksByStatus.warn.length}{' '}
+            warn · {checksByStatus.fail.length} fail)
+          </div>
+          {checksByStatus.fail.map((check) => (
             <div
-              key={i}
-              className={`rounded-md border px-3 py-2 text-xs ${
-                check.severity === 'warning'
-                  ? 'border-amber-200 bg-amber-50 text-amber-700'
-                  : 'border-sky-200 bg-sky-50 text-sky-700'
-              }`}
+              key={check.rule}
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
             >
-              ⚠ {check.message}
+              ✕ <span className="font-semibold">{check.rule}</span> — {check.detail}
             </div>
           ))}
+          {checksByStatus.warn.map((check) => (
+            <div
+              key={check.rule}
+              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700"
+            >
+              ⚠ <span className="font-semibold">{check.rule}</span> — {check.detail}
+            </div>
+          ))}
+          {checksByStatus.pass.length > 0 && (
+            <details className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              <summary className="cursor-pointer select-none">
+                ✓ {checksByStatus.pass.length} check(s) passed
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {checksByStatus.pass.map((check) => (
+                  <li key={check.rule}>
+                    <span className="font-semibold">{check.rule}</span> — {check.detail}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {checksByStatus.fail.length > 0 && (
+            <label className="flex items-start gap-2 rounded-md border border-red-200 px-3 py-2 text-xs text-red-700">
+              <input
+                type="checkbox"
+                checked={failuresAcknowledged}
+                onChange={(e) => setFailuresAcknowledged(e.target.checked)}
+                className="mt-0.5"
+              />
+              I've reviewed the failed check(s) above and want to apply these values anyway.
+            </label>
+          )}
         </div>
       )}
 
@@ -230,7 +270,12 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
       {fieldEntries.length > 0 && (
         <button
           onClick={handleApply}
-          disabled={applying || acceptedCount === 0}
+          disabled={applying || acceptedCount === 0 || applyBlockedByFailures}
+          title={
+            applyBlockedByFailures
+              ? 'Acknowledge the failed cross-validation check(s) above first.'
+              : undefined
+          }
           className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
         >
           {applying ? 'Applying…' : applied ? 'Applied ✓ — apply again' : `Apply ${acceptedCount} confirmed value(s) to Deal Inputs`}

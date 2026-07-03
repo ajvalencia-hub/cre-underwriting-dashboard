@@ -24,8 +24,10 @@ export interface UnmatchedExtraction {
 }
 
 export interface CrossValidationCheck {
-  severity: 'warning' | 'info'
-  message: string
+  rule: string
+  status: 'pass' | 'warn' | 'fail'
+  severity: 'error' | 'warning' | 'info'
+  detail: string
   relatedFieldIds: string[]
 }
 

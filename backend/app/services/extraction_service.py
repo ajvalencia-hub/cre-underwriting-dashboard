@@ -154,6 +154,17 @@ def _extract_t12(doc: Document, grid: dict | None, text: str, warnings: list[str
                 )
             for li in parsed["lineItems"]:
                 line_items.append({**li, "source": "deterministic", "confidence": parsed["confidence"]})
+            # Internal-only parse metadata for cross-validation (month
+            # coverage) — "_" prefix keeps it off the review screen.
+            doc_ref = {"doc": doc.filename, "sheet": grid["sheet"], "page": None, "cell": None, "row": None}
+            scalars.append(
+                {"fieldId": "_t12Months", "value": parsed["monthHeaders"],
+                 "sourceRef": doc_ref, "confidence": parsed["confidence"]}
+            )
+            scalars.append(
+                {"fieldId": "_t12PeriodType", "value": parsed["periodType"],
+                 "sourceRef": doc_ref, "confidence": parsed["confidence"]}
+            )
 
     if not line_items:
         warnings.append(f"{doc.filename}: period-column detection found too little — used the LLM instead.")
@@ -263,6 +274,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
         if _looks_multifamily(rows):
             agg = rent_roll_parser.aggregate_multifamily(rows)
             fields["unitMix"] = _field_entry(agg["unitMix"], doc_ref, confidence, source)
+            fields["_rentRollTotalUnits"] = _field_entry(agg["totalUnits"], doc_ref, confidence, source)
             if agg["occupancyPctByUnit"] is not None:
                 fields["vacancyPct"] = _field_entry(round(1 - agg["occupancyPctByUnit"], 4), doc_ref, confidence, source)
                 fields["_occupancyPct"] = _field_entry(agg["occupancyPctByUnit"], doc_ref, confidence, source)
@@ -278,6 +290,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
         else:
             agg = rent_roll_parser.aggregate_commercial(rows)
             fields["rentRoll"] = _field_entry(agg["rentRoll"], doc_ref, confidence, source)
+            fields["_rentRollTotalUnits"] = _field_entry(agg["totalUnits"], doc_ref, confidence, source)
             if agg["occupancyPctBySf"] is not None:
                 fields["retailVacancyPct"] = _field_entry(round(1 - agg["occupancyPctBySf"], 4), doc_ref, confidence, source)
                 fields["_occupancyPct"] = _field_entry(agg["occupancyPctBySf"], doc_ref, confidence, source)

@@ -14,6 +14,10 @@ from datetime import date, datetime
 
 from app.services.extraction.excel_extractor import parse_numeric
 
+# Mid-table subtotal/summary rows ("Total 1BR/1BA", "Subtotal", "Totals:")
+# must never become phantom units — they inflate unit counts and GPR.
+_SUBTOTAL_ROW_RE = re.compile(r"^\s*(sub\s*)?totals?\b", re.IGNORECASE)
+
 _FIELD_ALIASES: dict[str, list[str]] = {
     "unit": ["unit", "unit no", "unit number", "suite", "suite no", "suite number", "space"],
     "tenant": ["tenant", "tenant name", "resident", "lessee", "occupant"],
@@ -77,11 +81,15 @@ def _infer_status(tenant, rent_monthly, explicit_status: str | None) -> str:
             return "vacant"
         if "occupied" in norm or "leased" in norm:
             return "occupied"
-    tenant_blank = tenant is None or str(tenant).strip() == ""
-    rent_zero = rent_monthly in (None, 0, 0.0)
-    if tenant_blank and rent_zero:
+    # Yardi-style rolls put the literal word "VACANT" in the resident column —
+    # that's a vacancy marker, not a tenant named Vacant.
+    tenant_text = "" if tenant is None else str(tenant).strip()
+    if tenant_text.lower() in ("vacant", "vacant unit", "-- vacant --"):
         return "vacant"
-    if not tenant_blank:
+    rent_zero = rent_monthly in (None, 0, 0.0)
+    if tenant_text == "" and rent_zero:
+        return "vacant"
+    if tenant_text != "":
         return "occupied"
     return "unknown"
 
@@ -106,6 +114,11 @@ def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet
         # A row with neither a unit id nor a tenant nor SF is almost certainly
         # a blank/subtotal row, not real rent-roll data — skip it.
         if unit is None and tenant is None and sf is None:
+            continue
+        # Labeled subtotal rows carry aggregate numbers, not a unit.
+        if unit is not None and _SUBTOTAL_ROW_RE.match(str(unit)):
+            continue
+        if tenant is not None and _SUBTOTAL_ROW_RE.match(str(tenant)):
             continue
 
         status = _infer_status(tenant, in_place, get("status"))

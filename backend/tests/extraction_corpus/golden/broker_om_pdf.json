@@ -1,0 +1,118 @@
+{
+  "matchedFields": [
+    "inPlaceRentMonthly",
+    "marketRentMonthly",
+    "sf",
+    "tenant",
+    "unit",
+    "unitType"
+  ],
+  "mergedSheet": "pages 1-2",
+  "pageCount": 2,
+  "rows": [
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 3600.0,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 3600.0,
+      "sf": 1200.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "broker_om.pdf",
+        "page": null,
+        "row": 0,
+        "sheet": "pages 1-2"
+      },
+      "status": "occupied",
+      "tenant": "Ivy Caf\u00e9 LLC",
+      "unit": "101",
+      "unitType": "101"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 2375.0,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 2375.0,
+      "sf": 950.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "broker_om.pdf",
+        "page": null,
+        "row": 1,
+        "sheet": "pages 1-2"
+      },
+      "status": "occupied",
+      "tenant": "Jasper Books",
+      "unit": "102",
+      "unitType": "102"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 5250.0,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 5250.0,
+      "sf": 2100.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "broker_om.pdf",
+        "page": null,
+        "row": 2,
+        "sheet": "pages 1-2"
+      },
+      "status": "occupied",
+      "tenant": "Kite Fitness",
+      "unit": "103",
+      "unitType": "103"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 2200.0,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 2200.0,
+      "sf": 800.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "broker_om.pdf",
+        "page": null,
+        "row": 3,
+        "sheet": "pages 1-2"
+      },
+      "status": "occupied",
+      "tenant": "Luna Salon",
+      "unit": "104",
+      "unitType": "104"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 1500.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "broker_om.pdf",
+        "page": null,
+        "row": 4,
+        "sheet": "pages 1-2"
+      },
+      "status": "vacant",
+      "tenant": "",
+      "unit": "105",
+      "unitType": "105"
+    }
+  ],
+  "scanned": false,
+  "tableWarnings": [
+    "merged 2 tables (pages 1-2) into one grid \u2014 verify no unrelated tables were combined."
+  ]
+}

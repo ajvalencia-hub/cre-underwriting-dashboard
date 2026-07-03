@@ -1,0 +1,160 @@
+{
+  "aggregates": {
+    "grossPotentialRentMonthly": 10800.0,
+    "lossToLeasePct": 0.0194,
+    "occupancyPctBySf": 0.6667,
+    "occupancyPctByUnit": 0.6667,
+    "occupiedUnits": 4,
+    "totalUnits": 6,
+    "unitMix": [
+      {
+        "avgSf": 750,
+        "inPlaceRent": 1465,
+        "marketRent": 1500,
+        "unitCount": 3,
+        "unitType": "1BR/1BA"
+      },
+      {
+        "avgSf": 1100,
+        "inPlaceRent": 2065,
+        "marketRent": 2100,
+        "unitCount": 3,
+        "unitType": "2BR/2BA"
+      }
+    ]
+  },
+  "confidence": 1.0,
+  "headerRowIndex": 2,
+  "matchedFields": [
+    "inPlaceRentMonthly",
+    "leaseEnd",
+    "leaseStart",
+    "marketRentMonthly",
+    "sf",
+    "tenant",
+    "unit",
+    "unitType"
+  ],
+  "rows": [
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1450.0,
+      "leaseEnd": "2026-04-30",
+      "leaseStart": "2024-05-01",
+      "leaseType": null,
+      "marketRentMonthly": 1500.0,
+      "sf": 750.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Alice Johnson",
+      "unit": "A-101",
+      "unitType": "1BR/1BA"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1480.0,
+      "leaseEnd": "2027-01-14",
+      "leaseStart": "2025-01-15",
+      "leaseType": null,
+      "marketRentMonthly": 1500.0,
+      "sf": 750.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Bob Smith",
+      "unit": "A-102",
+      "unitType": "1BR/1BA"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 1500.0,
+      "sf": 750.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      },
+      "status": "vacant",
+      "tenant": "VACANT",
+      "unit": "A-103",
+      "unitType": "1BR/1BA"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 2050.0,
+      "leaseEnd": "2026-06-30",
+      "leaseStart": "2023-07-01",
+      "leaseType": null,
+      "marketRentMonthly": 2100.0,
+      "sf": 1100.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 4,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Carol Davis",
+      "unit": "B-201",
+      "unitType": "2BR/2BA"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 2080.0,
+      "leaseEnd": "2027-02-28",
+      "leaseStart": "2025-03-01",
+      "leaseType": null,
+      "marketRentMonthly": 2100.0,
+      "sf": 1100.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 5,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Dan Edwards",
+      "unit": "B-202",
+      "unitType": "2BR/2BA"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": 2100.0,
+      "sf": 1100.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_rent_roll.xlsx",
+        "page": null,
+        "row": 6,
+        "sheet": "Sheet1"
+      },
+      "status": "vacant",
+      "tenant": null,
+      "unit": "B-203",
+      "unitType": "2BR/2BA"
+    }
+  ]
+}

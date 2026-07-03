@@ -1,0 +1,140 @@
+{
+  "aggregates": {
+    "grossPotentialRentMonthly": 6770.0,
+    "lossToLeasePct": null,
+    "occupancyPctBySf": 0.831,
+    "occupancyPctByUnit": 0.8,
+    "occupiedUnits": 4,
+    "totalUnits": 5,
+    "unitMix": [
+      {
+        "avgSf": 720,
+        "inPlaceRent": 1402,
+        "marketRent": null,
+        "unitCount": 3,
+        "unitType": "A1"
+      },
+      {
+        "avgSf": 1050,
+        "inPlaceRent": 1982,
+        "marketRent": null,
+        "unitCount": 2,
+        "unitType": "B2"
+      }
+    ]
+  },
+  "confidence": 1.0,
+  "headerRowIndex": 0,
+  "matchedFields": [
+    "inPlaceRentMonthly",
+    "leaseEnd",
+    "leaseStart",
+    "sf",
+    "status",
+    "tenant",
+    "unit",
+    "unitType"
+  ],
+  "rows": [
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1395.0,
+      "leaseEnd": "2026-08-31",
+      "leaseStart": "2024-09-01",
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 720.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "realpage_rent_roll.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Eve Foster",
+      "unit": "01-101",
+      "unitType": "A1"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1410.0,
+      "leaseEnd": "2027-01-31",
+      "leaseStart": "2025-02-01",
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 720.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "realpage_rent_roll.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Frank Garcia",
+      "unit": "01-102",
+      "unitType": "A1"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 720.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "realpage_rent_roll.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      },
+      "status": "vacant",
+      "tenant": null,
+      "unit": "01-103",
+      "unitType": "A1"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1975.0,
+      "leaseEnd": "2026-11-14",
+      "leaseStart": "2023-11-15",
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 1050.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "realpage_rent_roll.xlsx",
+        "page": null,
+        "row": 3,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Grace Harris",
+      "unit": "02-201",
+      "unitType": "B2"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1990.0,
+      "leaseEnd": "2026-04-30",
+      "leaseStart": "2025-05-01",
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 1050.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "realpage_rent_roll.xlsx",
+        "page": null,
+        "row": 4,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Henry Irving",
+      "unit": "02-202",
+      "unitType": "B2"
+    }
+  ]
+}

@@ -1,0 +1,296 @@
+{
+  "aggregates": {
+    "expenses": {
+      "generalAdmin": 8400.0,
+      "insurance": 18000.0,
+      "managementFeePct": 19200.0,
+      "payroll": 30000.0,
+      "realEstateTaxes": 60000.0,
+      "repairsMaintenance": 21600.0,
+      "replacementReserves": 6000.0,
+      "utilities": 24000.0
+    },
+    "income": {
+      "creditLoss": -4800.0,
+      "effectiveGrossIncome": 579600.0,
+      "grossPotentialRent": 600000.0,
+      "vacancyLoss": -30000.0
+    },
+    "noi": 389400.0,
+    "nonRecurringFlags": [],
+    "signNormalizedExpenses": [],
+    "totalExpenses": 187200.0,
+    "unclassified": [
+      {
+        "amount": 14400.0,
+        "bucket": "unknown",
+        "category": null,
+        "isNonRecurring": false,
+        "label": "RUBS Income",
+        "sourceRef": {
+          "cell": null,
+          "doc": "yardi_t12.xlsx",
+          "page": null,
+          "row": 3,
+          "sheet": "Sheet1"
+        }
+      },
+      {
+        "amount": 3000.0,
+        "bucket": "unknown",
+        "category": null,
+        "isNonRecurring": false,
+        "label": "Pest Control",
+        "sourceRef": {
+          "cell": null,
+          "doc": "yardi_t12.xlsx",
+          "page": null,
+          "row": 13,
+          "sheet": "Sheet1"
+        }
+      }
+    ]
+  },
+  "confidence": 1.0,
+  "lineItems": [
+    {
+      "amount": 600000.0,
+      "bucket": "income",
+      "category": "grossPotentialRent",
+      "isNonRecurring": false,
+      "label": "Gross Potential Rent",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": -30000.0,
+      "bucket": "income",
+      "category": "vacancyLoss",
+      "isNonRecurring": false,
+      "label": "Vacancy Loss",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": -4800.0,
+      "bucket": "income",
+      "category": "creditLoss",
+      "isNonRecurring": false,
+      "label": "Bad Debt",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 14400.0,
+      "bucket": "unknown",
+      "category": null,
+      "isNonRecurring": false,
+      "label": "RUBS Income",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 3,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 579600.0,
+      "bucket": "income",
+      "category": "effectiveGrossIncome",
+      "isNonRecurring": false,
+      "label": "Total Income",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 4,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 60000.0,
+      "bucket": "expense",
+      "category": "realEstateTaxes",
+      "isNonRecurring": false,
+      "label": "Real Estate Taxes",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 5,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 18000.0,
+      "bucket": "expense",
+      "category": "insurance",
+      "isNonRecurring": false,
+      "label": "Insurance",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 6,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 24000.0,
+      "bucket": "expense",
+      "category": "utilities",
+      "isNonRecurring": false,
+      "label": "Utilities",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 7,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 21600.0,
+      "bucket": "expense",
+      "category": "repairsMaintenance",
+      "isNonRecurring": false,
+      "label": "Repairs and Maintenance",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 8,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 30000.0,
+      "bucket": "expense",
+      "category": "payroll",
+      "isNonRecurring": false,
+      "label": "Payroll",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 9,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 19200.0,
+      "bucket": "expense",
+      "category": "managementFeePct",
+      "isNonRecurring": false,
+      "label": "Management Fees",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 10,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 8400.0,
+      "bucket": "expense",
+      "category": "generalAdmin",
+      "isNonRecurring": false,
+      "label": "Office Expense",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 11,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 6000.0,
+      "bucket": "expense",
+      "category": "replacementReserves",
+      "isNonRecurring": false,
+      "label": "Reserve for Replacement",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 12,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 3000.0,
+      "bucket": "unknown",
+      "category": null,
+      "isNonRecurring": false,
+      "label": "Pest Control",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 13,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 190200.0,
+      "bucket": "unknown",
+      "category": null,
+      "isNonRecurring": false,
+      "label": "Total Operating Expenses",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 14,
+        "sheet": "Sheet1"
+      }
+    },
+    {
+      "amount": 389400.0,
+      "bucket": "noi",
+      "category": null,
+      "isNonRecurring": false,
+      "label": "Net Operating Income",
+      "sourceRef": {
+        "cell": null,
+        "doc": "yardi_t12.xlsx",
+        "page": null,
+        "row": 15,
+        "sheet": "Sheet1"
+      }
+    }
+  ],
+  "monthHeaders": [
+    "Jan 2026",
+    "Feb 2026",
+    "Mar 2026",
+    "Apr 2026",
+    "May 2026",
+    "Jun 2026",
+    "Jul 2026",
+    "Aug 2026",
+    "Sep 2026",
+    "Oct 2026",
+    "Nov 2026",
+    "Dec 2026"
+  ],
+  "periodType": "T12"
+}

@@ -3,6 +3,24 @@
 Non-obvious choices made during the autonomous build run, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## F5 — Extraction golden corpus + cross-validation rules
+
+- **Cross-validation statuses:** pass / warn / fail with fail requiring an
+  explicit acknowledgment checkbox before Apply — still never a hard block,
+  preserving the human-review gate. Thresholds: GPR mismatch warns >10%,
+  fails >25%; occupancy-vs-vacancy warns >5pts; expense ratio (30–55% of
+  EGI) and cap-rate gap (>50bps) only ever warn ("flag, never block").
+- **Rules that can't be evaluated emit nothing** rather than a "skipped"
+  entry — the review screen only shows checks that actually ran.
+- **Building the corpus surfaced three real parser bugs, fixed here:** a
+  merged title banner fills through as N identical text cells and out-scored
+  the real header row (header scoring now counts DISTINCT text values);
+  Yardi's literal "VACANT" resident parsed as an occupied tenant; mid-table
+  subtotal rows ("Total 1BR/1BA") became phantom units.
+- **Goldens capture rounded (6dp) full parser output**, regenerated only via
+  UPDATE_GOLDEN=1, with independent targeted assertions on the hostile
+  details so a bad regeneration can't silently bless a regression.
+
 ## F4 — Excel parity harness
 
 - **Synthetic templates constrain their deal shapes so formula mirroring is

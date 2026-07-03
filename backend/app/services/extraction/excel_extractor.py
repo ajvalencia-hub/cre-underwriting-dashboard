@@ -76,13 +76,16 @@ def _grid_from_sheet(path: Path, sheet_name: str) -> list[list]:
 
 
 def _guess_header_row(grid: list[list], max_scan_rows: int = 20) -> int:
-    """Score the first few rows by how many non-empty, non-numeric-looking
-    cells they have (headers are mostly text; data rows are mostly numbers).
+    """Score the first few rows by how many DISTINCT non-empty,
+    non-numeric-looking cells they have (headers are varied text; data rows
+    are mostly numbers). Distinctness matters: a merged title banner fills
+    through as N copies of the same string and would otherwise out-score the
+    real header row.
     """
     best_idx, best_score = 0, -1
     for i, row in enumerate(grid[:max_scan_rows]):
         non_empty = [c for c in row if c is not None and str(c).strip() != ""]
-        text_like = [c for c in non_empty if parse_numeric(c) is None]
+        text_like = {str(c).strip() for c in non_empty if parse_numeric(c) is None}
         score = len(text_like)
         if score > best_score:
             best_score, best_idx = score, i

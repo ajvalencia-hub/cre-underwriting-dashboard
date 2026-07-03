@@ -148,6 +148,7 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
         "periodType": period_type,
         "annualized": annualized,
         "annualizeFactor": annualize_factor,
+        "monthHeaders": [headers[i] for i in month_cols],
         "lineItems": line_items,
         "confidence": round(min(1.0, max(period_conf, quality_conf)), 2),
     }
