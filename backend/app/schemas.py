@@ -221,6 +221,9 @@ class DocumentSummary(BaseModel):
     typeSource: Literal["heuristic", "llm", "manual"]
     typeRationale: str
     createdAt: datetime
+    # True when an upload deduplicated onto an existing record (same content
+    # hash, possibly a different filename) — audit L2: never silent.
+    reused: bool = False
 
     model_config = {"from_attributes": True}
 

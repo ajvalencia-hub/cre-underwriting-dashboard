@@ -76,11 +76,13 @@ function NumericInput({ type, value, onChange, options: _options, min, max, step
     if (!step || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
     e.preventDefault()
     const editStep = toEditScale(step, type)
-    const current = focused
-      ? Number(draft.replace(/,/g, '')) || 0
-      : numValue === null
-        ? 0
-        : toEditScale(numValue, type)
+    // An empty/unparseable draft steps from the field's committed value, not
+    // from 0 (audit L5) — clearing a "5.5%" cap rate and tapping ArrowUp
+    // should land on 5.75, not 0.25.
+    const draftNumber = Number(draft.replace(/,/g, ''))
+    const committed = numValue === null ? 0 : toEditScale(numValue, type)
+    const current =
+      focused && draft.trim() !== '' && Number.isFinite(draftNumber) ? draftNumber : committed
     const next = current + (e.key === 'ArrowUp' ? editStep : -editStep)
     setDraft(String(Math.round(next * 1e6) / 1e6))
     commit(String(next))

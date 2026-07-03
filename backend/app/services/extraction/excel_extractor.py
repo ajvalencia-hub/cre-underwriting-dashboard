@@ -75,7 +75,7 @@ def _grid_from_sheet(path: Path, sheet_name: str) -> list[list]:
     return grid
 
 
-def _guess_header_row(grid: list[list], max_scan_rows: int = 8) -> int:
+def _guess_header_row(grid: list[list], max_scan_rows: int = 20) -> int:
     """Score the first few rows by how many non-empty, non-numeric-looking
     cells they have (headers are mostly text; data rows are mostly numbers).
     """

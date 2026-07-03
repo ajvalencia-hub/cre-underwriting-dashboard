@@ -11,6 +11,8 @@ export interface DocumentSummary {
   typeSource: ClassificationSource
   typeRationale: string
   createdAt: string
+  /** True when an upload deduplicated onto an existing record (same content). */
+  reused?: boolean
 }
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {

@@ -57,7 +57,12 @@ distinguishes an omitted kind from an attempted change).
 | M13 | Scanned PDFs are classified `other` with a stale "OCR isn't implemented yet" rationale; OCR exists in the extraction path but is never used for classification. | `document_classifier.py:188-197` | Run OCR (when available) before classifying; at minimum fix the message. |
 | M14 | Scenario PUT ignores `kind`/`templateId` in the payload — accepted, silently not applied. | `scenarios.py:71-80` | Either apply or reject mismatched fields. |
 
-## Low
+## Low — fixed in the follow-up pass (2026-07-03)
+
+L1 (dead date branch removed), L2 (dedup reuse surfaced via a `reused` flag),
+L3 (OCR pages joined with an explicit form feed), L4 (header scan depth 8 →
+20), L5 (arrow-stepping from an empty draft resumes from the committed
+value).
 
 | # | Issue | Location |
 |---|---|---|

@@ -1,5 +1,4 @@
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,12 +52,10 @@ def _resolve_scalar_cell(wb, entry: dict):
     return wb[sheet_name], coord
 
 
-def _coerce_value(value: Any, cell_type: str | None = None) -> Any:
-    if isinstance(value, str) and cell_type == "date":
-        try:
-            return datetime.strptime(value, "%Y-%m-%d").date()
-        except ValueError:
-            return value
+def _coerce_value(value: Any) -> Any:
+    # Values pass through as-is today; this remains the single choke point
+    # for any future type coercion (audit L1 removed a dead date branch that
+    # no call site could ever reach).
     return value
 
 

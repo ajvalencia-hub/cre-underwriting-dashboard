@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 ALLOWED_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".csv"}
 
 
-def _to_summary(doc: Document) -> DocumentSummary:
+def _to_summary(doc: Document, reused: bool = False) -> DocumentSummary:
     return DocumentSummary(
         id=doc.id,
         filename=doc.filename,
@@ -28,6 +28,7 @@ def _to_summary(doc: Document) -> DocumentSummary:
         typeSource=doc.type_source,
         typeRationale=doc.type_rationale,
         createdAt=doc.created_at,
+        reused=reused,
     )
 
 
@@ -50,7 +51,7 @@ async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
 
     existing = db.execute(select(Document).where(Document.file_hash == file_hash)).scalar_one_or_none()
     if existing is not None:
-        return _to_summary(existing)
+        return _to_summary(existing, reused=True)
 
     stored_path = DOCUMENTS_DIR / f"{file_hash}{ext}"
     stored_path.write_bytes(file_bytes)

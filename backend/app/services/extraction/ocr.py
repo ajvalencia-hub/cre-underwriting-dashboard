@@ -89,7 +89,10 @@ def ocr_pdf_text(path: Path, max_pages: int = 10) -> dict:
 
         images = convert_from_path(str(path), **convert_kwargs)
         text_chunks = [pytesseract.image_to_string(img) for img in images]
-        return {"available": True, "text": "\n".join(text_chunks), "note": ""}
+        # Join with an explicit form feed: callers split page text on "\f",
+        # and pytesseract only emits it in some configurations (audit L3) —
+        # producing it ourselves makes the per-page split unconditional.
+        return {"available": True, "text": "\f".join(text_chunks), "note": ""}
     except Exception as exc:  # noqa: BLE001 - poppler (pdf2image's system dependency) may be missing
         return {
             "available": False,
