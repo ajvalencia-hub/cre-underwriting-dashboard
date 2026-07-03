@@ -109,7 +109,9 @@ _CONTRACT_DESCRIPTION = """Return JSON ONLY, no other text, matching exactly thi
 }
 Only use a fieldId that appears in the allowed list below. If you find a value that doesn't map to any
 allowed field, put it in unmatchedExtractions instead of inventing a new fieldId. Only include entries you
-actually found in the document — do not guess or fill in typical/expected values."""
+actually found in the document — do not guess or fill in typical/expected values.
+For percent-typed fields the value MUST be a decimal fraction: 0.05 means 5%. Never return a
+whole-percent number (5 for 5%) — convert it (e.g. a document stating "5.25% vacancy" -> 0.0525)."""
 
 
 def _strip_code_fences(text: str) -> str:
@@ -160,5 +162,13 @@ def extract_with_llm(
     for bucket in ("scalarExtractions", "rentRollRows", "t12LineItems", "unmatchedExtractions"):
         for entry in result[bucket]:
             entry["sourceRef"]["doc"] = source_doc
+
+    # Truncation must never be silent: a long OM loses its later pages here,
+    # and values that only appear there are simply absent from the extraction.
+    if len(text) > _MAX_TEXT_CHARS:
+        result["warnings"].append(
+            f"document text is {len(text):,} chars but only the first {_MAX_TEXT_CHARS:,} "
+            "were sent to the LLM — content beyond that (later pages) was not extracted."
+        )
 
     return {"result": result, "note": None}
