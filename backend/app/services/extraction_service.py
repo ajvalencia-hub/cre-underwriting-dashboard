@@ -303,16 +303,29 @@ def _aggregate_to_fields(merged: dict) -> dict:
         if agg["income"].get("otherIncome"):
             fields["otherIncome"] = _field_entry(round(agg["income"]["otherIncome"], 2), doc_ref, confidence, source)
 
+        sign_normalized = set(agg["signNormalizedExpenses"])
+        sign_note = "Reported as a negative number in the source statement; sign normalized."
         for category, amount in agg["expenses"].items():
             if category == "other":
                 continue
+            notes = sign_note if category in sign_normalized else None
             if category == "managementFeePct" and gpr:
                 # T-12 gives a dollar amount; the schema field is a % of revenue.
-                fields[category] = _field_entry(round(amount / gpr, 4), doc_ref, confidence, source, notes="Converted from $ amount using GPR.")
+                conversion_note = "Converted from $ amount using GPR."
+                fields[category] = _field_entry(
+                    round(amount / gpr, 4), doc_ref, confidence, source,
+                    notes=f"{conversion_note} {notes}" if notes else conversion_note,
+                )
             elif category == "managementFeePct":
                 fields["_unmatchedManagementFeeAmount"] = _field_entry(amount, doc_ref, confidence, source)
             else:
-                fields[category] = _field_entry(round(amount, 2), doc_ref, confidence, source)
+                fields[category] = _field_entry(round(amount, 2), doc_ref, confidence, source, notes=notes)
+        if sign_normalized:
+            merged["warnings"].append(
+                "Expense categories reported as negative numbers were sign-normalized to "
+                f"positive amounts: {', '.join(sorted(sign_normalized))}. Verify these are "
+                "expenses, not credits."
+            )
 
         if agg["noi"] is not None:
             fields["_noi"] = _field_entry(agg["noi"], doc_ref, confidence, source)

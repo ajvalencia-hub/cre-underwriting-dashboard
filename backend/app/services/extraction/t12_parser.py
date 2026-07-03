@@ -170,6 +170,14 @@ def aggregate_categories(line_items: list[dict]) -> dict:
     if other_expense_total:
         expenses["other"] = round(other_expense_total, 2)
 
+    # Some T-12 formats print expenses as negative numbers (accounting
+    # convention). The app's expense fields are positive magnitudes, so a
+    # negative category total would flow into the form at the wrong sign —
+    # callers surface which categories were flipped so it stays visible.
+    sign_normalized = sorted(c for c, v in expenses.items() if v < 0)
+    for c in sign_normalized:
+        expenses[c] = round(abs(expenses[c]), 2)
+
     total_expenses = round(sum(expenses.values()), 2) if expenses else None
 
     return {
@@ -179,4 +187,5 @@ def aggregate_categories(line_items: list[dict]) -> dict:
         "noi": noi,
         "nonRecurringFlags": non_recurring,
         "unclassified": unclassified,
+        "signNormalizedExpenses": sign_normalized,
     }
