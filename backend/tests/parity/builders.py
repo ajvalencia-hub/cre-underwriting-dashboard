@@ -1,4 +1,4 @@
-"""Synthetic parity templates: real xlsx workbooks whose formulas mirror the
+﻿"""Synthetic parity templates: real xlsx workbooks whose formulas mirror the
 native engine's math exactly for their input shapes, so any divergence between
 the openpyxl+LibreOffice path and the engine is a genuine bug in one of them.
 
@@ -50,8 +50,8 @@ def build_acquisition_template(path) -> None:
     calc.cell(row=HOLD_MONTHS + 1, column=3, value="=$A$2-$A$3+$A$5")
     calc.cell(row=HOLD_MONTHS + 1, column=4, value="=$A$2+$A$4*(1-Inputs!B9)")
 
-    calc["F1"] = "=(1+IRR(C1:C61))^12-1"  # levered IRR, engine annualization
-    calc["F2"] = "=(1+IRR(D1:D61))^12-1"  # unlevered IRR
+    calc["F1"] = "=(1+IRR(C1:C61,0.005))^12-1"  # levered IRR, engine annualization
+    calc["F2"] = "=(1+IRR(D1:D61,0.005))^12-1"  # unlevered IRR
     calc["F3"] = '=SUMIF(C1:C61,">0")/-SUMIF(C1:C61,"<0")'  # equity multiple
     calc["F4"] = "=A4"
     calc["F5"] = "=A5"
@@ -117,8 +117,8 @@ def build_development_template(path) -> None:
         value="=$A$6/12+$A$6/Inputs!B11*(1-Inputs!B12)",
     )
 
-    calc["F1"] = "=(1+IRR(C1:C61))^12-1"
-    calc["F2"] = "=(1+IRR(D1:D61))^12-1"
+    calc["F1"] = "=(1+IRR(C1:C61,0.005))^12-1"
+    calc["F2"] = "=(1+IRR(D1:D61,0.005))^12-1"
     calc["F3"] = '=SUMIF(C1:C61,">0")/-SUMIF(C1:C61,"<0")'
     calc["F4"] = "=A6/Inputs!B11"  # terminal value
     calc["F5"] = "=A11"

@@ -1,18 +1,13 @@
 # Blocked Items
 
-## F4 — local Excel-recalc parity verification
+## ~~F4 — local Excel-recalc parity verification~~ (CLEARED)
 
-The native-vs-Excel output diff needs LibreOffice. The winget MSI install
-(`TheDocumentFoundation.LibreOffice`) hung at "Starting package install…" —
-it appears to require a UAC elevation prompt this unattended session cannot
-answer. The injection-layer parity assertions (right cells, sheet-scoped
-names, merge anchors, fullCalcOnLoad) run and pass locally; the full recalc
-diff skips with a reason locally and runs in CI (ubuntu installs
-libreoffice-calc via apt in .github/workflows/ci.yml), and via
-`python -m tests.parity.run` on any machine with LibreOffice.
-
-**To clear:** install LibreOffice interactively (or approve the pending UAC
-prompt), then re-run `python -m tests.parity.run` from `backend/`.
+The LibreOffice winget install eventually completed (it was slow, not
+blocked). `python -m tests.parity.run` now passes locally: **all 31 mapped
+outputs match between the native engine and the LibreOffice-recalculated
+Excel path with zero deltas** (IRRs to 6dp), after adding an explicit
+convergence guess to the templates' IRR() formulas — LibreOffice's default
+10%-per-period guess fails to converge on low monthly-IRR vectors.
 
 ## Pre-existing (not introduced by this run)
 
