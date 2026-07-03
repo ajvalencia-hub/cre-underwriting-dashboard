@@ -183,6 +183,14 @@ export function updateScenario(
   return postJson<Scenario>(`/scenarios/${scenarioId}`, payload, 'PUT')
 }
 
+export function computeNative(values: Record<string, unknown>) {
+  return postJson<{ outputs: Record<string, number>; warnings: string[] }>(
+    '/compute',
+    { values },
+    'POST',
+  )
+}
+
 export function fetchDeals() {
   return getJson<Deal[]>('/deals')
 }

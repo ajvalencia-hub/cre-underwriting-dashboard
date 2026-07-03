@@ -70,7 +70,11 @@ function App() {
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
-  const [computedOutputs, setComputedOutputs] = useState<Record<string, unknown>>({})
+  // Two provenance tiers of real computed outputs. Display precedence:
+  // server-recalc > native engine > quick-screen "est." — a lower tier never
+  // overwrites a higher one on screen.
+  const [serverOutputs, setServerOutputs] = useState<Record<string, unknown>>({})
+  const [nativeOutputs, setNativeOutputs] = useState<Record<string, unknown>>({})
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
 
   const [deals, setDeals] = useState<Deal[]>([])
@@ -108,7 +112,8 @@ function App() {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
     setFormValues(hydrated.formValues)
     setQuickScreenInputs(hydrated.quickScreen)
-    setComputedOutputs({})
+    setServerOutputs({})
+    setNativeOutputs({})
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
@@ -304,13 +309,22 @@ function App() {
                 {schema.outputs
                   .filter((m) => (m.group ?? 'Metrics') === group)
                   .map((metric) => {
-                    // Real computedOutputs values always win — an estimate never
-                    // overwrites a real server-recalculated value, and estimates
-                    // only ever appear while the Quick Screen tab is active.
-                    const real = computedOutputs[metric.id]
+                    // Provenance ladder: server-recalc > native engine >
+                    // quick-screen estimate. A lower tier never overwrites a
+                    // higher one, and estimates only ever appear while the
+                    // Quick Screen tab is active.
+                    const server = serverOutputs[metric.id]
+                    const native = nativeOutputs[metric.id]
                     const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
-                    const isEstimate = real === undefined && estimate !== undefined
-                    const displayValue = real !== undefined ? real : estimate
+                    const displayValue = server !== undefined ? server : native !== undefined ? native : estimate
+                    const provenance =
+                      server !== undefined
+                        ? 'server'
+                        : native !== undefined
+                          ? 'native'
+                          : estimate !== undefined
+                            ? 'estimate'
+                            : 'none'
                     const isFullModelOnly =
                       tab === 'quickscreen' && displayValue === undefined && quickScreenFullModelOnlyIds.has(metric.id)
                     return (
@@ -321,15 +335,22 @@ function App() {
                             isFullModelOnly ? 'Requires full underwriting — map a template and generate.' : undefined
                           }
                           className={
-                            real !== undefined
+                            provenance === 'server'
                               ? 'font-medium text-slate-800'
-                              : isEstimate
-                                ? 'italic text-slate-400'
-                                : 'text-slate-400'
+                              : provenance === 'native'
+                                ? 'font-medium text-slate-700'
+                                : provenance === 'estimate'
+                                  ? 'italic text-slate-400'
+                                  : 'text-slate-400'
                           }
                         >
                           {formatOutputValue(metric, displayValue)}
-                          {isEstimate && <span className="ml-1 not-italic text-slate-300">est.</span>}
+                          {provenance === 'native' && (
+                            <span className="ml-1 text-[10px] font-normal text-sky-500">native</span>
+                          )}
+                          {provenance === 'estimate' && (
+                            <span className="ml-1 not-italic text-slate-300">est.</span>
+                          )}
                         </span>
                       </li>
                     )
@@ -339,10 +360,10 @@ function App() {
           ))}
           <p className="mt-4 text-xs text-slate-400">
             {tab === 'quickscreen'
-              ? 'Bold values are from the last server-side generation; muted italic values marked "est." are Quick Screen approximations.'
-              : Object.keys(computedOutputs).length > 0
-                ? 'From the most recent server-side recalculated generation.'
-                : 'Metrics populate after generating with "Recalculate on server" enabled, and only for output fields mapped in "1. Template & Mapping".'}
+              ? 'Bold values come from a server generation or the native engine; muted italic values marked "est." are Quick Screen approximations.'
+              : Object.keys(serverOutputs).length > 0 || Object.keys(nativeOutputs).length > 0
+                ? 'Bold slate values are from the last server-side recalculated generation; values tagged "native" are from the built-in pro-forma engine.'
+                : 'Metrics populate after "Compute (native)" or generating with "Recalculate on server" enabled.'}
           </p>
         </>
       }
@@ -469,7 +490,8 @@ function App() {
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
           values={formValues}
-          onGenerated={setComputedOutputs}
+          onGenerated={setServerOutputs}
+          onComputedNative={setNativeOutputs}
         />
       </div>
 

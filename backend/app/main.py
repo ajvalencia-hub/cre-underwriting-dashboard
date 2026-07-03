@@ -5,6 +5,7 @@ from app.config import CORS_ORIGINS
 from app.database import Base, engine, run_migrations
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
+    compute,
     deals,
     documents,
     extraction,
@@ -39,6 +40,7 @@ app.add_middleware(
 
 app.include_router(schema.router)
 app.include_router(deals.router)
+app.include_router(compute.router)
 app.include_router(templates.router)
 app.include_router(mappings.router)
 app.include_router(scenarios.router)

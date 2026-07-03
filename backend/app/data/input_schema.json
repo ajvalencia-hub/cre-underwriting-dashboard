@@ -137,7 +137,8 @@
       "fields": [
         { "id": "holdPeriodYears", "label": "Hold Period (yrs)", "type": "number", "min": 1, "max": 30, "default": 5 },
         { "id": "exitCapRatePct", "label": "Exit / Terminal Cap Rate", "type": "percent", "min": 0, "max": 0.2, "default": 0.06 },
-        { "id": "costOfSalePct", "label": "Cost of Sale", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 }
+        { "id": "costOfSalePct", "label": "Cost of Sale", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 },
+        { "id": "discountRatePct", "label": "Discount Rate (NPV)", "type": "percent", "min": 0, "max": 0.3, "default": 0.1 }
       ]
     },
     {
