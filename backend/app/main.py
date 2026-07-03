@@ -26,7 +26,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Generation-Warnings", "X-Generation-Written-Count", "Content-Disposition"],
+    expose_headers=[
+        "X-Generation-Warnings",
+        "X-Generation-Written-Count",
+        "X-Generation-Outputs",
+        "Content-Disposition",
+    ],
 )
 
 app.include_router(schema.router)
