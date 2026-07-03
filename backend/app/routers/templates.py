@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import TEMPLATES_DIR
 from app.database import get_db
 from app.models import MappingProfile, Scenario, Template
+from app.routers.upload_limit import read_upload_limited
 from app.schemas import SheetGrid, TemplateSummary
 from app.services import template_service
 
@@ -39,7 +40,7 @@ async def upload_template(file: UploadFile, db: Session = Depends(get_db)):
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type '{ext}'. Upload .xlsx or .xlsm.")
 
-    file_bytes = await file.read()
+    file_bytes = await read_upload_limited(file)
     file_hash = template_service.compute_file_hash(file_bytes)
 
     existing = db.execute(

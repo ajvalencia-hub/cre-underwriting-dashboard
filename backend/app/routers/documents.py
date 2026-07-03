@@ -8,6 +8,7 @@ from app.config import DOCUMENTS_DIR
 from app.database import get_db
 from app.models import Document
 from app.schemas import DocumentSummary, DocumentTypeUpdate
+from app.routers.upload_limit import read_upload_limited
 from app.services import document_classifier
 from app.services.template_service import compute_file_hash
 
@@ -44,7 +45,7 @@ async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
             400, f"Unsupported file type '{ext}'. Upload .pdf, .xlsx, .xls, or .csv."
         )
 
-    file_bytes = await file.read()
+    file_bytes = await read_upload_limited(file)
     file_hash = compute_file_hash(file_bytes)
 
     existing = db.execute(select(Document).where(Document.file_hash == file_hash)).scalar_one_or_none()
