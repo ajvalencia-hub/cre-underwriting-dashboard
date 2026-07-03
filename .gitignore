@@ -11,6 +11,10 @@ backend/.venv/
 # Backend runtime data (uploaded documents, generated files, database)
 backend/storage/
 
+# Real underwriting templates dropped into the parity harness stay local
+backend/tests/parity/corpus/dropin/*
+!backend/tests/parity/corpus/dropin/README.md
+
 # Frontend (Node)
 frontend/node_modules/
 frontend/dist/

@@ -1,0 +1,27 @@
+{
+  "purchasePrice": { "target": "namedRange", "ref": "PurchasePrice" },
+  "grossPotentialRent": { "target": "cell", "sheet": "Inputs", "ref": "B2" },
+  "vacancyPct": { "target": "cell", "sheet": "Inputs", "ref": "B3" },
+  "realEstateTaxes": { "target": "cell", "sheet": "Inputs", "ref": "B4" },
+  "loanAmount": { "target": "cell", "sheet": "Inputs", "ref": "B5" },
+  "interestRate": { "target": "cell", "sheet": "Inputs", "ref": "B6" },
+  "exitCapRatePct": { "target": "namedRange", "ref": "Inputs!LocalExitCap" },
+  "costOfSalePct": { "target": "cell", "sheet": "Inputs", "ref": "C9" },
+
+  "leveredIrr": { "target": "cell", "sheet": "Calc", "ref": "F1" },
+  "unleveredIrr": { "target": "cell", "sheet": "Calc", "ref": "F2" },
+  "equityMultiple": { "target": "cell", "sheet": "Calc", "ref": "F3" },
+  "terminalValue": { "target": "cell", "sheet": "Calc", "ref": "F4" },
+  "netSaleProceeds": { "target": "cell", "sheet": "Calc", "ref": "F5" },
+  "goingInCapRate": { "target": "cell", "sheet": "Calc", "ref": "F6" },
+  "yieldOnCost": { "target": "cell", "sheet": "Calc", "ref": "F7" },
+  "minDscr": { "target": "cell", "sheet": "Calc", "ref": "F8" },
+  "avgDscr": { "target": "cell", "sheet": "Calc", "ref": "F9" },
+  "debtYield": { "target": "cell", "sheet": "Calc", "ref": "F10" },
+  "ltv": { "target": "cell", "sheet": "Calc", "ref": "F11" },
+  "ltc": { "target": "cell", "sheet": "Calc", "ref": "F12" },
+  "loanConstant": { "target": "cell", "sheet": "Calc", "ref": "F13" },
+  "breakEvenRatio": { "target": "cell", "sheet": "Calc", "ref": "F14" },
+  "cashOnCashYear1": { "target": "cell", "sheet": "Calc", "ref": "F15" },
+  "totalProfit": { "target": "cell", "sheet": "Calc", "ref": "F16" }
+}

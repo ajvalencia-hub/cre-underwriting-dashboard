@@ -3,6 +3,24 @@
 Non-obvious choices made during the autonomous build run, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## F4 — Excel parity harness
+
+- **Synthetic templates constrain their deal shapes so formula mirroring is
+  exact**: the acquisition case is full-term IO with flat growth (constant
+  monthly vectors); the development case sets constructionMonths = 0 and
+  zero origination fee (no capitalized interest) with DSCR/debt-yield
+  sizing constraints zeroed so LTV provably governs. Rejected mirroring the
+  S-curve/capitalized-interest machinery in spreadsheet formulas — a
+  transcription of the engine into Excel wouldn't be an independent check,
+  just the same code twice.
+- **IRR parity annualizes LibreOffice's monthly IRR() as (1+i)^12 − 1 inside
+  the template**, matching the engine's convention, tolerance ±2bp. Other
+  tolerances: currency ±$1, percent ±1bp, multiples ±0.001.
+- Drop-in corpus dir is gitignored (real firm templates stay local); the
+  recalc diff skips with a reason when LibreOffice is absent, but the
+  injection-layer assertions (cells, sheet-scoped names, merge anchors,
+  fullCalcOnLoad) always run.
+
 ## F3 — Debt module
 
 - **[FIN] DSCR sizing uses the amortizing loan constant even when the loan
