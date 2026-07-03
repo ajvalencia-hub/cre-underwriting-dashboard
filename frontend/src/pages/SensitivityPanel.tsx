@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchMappingProfile, runSensitivity } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
-import { heatColor, linspace } from '../lib/sensitivityMath'
+import { boundsReady, heatColor, linspace } from '../lib/sensitivityMath'
 import type { OutputMetric, InputSchema } from '../types/schema'
 import type { SensitivityPoint } from '../types/sensitivity'
 import type { TemplateSummary } from '../types/template'
@@ -70,6 +70,8 @@ export default function SensitivityPanel({ schema, template, mappingProfileId, b
 
   async function handleRun() {
     if (!template || !mappingProfileId || !driver1.fieldId) return
+    // Guard against Number('') === 0: never sweep from a blank bound.
+    if (!boundsReady(driver1) || (driver2.fieldId !== '' && !boundsReady(driver2))) return
     setRunning(true)
     setError(null)
     setPoints(null)
@@ -118,13 +120,18 @@ export default function SensitivityPanel({ schema, template, mappingProfileId, b
     )
   }
 
-  const driver1Values = driver1.fieldId && driver1.min !== '' && driver1.max !== ''
+  const driver1Ready = driver1.fieldId !== '' && boundsReady(driver1)
+  const driver2Ready = driver2.fieldId === '' || boundsReady(driver2)
+  const driver1Values = driver1Ready
     ? linspace(Number(driver1.min), Number(driver1.max), Number(driver1.steps))
     : []
-  const driver2Values = driver2.fieldId && driver2.min !== '' && driver2.max !== ''
+  const driver2Values = driver2.fieldId !== '' && boundsReady(driver2)
     ? linspace(Number(driver2.min), Number(driver2.max), Number(driver2.steps))
     : []
   const totalPoints = driver1Values.length * (driver2Values.length || 1)
+  const boundsIncomplete =
+    (driver1.fieldId !== '' && !boundsReady(driver1)) ||
+    (driver2.fieldId !== '' && !boundsReady(driver2))
 
   return (
     <div className="max-w-4xl">
@@ -183,12 +190,17 @@ export default function SensitivityPanel({ schema, template, mappingProfileId, b
         <div className="flex items-center gap-3">
           <button
             onClick={handleRun}
-            disabled={running || !driver1.fieldId || selectedOutputs.size === 0 || totalPoints === 0 || totalPoints > 30}
+            disabled={running || !driver1Ready || !driver2Ready || selectedOutputs.size === 0 || totalPoints === 0 || totalPoints > 30}
             className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-40"
           >
             {running ? `Running ${totalPoints} points…` : `Run Sensitivity (${totalPoints} points)`}
           </button>
           {totalPoints > 30 && <span className="text-xs text-red-600">Max 30 grid points — reduce steps.</span>}
+          {boundsIncomplete && (
+            <span className="text-xs text-slate-400">
+              Enter a numeric min/max (and at least 2 steps) for each selected driver.
+            </span>
+          )}
         </div>
       </div>
 
