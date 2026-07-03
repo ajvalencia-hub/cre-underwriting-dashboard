@@ -24,6 +24,7 @@ import openpyxl
 import pdfplumber
 
 from app.config import ANTHROPIC_API_KEY, ANTHROPIC_CLASSIFIER_MODEL
+from app.services.extraction import ocr
 
 DOCUMENT_TYPES = ("offering_memorandum", "rent_roll", "t12_operating_statement", "other")
 
@@ -116,8 +117,24 @@ def _heuristic_classify(path: Path, ext: str) -> dict:
 
     if ext == "pdf":
         text, scanned = _pdf_text_and_scanned_flag(path)
+        ocr_note = ""
         if scanned:
-            return {"scores": {t: 0.0 for t in DOCUMENT_TYPES}, "sourceText": "", "scanned": True}
+            # The extraction path already OCRs scanned PDFs; classification
+            # must use the same fallback or a scanned rent roll lands as
+            # "other" even though extraction could read it (FINDINGS.md M13).
+            ocr_result = ocr.ocr_pdf_text(path, max_pages=3)
+            if ocr_result["available"] and ocr_result["text"].strip():
+                text = ocr_result["text"]
+                scanned = False
+            else:
+                ocr_note = ocr_result["note"]
+        if scanned:
+            return {
+                "scores": {t: 0.0 for t in DOCUMENT_TYPES},
+                "sourceText": "",
+                "scanned": True,
+                "ocrNote": ocr_note,
+            }
         scores = _score_keywords(
             text,
             {
@@ -192,7 +209,7 @@ def classify_document(path: Path, filename: str) -> dict:
             "source": "heuristic",
             "rationale": (
                 "This PDF has little to no extractable text — it looks scanned/image-based. "
-                "OCR isn't implemented yet in this milestone; classify manually for now."
+                + (heuristic.get("ocrNote") or "OCR produced no usable text; classify manually.")
             ),
         }
 
