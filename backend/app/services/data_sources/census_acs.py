@@ -26,7 +26,8 @@ def get_demographics(state_fips: str | None, county_fips: str | None) -> dict:
         resp = httpx.get(
             ACS_URL,
             params={
-                "get": "NAME,B01003_001E,B19013_001E",
+                # population, median household income, median gross rent
+                "get": "NAME,B01003_001E,B19013_001E,B25064_001E",
                 "for": f"county:{county_fips}",
                 "in": f"state:{state_fips}",
                 "key": CENSUS_API_KEY,
@@ -35,12 +36,13 @@ def get_demographics(state_fips: str | None, county_fips: str | None) -> dict:
         )
         resp.raise_for_status()
         rows = resp.json()
-        _name, population, median_income, *_rest = rows[1]
+        _name, population, median_income, median_gross_rent, *_rest = rows[1]
         return {
             "dataSource": "census_acs",
             "acsYear": ACS_YEAR,
             "population": int(population),
             "medianHouseholdIncome": float(median_income),
+            "medianGrossRent": float(median_gross_rent),
         }
     except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
         return {"dataSource": "unavailable", "note": f"Census ACS lookup failed: {exc}"}

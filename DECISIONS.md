@@ -3,6 +3,35 @@
 Non-obvious choices made during the autonomous build run, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## F6 — Market context by address
+
+- **Data-source inventory (read before building):** geocode (Nominatim +
+  Census coordinate lookup, keyless), FEMA NFHL (keyless), FHFA HPI metro CSV
+  (keyless), BLS LAUS (keyless at low volume) are fully wired; Census ACS,
+  HUD FMR, BEA, FRED require free keys and degrade to labeled
+  "unavailable" results. Comps/pricing in the legacy panel remain the
+  clearly-labeled deterministic placeholder (no free source exists).
+- **[FIN] Rent percentile from two quantile anchors:** HUD defines FMR as the
+  40th percentile of market rents and ACS gives the median (50th); a
+  log-normal fit through those two points estimates the subject rent's
+  percentile (warn >85th, caution >70th). With one anchor, a typical
+  log-space spread (sigma = 0.35) is assumed. Rejected a linear
+  interpolation — rents are right-skewed, and the log-normal keeps the
+  estimate defined above the median.
+- **Benchmarks run at county level** (tract is resolved and reported for
+  provenance, but tract-level ACS rent is noisy/suppressed too often to
+  benchmark against). **BLS employment trend uses the LAUS employment-level
+  series YoY** — rejected QCEW average weekly wages: its series-id
+  construction is fragile and adds nothing LAUS + BEA income don't cover.
+- **Rent-growth benchmark = FHFA metro HPA** (caution when the assumption
+  exceeds it by 200bps, warning at 400bps) — home-price appreciation is the
+  best free metro-level price signal; no free market-rent-growth series
+  exists.
+- Geocode results and each source are cached on disk for 24h per key;
+  "unavailable" results are never cached (retried next request). One failed
+  source contributes a note, never blocks the panel. Flags are context only
+  — nothing writes back into inputs.
+
 ## F5 — Extraction golden corpus + cross-validation rules
 
 - **Cross-validation statuses:** pass / warn / fail with fail requiring an

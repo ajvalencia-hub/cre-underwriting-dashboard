@@ -51,6 +51,7 @@ def _lookup_geographies(lat: float, lon: float) -> dict:
     geos = resp.json()["result"]["geographies"]
 
     counties = geos.get("Counties") or []
+    tracts = geos.get("Census Tracts") or []
     cbsas = (
         geos.get("Metropolitan Statistical Areas")
         or geos.get("Micropolitan Statistical Areas")
@@ -58,12 +59,14 @@ def _lookup_geographies(lat: float, lon: float) -> dict:
     )
 
     county = counties[0] if counties else {}
+    tract = tracts[0] if tracts else {}
     cbsa = cbsas[0] if cbsas else {}
 
     return {
         "stateFips": county.get("STATE"),
         "countyFips": county.get("COUNTY"),
         "countyName": county.get("BASENAME"),
+        "tractCode": tract.get("TRACT"),
         "cbsaCode": cbsa.get("CBSA"),
         "cbsaName": cbsa.get("BASENAME"),
     }

@@ -4,13 +4,21 @@ import KeyValueField from './KeyValueField'
 import ScalarInput from './ScalarInput'
 import TableField from './TableField'
 
+export interface FieldIndicator {
+  verdict: 'caution' | 'warning'
+  explanation: string
+}
+
 interface FieldRowProps {
   field: InputField
   value: unknown
   onChange: (value: unknown) => void
+  /** Market-benchmark flag tied to this input — hover for the explanation.
+   *  Context only; never blocks or mutates the field. */
+  indicator?: FieldIndicator
 }
 
-export default function FieldRow({ field, value, onChange }: FieldRowProps) {
+export default function FieldRow({ field, value, onChange, indicator }: FieldRowProps) {
   const error = validateField(field, value)
   const isWide = field.type === 'table' || field.type === 'keyvalue' || field.type === 'multiselect'
 
@@ -19,6 +27,16 @@ export default function FieldRow({ field, value, onChange }: FieldRowProps) {
       <label className="block text-xs font-medium text-slate-600">
         {field.label}
         {field.required && <span className="text-red-400"> *</span>}
+        {indicator && (
+          <span
+            title={indicator.explanation}
+            className={`ml-1.5 cursor-help ${
+              indicator.verdict === 'warning' ? 'text-red-500' : 'text-amber-500'
+            }`}
+          >
+            ⚠
+          </span>
+        )}
       </label>
       <div className={`mt-1 ${isWide ? '' : 'max-w-xs'}`}>
         {field.type === 'table' && (

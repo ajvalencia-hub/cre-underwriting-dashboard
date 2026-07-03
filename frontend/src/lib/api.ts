@@ -223,6 +223,35 @@ export function fetchMarketRates() {
   return getJson<MarketRates>('/market/rates')
 }
 
+export type BenchmarkVerdict = 'ok' | 'caution' | 'warning'
+
+export interface BenchmarkFlag {
+  metric: string
+  subjectValue: number | string | null
+  benchmarkValue: number | string | null
+  source: string
+  asOf: string
+  verdict: BenchmarkVerdict
+  explanation: string
+  relatedFieldIds: string[]
+}
+
+export interface BenchmarkResult {
+  location: Record<string, unknown>
+  flags: BenchmarkFlag[]
+  unavailable: { source: string; note: string }[]
+}
+
+export function fetchBenchmarks(payload: {
+  address: string
+  market: string
+  submarket: string
+  assetClass: string
+  subject: Record<string, unknown>
+}) {
+  return postJson<BenchmarkResult>('/market/benchmarks', payload, 'POST')
+}
+
 export function fetchDeals() {
   return getJson<Deal[]>('/deals')
 }

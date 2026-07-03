@@ -38,3 +38,48 @@ def get_unemployment_rate(state_fips: str | None, county_fips: str | None) -> di
         }
     except (httpx.HTTPError, ValueError, KeyError) as exc:
         return {"dataSource": "unavailable", "note": f"BLS lookup failed: {exc}"}
+
+
+def get_employment_trend(state_fips: str | None, county_fips: str | None) -> dict:
+    """County employment level YoY from the LAUS employment series (datatype
+    05) — the robust way to read a local employment trend without QCEW's
+    fragile series-id construction."""
+    if not state_fips or not county_fips:
+        return {"dataSource": "unavailable", "note": "No county resolved for this market."}
+
+    from datetime import date
+
+    series_id = f"LAUCN{state_fips}{county_fips}0000000005"
+    payload: dict = {
+        "seriesid": [series_id],
+        "startyear": str(date.today().year - 2),
+        "endyear": str(date.today().year),
+    }
+    if BLS_API_KEY:
+        payload["registrationkey"] = BLS_API_KEY
+
+    try:
+        resp = httpx.post(BLS_URL, json=payload, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        series = resp.json().get("Results", {}).get("series", [])
+        points = series[0].get("data", []) if series else []
+        if not points:
+            return {"dataSource": "unavailable", "note": f"BLS returned no data for {series_id}."}
+        latest = points[0]  # BLS returns newest first
+        prior = next(
+            (p for p in points if p["period"] == latest["period"] and int(p["year"]) == int(latest["year"]) - 1),
+            None,
+        )
+        if prior is None:
+            return {"dataSource": "unavailable", "note": "No prior-year employment point to compare."}
+        latest_value, prior_value = float(latest["value"]), float(prior["value"])
+        if prior_value <= 0:
+            return {"dataSource": "unavailable", "note": "Prior-year employment level was zero."}
+        return {
+            "dataSource": "bls",
+            "employmentYoYGrowth": round(latest_value / prior_value - 1, 4),
+            "employmentLevel": latest_value,
+            "asOf": f"{latest['periodName']} {latest['year']}",
+        }
+    except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
+        return {"dataSource": "unavailable", "note": f"BLS employment lookup failed: {exc}"}

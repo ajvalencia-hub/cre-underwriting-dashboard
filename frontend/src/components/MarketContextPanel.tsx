@@ -1,11 +1,72 @@
 import { useEffect, useState } from 'react'
-import { fetchMarketContext } from '../lib/api'
+import { fetchMarketContext, type BenchmarkResult, type BenchmarkVerdict } from '../lib/api'
 import type { DataSection, MarketContext } from '../types/marketContext'
 
 interface MarketContextPanelProps {
   market: string
   submarket: string
   assetClass: string
+  benchmarks?: BenchmarkResult | null
+  benchmarksLoading?: boolean
+}
+
+const VERDICT_STYLE: Record<BenchmarkVerdict, { icon: string; className: string }> = {
+  ok: { icon: '✓', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+  caution: { icon: '△', className: 'border-amber-200 bg-amber-50 text-amber-700' },
+  warning: { icon: '✕', className: 'border-red-200 bg-red-50 text-red-700' },
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  rent_vs_market: 'Subject rent vs market',
+  rent_growth_vs_hpa: 'Rent growth assumption',
+  expense_ratio: 'Expense ratio',
+  flood_zone: 'Flood zone',
+  employment_trend: 'Employment trend',
+}
+
+function BenchmarkChecklist({ result }: { result: BenchmarkResult }) {
+  if (result.flags.length === 0 && result.unavailable.length === 0) return null
+  return (
+    <div>
+      <div className="mb-1 text-xs font-medium text-slate-400">
+        ADDRESS BENCHMARKS — context only, never applied to inputs
+      </div>
+      <div className="space-y-1.5">
+        {result.flags.map((flag) => {
+          const style = VERDICT_STYLE[flag.verdict]
+          return (
+            <div
+              key={flag.metric}
+              className={`rounded-md border px-3 py-2 text-xs ${style.className}`}
+            >
+              <span className="font-semibold">
+                {style.icon} {METRIC_LABELS[flag.metric] ?? flag.metric}
+              </span>{' '}
+              — {flag.explanation}{' '}
+              <span className="opacity-70">
+                [{flag.source}
+                {flag.asOf ? `, as of ${flag.asOf}` : ''}]
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {result.unavailable.length > 0 && (
+        <details className="mt-1.5 text-[11px] text-slate-400">
+          <summary className="cursor-pointer select-none">
+            {result.unavailable.length} source(s) unavailable
+          </summary>
+          <ul className="mt-1 space-y-0.5 pl-4">
+            {result.unavailable.map((u) => (
+              <li key={u.source}>
+                {u.source}: {u.note}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
 }
 
 const DEBOUNCE_MS = 500
@@ -87,7 +148,13 @@ function DataSectionCard({ title, section }: { title: string; section: DataSecti
   )
 }
 
-export default function MarketContextPanel({ market, submarket, assetClass }: MarketContextPanelProps) {
+export default function MarketContextPanel({
+  market,
+  submarket,
+  assetClass,
+  benchmarks = null,
+  benchmarksLoading = false,
+}: MarketContextPanelProps) {
   const [context, setContext] = useState<MarketContext | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -124,10 +191,16 @@ export default function MarketContextPanel({ market, submarket, assetClass }: Ma
           {submarket ? ` / ${submarket}` : ''}
           {assetClass ? ` (${assetClass})` : ''}
         </h2>
-        {loading && <span className="text-xs text-slate-400">Loading…</span>}
+        {(loading || benchmarksLoading) && <span className="text-xs text-slate-400">Loading…</span>}
       </div>
 
       {error && <div className="mt-2 text-sm text-red-600">{error}</div>}
+
+      {benchmarks && (
+        <div className="mt-3">
+          <BenchmarkChecklist result={benchmarks} />
+        </div>
+      )}
 
       {context && (
         <div className="mt-3 space-y-4">
