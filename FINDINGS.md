@@ -6,7 +6,9 @@ concurrency/file handling. Severity rubric: **critical** = a wrong number can
 reach the user; **high** = crash or data loss; **medium** / **low** = triage.
 
 Critical and high items are fixed in this audit (one commit per fix, each with a
-test that would have caught it). Medium and low items are listed for triage only.
+test that would have caught it). Medium items M1–M14 were fixed in a follow-up
+pass later the same day, under the same one-commit-per-fix-with-test convention.
+Low items remain open.
 
 Three openpyxl behaviors asserted below (C4/C5 crash modes, M1 invisibility) were
 verified empirically against openpyxl 3.1.5 before being written down, not assumed.
@@ -28,9 +30,17 @@ verified empirically against openpyxl 3.1.5 before being written down, not assum
 | H6 | A template filename containing non-ASCII characters (e.g. `Modèle.xlsx`) crashes every generate download with `UnicodeEncodeError` (ASGI headers are latin-1); embedded double quotes corrupt the `Content-Disposition` header. | `generate.py:59` | **Fixed.** ASCII-sanitized `filename=` fallback plus RFC 5987 `filename*=UTF-8''…` carrying the real name. |
 | H7 | Selecting two T-12s (or two rent rolls) in one extraction run silently **sums** them into single fields — a YTD plus prior-year T-12 doubles GPR and every expense category with no warning. | `extraction_service.py:272-287` | **Fixed.** An explicit warning is emitted whenever more than one document of the same type contributes line items/rows to a merged run (intent can't be inferred, so warn rather than guess). |
 
-## Medium — for triage (no code changes in this audit)
+## Medium — fixed in the follow-up pass
 
-| # | Issue | Location | Proposed fix |
+Each row's fix landed as proposed unless noted. Deviations worth knowing:
+M6 prefers the statement's own EGI line, then derived EGI, then GPR (basis
+always named in the field note). M7 scores quality as parse rate × substantive-
+line classification rate, so unusual charts of accounts still fall to the LLM.
+M14 applies templateId/mappingProfileId under create's validation but rejects
+kind changes (kind is immutable; a dedicated ScenarioUpdate schema
+distinguishes an omitted kind from an attempted change).
+
+| # | Issue | Location | Fix (implemented) |
 |---|---|---|---|
 | M1 | Worksheet-scoped defined names are invisible: `wb.defined_names` omits them (verified), so `parse_workbook` never lists them for mapping and they can't be resolved. Templates using sheet-scoped names silently lose those mapping candidates. | `template_service.py:30`, `excel_writer.py:20` | Also enumerate `ws.defined_names` per sheet (qualified as `Sheet!Name`), resolve accordingly. |
 | M2 | LLM extraction contract doesn't specify percent scale — a model returning `5` vs `0.05` for a percent-typed field is undetectable at validation time. Review screen would show 500%, so it's visible, but the contract should pin it. | `llm_extraction.py:82-112` | Add one line to the contract: percent-typed fields must be decimal fractions (0.05 = 5%). |
