@@ -134,6 +134,10 @@ class ScenarioIn(BaseModel):
     templateId: str | None = None
     mappingProfileId: str | None = None
     inputs: dict[str, Any]
+    # Snapshot of computed results at save time, shaped
+    # {"metrics": {...}, "debt": {...}, "sensitivity": {...}} — feeds the IC
+    # memo's stored-outputs fallback.
+    outputs: dict[str, Any] | None = None
 
 
 class ScenarioUpdate(BaseModel):
@@ -146,6 +150,7 @@ class ScenarioUpdate(BaseModel):
     templateId: str | None = None
     mappingProfileId: str | None = None
     inputs: dict[str, Any]
+    outputs: dict[str, Any] | None = None
 
 
 class ScenarioOut(BaseModel):

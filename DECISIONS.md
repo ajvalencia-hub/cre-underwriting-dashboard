@@ -3,6 +3,26 @@
 Non-obvious choices made during the autonomous build run, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## F7 — IC memo
+
+- **The memo route prefers a fresh engine compute of the scenario's inputs**
+  (explicitly allowed by the spec), falling back to the scenario's stored
+  outputs snapshot; 422 naming the missing fields when neither works. Saving
+  a full scenario now snapshots the latest computed metrics + debt block
+  into scenario.outputs ({"metrics", "debt", "sensitivity"} keys).
+- **Sources & uses is produced by the ENGINE** (a new sourcesAndUses block on
+  the compute result) so the memo service genuinely contains zero financial
+  math — not even table totals.
+- **The sensitivity-matrix section renders from scenario.outputs.sensitivity
+  when present and is omitted otherwise.** No current flow persists a
+  sensitivity run; the storage key is the documented hook for one. Rejected
+  auto-running a sensitivity sweep at memo time (slow, and it would put
+  numbers in the memo the user never reviewed).
+- Memo generation is blocked for quickscreen scenarios (400) — napkin inputs
+  aren't schema-shaped and can't honestly fill an IC memo.
+- Branding: FIRM_NAME / MEMO_BRAND_COLOR env-configurable in config.py;
+  formats $#,##0 / 0.00% / 0.00x from the schema output types.
+
 ## F6 — Market context by address
 
 - **Data-source inventory (read before building):** geocode (Nominatim +

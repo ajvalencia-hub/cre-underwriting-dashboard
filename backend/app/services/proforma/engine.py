@@ -124,6 +124,8 @@ def compute(inputs: dict) -> dict:
     levered = [0.0] * (total + 1)
     debt_service: list[debt.DebtServiceMonth | None] = [None] * (total + 1)
 
+    sources_and_uses: dict = {"uses": [], "sources": []}
+
     if deal_type == "acquisition":
         purchase_price = _num(inputs, "purchasePrice")
         basis = (
@@ -177,6 +179,19 @@ def compute(inputs: dict) -> dict:
         perm_loan = loan_amount
         value_for_ltv = purchase_price
 
+        sources_and_uses["uses"] = [
+            ("Purchase price", purchase_price),
+            ("Closing costs", purchase_price * _num(inputs, "closingCostsPct")),
+            ("Acquisition fee", purchase_price * _num(inputs, "acquisitionFeePct")),
+            ("Due diligence", _num(inputs, "dueDiligenceCosts")),
+            ("Day-1 capex", _num(inputs, "dayOneCapex")),
+            ("Loan fees", loan_fees),
+        ]
+        sources_and_uses["sources"] = [
+            ("Senior loan", loan_amount),
+            ("Equity", initial_equity),
+        ]
+
     else:  # development
         budget = development.build_budget(
             land_cost=_num(inputs, "landCost"),
@@ -217,6 +232,20 @@ def compute(inputs: dict) -> dict:
             balance = max(0.0, balance + balance * r - noi[m - 1])
 
         value_for_ltv = stabilized_noi / exit_cap if exit_cap > 0 else 0.0
+
+        sources_and_uses["uses"] = [
+            ("Land", budget.land),
+            ("Hard costs", budget.hard),
+            ("Soft costs", budget.soft),
+            ("Contingency", budget.contingency),
+            ("Developer fee", budget.developer_fee),
+            ("Capitalized interest", financing.interest_capitalized),
+            ("Loan fees", financing.fee_capitalized),
+        ]
+        sources_and_uses["sources"] = [
+            ("Construction loan (incl. capitalized carry)", financing.ending_balance),
+            ("Equity", initial_equity),
+        ]
 
         if takeout_month <= total:
             # Constraint-sized permanent takeout; the delta vs the
@@ -429,4 +458,5 @@ def compute(inputs: dict) -> dict:
         "warnings": warnings,
         "gprSource": gpr_source,
         "debt": debt_block,
+        "sourcesAndUses": sources_and_uses,
     }

@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { deleteScenario, fetchScenarios, saveScenario, updateScenario } from '../lib/api'
+import {
+  deleteScenario,
+  fetchScenarios,
+  generateMemo,
+  saveScenario,
+  updateScenario,
+} from '../lib/api'
 import { formatValue } from '../lib/formatValue'
 import { flattenFields } from '../lib/schemaFields'
 import type { QuickScreenInputs } from '../lib/quickScreenMath'
@@ -14,6 +20,10 @@ interface ScenariosPanelProps {
   values: Record<string, unknown>
   active: boolean
   dealId: string | null
+  /** Latest computed metrics (native/server) — snapshotted into the scenario
+   *  on save so the IC memo has a stored fallback. */
+  computedOutputs?: Record<string, unknown>
+  computedDebt?: Record<string, unknown> | null
   onLoadScenario: (inputs: Record<string, unknown>) => void
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
@@ -27,6 +37,8 @@ export default function ScenariosPanel({
   values,
   active,
   dealId,
+  computedOutputs,
+  computedDebt,
   onLoadScenario,
   onLoadQuickScreenScenario,
 }: ScenariosPanelProps) {
@@ -73,6 +85,10 @@ export default function ScenariosPanel({
     setSaving(true)
     setError(null)
     try {
+      const outputsSnapshot =
+        computedOutputs && Object.keys(computedOutputs).length > 0
+          ? { metrics: computedOutputs, ...(computedDebt ? { debt: computedDebt } : {}) }
+          : undefined
       const existing = scenarios.find((s) => s.scenarioName === scenarioName)
       const saved = existing
         ? await updateScenario(existing.id, {
@@ -81,6 +97,7 @@ export default function ScenariosPanel({
             templateId: template.id,
             mappingProfileId,
             inputs: values,
+            outputs: outputsSnapshot,
           })
         : await saveScenario({
             scenarioName,
@@ -89,12 +106,35 @@ export default function ScenariosPanel({
             templateId: template.id,
             mappingProfileId,
             inputs: values,
+            outputs: outputsSnapshot,
           })
       setScenarios((prev) => [saved, ...prev.filter((s) => s.id !== saved.id)])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const [memoBusyId, setMemoBusyId] = useState<string | null>(null)
+
+  async function handleGenerateMemo(scenarioId: string) {
+    setMemoBusyId(scenarioId)
+    setError(null)
+    try {
+      const { blob, filename } = await generateMemo(scenarioId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate the IC memo')
+    } finally {
+      setMemoBusyId(null)
     }
   }
 
@@ -234,6 +274,14 @@ export default function ScenariosPanel({
                       className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
                     >
                       Load
+                    </button>
+                    <button
+                      onClick={() => handleGenerateMemo(s.id)}
+                      disabled={memoBusyId === s.id}
+                      title="Renders a .docx IC memo from this scenario's inputs and computed outputs."
+                      className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                    >
+                      {memoBusyId === s.id ? 'Generating…' : 'Generate IC Memo'}
                     </button>
                     <button
                       onClick={() => handleDelete(s.id)}

@@ -75,6 +75,7 @@ function App() {
   // overwrites a higher one on screen.
   const [serverOutputs, setServerOutputs] = useState<Record<string, unknown>>({})
   const [nativeOutputs, setNativeOutputs] = useState<Record<string, unknown>>({})
+  const [nativeDebt, setNativeDebt] = useState<Record<string, unknown> | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
 
   const [deals, setDeals] = useState<Deal[]>([])
@@ -114,6 +115,7 @@ function App() {
     setQuickScreenInputs(hydrated.quickScreen)
     setServerOutputs({})
     setNativeOutputs({})
+    setNativeDebt(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
@@ -491,7 +493,10 @@ function App() {
           mappingProfileId={activeMappingProfileId}
           values={formValues}
           onGenerated={setServerOutputs}
-          onComputedNative={setNativeOutputs}
+          onComputedNative={(outputs, debt) => {
+            setNativeOutputs(outputs)
+            setNativeDebt(debt as Record<string, unknown> | null)
+          }}
         />
       </div>
 
@@ -512,6 +517,8 @@ function App() {
           values={formValues}
           active={tab === 'scenarios'}
           dealId={activeDealId}
+          computedOutputs={{ ...nativeOutputs, ...serverOutputs }}
+          computedDebt={nativeDebt}
           onLoadScenario={(inputs) => {
             setFormValues(inputs)
             setTab('dashboard')

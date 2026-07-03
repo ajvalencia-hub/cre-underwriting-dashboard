@@ -166,6 +166,7 @@ export function saveScenario(payload: {
   templateId?: string | null
   mappingProfileId?: string | null
   inputs: Record<string, unknown>
+  outputs?: Record<string, unknown>
 }) {
   return postJson<Scenario>('/scenarios', payload, 'POST')
 }
@@ -178,6 +179,7 @@ export function updateScenario(
     templateId?: string | null
     mappingProfileId?: string | null
     inputs: Record<string, unknown>
+    outputs?: Record<string, unknown>
   },
 ) {
   return postJson<Scenario>(`/scenarios/${scenarioId}`, payload, 'PUT')
@@ -278,6 +280,20 @@ export function updateDeal(
 
 export async function deleteDeal(dealId: string): Promise<void> {
   return del(`/deals/${dealId}`)
+}
+
+export async function generateMemo(scenarioId: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}/memo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res))
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? 'ic-memo.docx'
+  return { blob: await res.blob(), filename }
 }
 
 export async function deleteScenario(scenarioId: string): Promise<void> {

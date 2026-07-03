@@ -14,6 +14,7 @@ warn above the 85th, caution above the 70th.
 """
 
 import math
+import re
 
 from app.services.data_sources import bls, census_acs, fema, fhfa, geocode, hud
 from app.services.data_sources.source_cache import cached_fetch
@@ -89,6 +90,67 @@ def _weighted_fmr(fmr: dict, bedroom_mix: list[dict] | None) -> tuple[float | No
             return total / total_weight, "bedroom-mix weighted"
     two_br = fmr.get("fmr2BR")
     return (float(two_br) if two_br else None), "2BR"
+
+
+_EXPENSE_DOLLAR_FIELDS = [
+    "realEstateTaxes", "insurance", "utilities", "repairsMaintenance",
+    "payroll", "generalAdmin", "replacementReserves",
+]
+_BEDROOM_RE = re.compile(r"(\d)\s*(bd|br|bed)", re.IGNORECASE)
+
+
+def derive_subject_from_inputs(inputs: dict) -> dict:
+    """Backend twin of the frontend's deriveBenchmarkSubject — used by the IC
+    memo route, which only has the scenario's stored inputs."""
+    subject: dict = {}
+
+    unit_mix = inputs.get("unitMix")
+    if isinstance(unit_mix, list):
+        total_rent, total_units = 0.0, 0
+        mix: dict[int, int] = {}
+        for row in unit_mix:
+            if not isinstance(row, dict):
+                continue
+            count = row.get("unitCount") or 0
+            rent = row.get("inPlaceRent") or row.get("marketRent") or 0
+            if count and rent:
+                total_rent += count * float(rent)
+                total_units += int(count)
+            unit_type = str(row.get("unitType") or "")
+            match = _BEDROOM_RE.search(unit_type)
+            bedrooms = (
+                min(3, int(match.group(1))) if match
+                else 0 if re.search(r"studio|eff", unit_type, re.IGNORECASE)
+                else None
+            )
+            if count and bedrooms is not None:
+                mix[bedrooms] = mix.get(bedrooms, 0) + int(count)
+        if total_units:
+            subject["avgRentMonthly"] = total_rent / total_units
+        if mix:
+            subject["bedroomMix"] = [{"bedrooms": b, "count": c} for b, c in mix.items()]
+
+    growth = inputs.get("rentGrowthPct")
+    if isinstance(growth, (int, float)) and inputs.get("rentGrowthMode") != "flat":
+        subject["rentGrowthPct"] = float(growth)
+
+    gpr = inputs.get("grossPotentialRent")
+    if isinstance(gpr, (int, float)) and gpr > 0:
+        vacancy = inputs.get("vacancyPct") or 0
+        credit = inputs.get("creditLossPct") or 0
+        other = inputs.get("otherIncome") or 0
+        egi = gpr * (1 - float(vacancy)) * (1 - float(credit)) + float(other)
+        if egi > 0:
+            fixed = sum(
+                float(inputs.get(f) or 0)
+                for f in _EXPENSE_DOLLAR_FIELDS
+                if isinstance(inputs.get(f), (int, float))
+            )
+            fee = float(inputs.get("managementFeePct") or 0) * egi
+            if fixed + fee > 0:
+                subject["expenseRatioPct"] = (fixed + fee) / egi
+
+    return subject
 
 
 def build_benchmarks(

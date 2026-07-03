@@ -36,6 +36,10 @@ HUD_API_TOKEN = os.environ.get("HUD_API_TOKEN", "")
 # Nominatim (OpenStreetMap) usage policy requires an identifying User-Agent.
 GEOCODE_USER_AGENT = "CRE-Underwriting-Dashboard/1.0 (local dev)"
 
+# IC memo branding — override in backend/.env for your shop.
+FIRM_NAME = os.environ.get("FIRM_NAME", "Acme Real Estate Partners")
+MEMO_BRAND_COLOR = os.environ.get("MEMO_BRAND_COLOR", "1F3B57")  # hex, no '#'
+
 # Anthropic API — optional. Used as a fallback for ambiguous document-type
 # classification and (in a later milestone) structured data extraction from
 # messy/narrative documents. Degrades gracefully to heuristic-only results
