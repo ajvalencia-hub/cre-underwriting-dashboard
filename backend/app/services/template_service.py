@@ -27,16 +27,28 @@ def parse_workbook(path: Path) -> dict:
     ]
 
     named_ranges = []
-    for name, defined_name in wb.defined_names.items():
+
+    def _collect(name: str, defined_name) -> None:
         if defined_name.type != "RANGE":
-            continue
+            return
         try:
             for sheet_title, coord in defined_name.destinations:
                 named_ranges.append(
                     {"name": name, "sheet": sheet_title, "ref": coord.replace("$", "")}
                 )
         except (TypeError, ValueError):
-            continue
+            pass
+
+    for name, defined_name in wb.defined_names.items():
+        _collect(name, defined_name)
+    # Worksheet-scoped names don't appear in wb.defined_names at all (verified
+    # against openpyxl 3.1.5) — templates using them silently lost those
+    # mapping candidates (FINDINGS.md M1). Qualify as Sheet!Name: a defined
+    # name can never contain "!", so the qualified form is unambiguous and
+    # can't collide with a workbook-scoped name.
+    for ws in wb.worksheets:
+        for name, defined_name in ws.defined_names.items():
+            _collect(f"{ws.title}!{name}", defined_name)
 
     wb.close()
     return {"sheets": sheets, "namedRanges": named_ranges}

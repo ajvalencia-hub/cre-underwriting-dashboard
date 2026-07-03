@@ -16,6 +16,20 @@ def _parse_cell_ref(ref: str) -> tuple[str | None, str]:
     return None, ref
 
 
+def _lookup_defined_name(wb, ref: str):
+    """Workbook-scoped names live in wb.defined_names; worksheet-scoped ones
+    only in ws.defined_names (verified against openpyxl 3.1.5), listed by
+    parse_workbook as 'Sheet!Name'. A defined name can never contain '!' but
+    a sheet title can, so split on the last one.
+    """
+    if "!" in ref:
+        sheet_title, name = ref.rsplit("!", 1)
+        if sheet_title in wb.sheetnames:
+            return wb[sheet_title].defined_names.get(name)
+        return None
+    return wb.defined_names.get(ref)
+
+
 def _resolve_scalar_cell(wb, entry: dict):
     """Returns (worksheet, coord) or None. coord may still be a multi-cell
     range (e.g. 'B1:C2') when a named range spans one — callers MUST check for
@@ -23,7 +37,7 @@ def _resolve_scalar_cell(wb, entry: dict):
     of rows, not a Cell.
     """
     if entry["target"] == "namedRange":
-        defined_name = wb.defined_names.get(entry["ref"])
+        defined_name = _lookup_defined_name(wb, entry["ref"])
         if defined_name is None:
             return None
         destinations = list(defined_name.destinations)
