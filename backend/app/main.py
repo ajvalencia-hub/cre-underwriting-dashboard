@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
 from app.database import Base, engine, run_migrations
+from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
     documents,
     extraction,
@@ -17,6 +18,7 @@ from app.routers import (
 
 Base.metadata.create_all(bind=engine)
 run_migrations()
+sweep_generated_files()
 
 app = FastAPI(title="CRE Underwriting Dashboard API")
 
