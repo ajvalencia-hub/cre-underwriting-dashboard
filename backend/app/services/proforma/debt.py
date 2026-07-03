@@ -69,6 +69,94 @@ def amortization_schedule(
 
 
 @dataclass(frozen=True)
+class PermSizing:
+    amount: float
+    governing_constraint: str  # 'ltv' | 'dscr' | 'debtYield' | 'none'
+    candidates: dict[str, float]
+
+
+def annual_loan_constant(annual_rate: float, amort_years: float) -> float:
+    """Annual debt service per dollar of loan. Fully-IO loans (amort_years=0)
+    have a constant equal to the rate."""
+    if amort_years <= 0:
+        return annual_rate
+    return 12 * monthly_payment(1.0, annual_rate, amort_years)
+
+
+def size_permanent_loan(
+    sizing_noi: float,
+    value: float,
+    max_ltv: float,
+    min_dscr: float,
+    min_debt_yield: float,
+    annual_rate: float,
+    amort_years: float,
+) -> PermSizing:
+    """Sized loan = min(LTV x value, DSCR-constrained amount, NOI / debt-yield
+    floor). DSCR sizes on the AMORTIZING constant even when the loan carries
+    an IO period (the standard lender convention — the IO payment is never
+    the sizing basis unless the loan is fully interest-only, i.e. amort=0)."""
+    candidates: dict[str, float] = {}
+    if max_ltv > 0 and value > 0:
+        candidates["ltv"] = max_ltv * value
+    constant = annual_loan_constant(annual_rate, amort_years)
+    if min_dscr > 0 and sizing_noi > 0 and constant > 0:
+        candidates["dscr"] = sizing_noi / min_dscr / constant
+    if min_debt_yield > 0 and sizing_noi > 0:
+        candidates["debtYield"] = sizing_noi / min_debt_yield
+
+    if not candidates:
+        return PermSizing(0.0, "none", {})
+    governing = min(candidates, key=lambda k: candidates[k])
+    return PermSizing(candidates[governing], governing, candidates)
+
+
+def stress_matrix(
+    sizing_noi: float,
+    value: float,
+    loan_amount: float,
+    max_ltv: float,
+    min_dscr: float,
+    min_debt_yield: float,
+    annual_rate: float,
+    amort_years: float,
+    rate_bumps_bps: tuple[int, ...] = (0, 100, 200),
+    noi_haircuts: tuple[float, ...] = (0.0, 0.05, 0.10),
+) -> list[dict]:
+    """Rate/NOI stress grid. Each cell reports the DSCR on the EXISTING loan
+    (repriced at the stressed rate — the refi-risk question) and the refi
+    proceeds a lender would size at the stressed rate and NOI. The stressed
+    value scales linearly with NOI (same cap rate)."""
+    cells: list[dict] = []
+    for bump in rate_bumps_bps:
+        stressed_rate = annual_rate + bump / 10000
+        for haircut in noi_haircuts:
+            stressed_noi = sizing_noi * (1 - haircut)
+            stressed_value = value * (1 - haircut)
+            constant = annual_loan_constant(stressed_rate, amort_years)
+            dscr = (
+                stressed_noi / (loan_amount * constant)
+                if loan_amount > 0 and constant > 0
+                else None
+            )
+            resized = size_permanent_loan(
+                stressed_noi, stressed_value, max_ltv, min_dscr, min_debt_yield,
+                stressed_rate, amort_years,
+            )
+            cells.append(
+                {
+                    "rateBumpBps": bump,
+                    "noiHaircutPct": haircut,
+                    "dscr": dscr,
+                    "refiProceeds": resized.amount,
+                    "governingConstraint": resized.governing_constraint,
+                    "refiShortfall": max(0.0, loan_amount - resized.amount),
+                }
+            )
+    return cells
+
+
+@dataclass(frozen=True)
 class ConstructionFinancing:
     draws: list[float]  # loan draw per month (0..construction end)
     equity_funded: list[float]  # equity outflow per month

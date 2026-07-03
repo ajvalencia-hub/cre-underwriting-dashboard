@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { computeNative, generateWorkbook } from '../lib/api'
+import { computeNative, generateWorkbook, type DebtBlock } from '../lib/api'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
@@ -7,8 +7,10 @@ interface GeneratePanelProps {
   mappingProfileId: string | null
   values: Record<string, unknown>
   onGenerated?: (outputs: Record<string, unknown>) => void
-  onComputedNative?: (outputs: Record<string, number>) => void
+  onComputedNative?: (outputs: Record<string, number | string>) => void
 }
+
+const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
 
 export default function GeneratePanel({
   template,
@@ -24,6 +26,7 @@ export default function GeneratePanel({
   const [computing, setComputing] = useState(false)
   const [computeWarnings, setComputeWarnings] = useState<string[]>([])
   const [computeError, setComputeError] = useState<string | null>(null)
+  const [debtBlock, setDebtBlock] = useState<DebtBlock | null>(null)
 
   const ready = Boolean(template && mappingProfileId)
 
@@ -32,11 +35,13 @@ export default function GeneratePanel({
     setComputeError(null)
     setComputeWarnings([])
     try {
-      const { outputs, warnings } = await computeNative(values)
+      const { outputs, warnings, debt } = await computeNative(values)
       setComputeWarnings(warnings)
+      setDebtBlock(debt)
       onComputedNative?.(outputs)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Native compute failed')
+      setDebtBlock(null)
     } finally {
       setComputing(false)
     }
@@ -124,6 +129,55 @@ export default function GeneratePanel({
             <li key={i}>{w}</li>
           ))}
         </ul>
+      )}
+      {debtBlock && (
+        <div className="mt-3 max-w-3xl">
+          <div className="text-xs font-semibold tracking-wide text-slate-500">
+            DEBT SIZING — {fmtMoney(debtBlock.loanAmount)} · governed by{' '}
+            {debtBlock.governingConstraint}
+          </div>
+          <table className="mt-1 text-xs">
+            <thead>
+              <tr className="text-left text-slate-400">
+                <th className="pr-3 font-medium">Stress</th>
+                <th className="pr-3 font-medium">DSCR</th>
+                <th className="pr-3 font-medium">Refi proceeds</th>
+                <th className="pr-3 font-medium">Shortfall</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debtBlock.stress
+                .filter(
+                  (c) =>
+                    (c.rateBumpBps === 0 && c.noiHaircutPct === 0) ||
+                    (c.rateBumpBps > 0 && c.noiHaircutPct === 0) ||
+                    (c.rateBumpBps === 0 && c.noiHaircutPct > 0) ||
+                    (c.rateBumpBps === 200 && c.noiHaircutPct === 0.1),
+                )
+                .map((c) => (
+                  <tr key={`${c.rateBumpBps}-${c.noiHaircutPct}`} className="text-slate-600">
+                    <td className="pr-3">
+                      {c.rateBumpBps === 0 && c.noiHaircutPct === 0
+                        ? 'Base'
+                        : [
+                            c.rateBumpBps > 0 ? `+${c.rateBumpBps}bps` : null,
+                            c.noiHaircutPct > 0 ? `NOI −${Math.round(c.noiHaircutPct * 100)}%` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                    </td>
+                    <td className={`pr-3 ${c.dscr !== null && c.dscr < 1 ? 'text-red-600' : ''}`}>
+                      {c.dscr === null ? '—' : `${c.dscr.toFixed(2)}x`}
+                    </td>
+                    <td className="pr-3">{fmtMoney(c.refiProceeds)}</td>
+                    <td className={`pr-3 ${c.refiShortfall > 0 ? 'text-amber-600' : ''}`}>
+                      {c.refiShortfall > 0 ? fmtMoney(c.refiShortfall) : '—'}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {result && (
         <div className="mt-2 text-xs text-slate-500">

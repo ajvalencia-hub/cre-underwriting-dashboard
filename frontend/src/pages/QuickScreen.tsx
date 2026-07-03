@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
-import { saveScenario } from '../lib/api'
+import { computeNative, saveScenario, type DebtBlock } from '../lib/api'
 import {
   FEASIBILITY_THRESHOLDS,
   QUICK_SCREEN_FIELD_CONFIG,
   QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
   deriveOpexRatioFromMargin,
+  mapQuickScreenToDealInputs,
   solveExitCapForSpread,
   solveHardCostForSpread,
   solveRentForSpread,
@@ -39,6 +40,34 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
   const [scenarioName, setScenarioName] = useState('Quick Screen')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [takeout, setTakeout] = useState<
+    | { status: 'idle' | 'loading' }
+    | { status: 'ready'; debt: DebtBlock | null }
+    | { status: 'error'; message: string }
+  >({ status: 'idle' })
+
+  async function runTakeoutCheck() {
+    setTakeout({ status: 'loading' })
+    try {
+      // Transient request only — never applied to the form. The aggregate
+      // quick-screen opex rides in generalAdmin purely so the engine's sizing
+      // NOI equals the quick screen's stabilized NOI.
+      const values = {
+        ...mapQuickScreenToDealInputs(inputs, results),
+        holdPeriodYears: 5,
+        generalAdmin: results.operatingExpenses,
+        creditLossPct: 0,
+        managementFeePct: 0,
+      }
+      const response = await computeNative(values)
+      setTakeout({ status: 'ready', debt: response.debt })
+    } catch {
+      setTakeout({
+        status: 'error',
+        message: 'Backend unreachable — the takeout check needs the API.',
+      })
+    }
+  }
 
   // QuickScreenInputs must stay fully numeric for computeQuickScreen to work —
   // unlike DealInputForm's optional fields, a blank field here would propagate
@@ -335,6 +364,51 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
                 />
               </dl>
             </div>
+          )}
+
+          {inputs.ltcPct > 0 && (
+            <details
+              className="rounded-md border border-slate-200 bg-white p-4"
+              onToggle={(e) => {
+                if ((e.target as HTMLDetailsElement).open && takeout.status === 'idle') {
+                  void runTakeoutCheck()
+                }
+              }}
+            >
+              <summary className="cursor-pointer select-none text-xs font-semibold tracking-wide text-slate-500">
+                PERM TAKEOUT CHECK (sized by the full engine)
+              </summary>
+              <div className="mt-2 text-sm">
+                {takeout.status === 'loading' && <div className="text-slate-400">Sizing…</div>}
+                {takeout.status === 'error' && (
+                  <div className="text-xs text-slate-400">{takeout.message}</div>
+                )}
+                {takeout.status === 'ready' && takeout.debt && (
+                  <dl className="space-y-1">
+                    <Row label="Construction loan (quick screen)" value={formatMoney(results.loanAmount)} />
+                    <Row label="Sized permanent loan" value={formatMoney(takeout.debt.sizedLoanAmount)} />
+                    <Row label="Governing constraint" value={takeout.debt.governingConstraint} strong />
+                    {takeout.debt.sizedLoanAmount < results.loanAmount && (
+                      <div className="pt-1 text-xs text-amber-600">
+                        The permanent loan sizes {formatMoney(results.loanAmount - takeout.debt.sizedLoanAmount)}{' '}
+                        below the construction loan — plan for an equity paydown at takeout.
+                      </div>
+                    )}
+                    <div className="pt-1">
+                      <button
+                        onClick={() => void runTakeoutCheck()}
+                        className="text-[11px] text-slate-400 underline hover:text-slate-600"
+                      >
+                        Refresh with current inputs
+                      </button>
+                    </div>
+                  </dl>
+                )}
+                {takeout.status === 'ready' && !takeout.debt && (
+                  <div className="text-xs text-slate-400">No debt to size (all-equity).</div>
+                )}
+              </div>
+            </details>
           )}
 
           <QuickScreenSensitivityGrid inputs={inputs} onApplyCell={applySensitivityCell} />

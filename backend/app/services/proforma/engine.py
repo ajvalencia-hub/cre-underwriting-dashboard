@@ -21,6 +21,30 @@ def _num(inputs: dict, field: str, default: float = 0.0) -> float:
     return float(value)
 
 
+_GOVERNING_LABELS = {
+    "ltv": "LTV",
+    "dscr": "DSCR",
+    "debtYield": "Debt yield",
+    "manual": "Manual (loan amount input)",
+    "none": "None",
+}
+
+
+def _resolve_sizing_noi(inputs: dict, stabilized_noi: float, year1_noi: float) -> float:
+    """Sizing-basis convention (see DECISIONS.md): in_place = the inPlaceNoi
+    input (falling back to computed year-1), stabilized = the stabilizedNoi
+    input (falling back to the engine's computed stabilized NOI),
+    underwritten = the engine's computed stabilized NOI regardless of inputs."""
+    basis = inputs.get("sizingNoiBasis") or "stabilized"
+    if basis == "in_place":
+        explicit = _num(inputs, "inPlaceNoi")
+        return explicit if explicit > 0 else year1_noi
+    if basis == "underwritten":
+        return stabilized_noi
+    explicit = _num(inputs, "stabilizedNoi")
+    return explicit if explicit > 0 else stabilized_noi
+
+
 def compute(inputs: dict) -> dict:
     """Returns {"outputs": {<schema output id>: float}, "warnings": [str]}.
     Raises InsufficientInputsError naming every missing required field."""
@@ -86,6 +110,11 @@ def compute(inputs: dict) -> dict:
     amort_years = _num(inputs, "amortYears", 30)
     io_months = int(_num(inputs, "ioMonths"))
     origination_fee_pct = _num(inputs, "originationFeePct")
+    dscr_constraint = _num(inputs, "dscrConstraint", 1.25)
+    debt_yield_constraint = _num(inputs, "debtYieldConstraint", 0.08)
+
+    year1_noi = sum(noi[: min(12, total)]) * (12 / min(12, total)) if total else 0.0
+    sizing_noi = _resolve_sizing_noi(inputs, stabilized_noi, year1_noi)
 
     # ------------------------------------------------------------------
     # Cost basis, financing, and the two cash-flow vectors (index 0 = close,
@@ -104,8 +133,31 @@ def compute(inputs: dict) -> dict:
             + _num(inputs, "dueDiligenceCosts")
             + _num(inputs, "dayOneCapex")
         )
+        # ltvOrLtc = 0 is an explicit all-equity request — the DSCR/debt-yield
+        # constraints are caps on proceeds, never a source of them.
         explicit_loan = _num(inputs, "loanAmount")
-        loan_amount = explicit_loan if explicit_loan > 0 else ltc_or_ltv * purchase_price
+        sizing = debt.size_permanent_loan(
+            sizing_noi, purchase_price, ltc_or_ltv, dscr_constraint,
+            debt_yield_constraint, interest_rate, amort_years,
+        ) if ltc_or_ltv > 0 or explicit_loan > 0 else debt.PermSizing(0.0, "none", {})
+        if explicit_loan > 0:
+            loan_amount = explicit_loan
+            governing_constraint = "manual"
+            if sizing.amount > 0 and explicit_loan > sizing.amount * 1.0001:
+                warnings.append(
+                    f"Loan amount input (${explicit_loan:,.0f}) exceeds the "
+                    f"constraint-sized proceeds (${sizing.amount:,.0f}, governed "
+                    f"by {_GOVERNING_LABELS[sizing.governing_constraint]})."
+                )
+        elif ltc_or_ltv <= 0:
+            loan_amount = 0.0
+            governing_constraint = "none"
+        elif sizing.amount > 0:
+            loan_amount = sizing.amount
+            governing_constraint = sizing.governing_constraint
+        else:
+            loan_amount = ltc_or_ltv * purchase_price
+            governing_constraint = "ltv"
         loan_fees = loan_amount * origination_fee_pct
         initial_equity = basis - loan_amount + loan_fees
         total_cost_basis = basis + loan_fees
@@ -164,8 +216,31 @@ def compute(inputs: dict) -> dict:
         for m in range(timeline.construction_months + 1, takeout_month):
             balance = max(0.0, balance + balance * r - noi[m - 1])
 
+        value_for_ltv = stabilized_noi / exit_cap if exit_cap > 0 else 0.0
+
         if takeout_month <= total:
-            perm_loan = balance
+            # Constraint-sized permanent takeout; the delta vs the
+            # construction balance is a cash-out to equity (+) or a paydown
+            # capital call (-). An all-equity build (LTC = 0) never takes on
+            # permanent debt.
+            sizing = debt.size_permanent_loan(
+                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                debt_yield_constraint, interest_rate, amort_years,
+            ) if ltc_or_ltv > 0 else debt.PermSizing(0.0, "none", {})
+            if sizing.amount > 0:
+                perm_loan = sizing.amount
+                governing_constraint = sizing.governing_constraint
+            else:
+                perm_loan = balance
+                governing_constraint = "none"
+            refi_delta = perm_loan - balance
+            levered[takeout_month] += refi_delta
+            if refi_delta < 0:
+                warnings.append(
+                    f"Permanent loan sizes below the construction balance — a "
+                    f"${-refi_delta:,.0f} equity paydown is required at takeout "
+                    f"(governed by {_GOVERNING_LABELS[governing_constraint]})."
+                )
             perm_months = total - takeout_month + 1
             schedule = debt.amortization_schedule(
                 perm_loan, interest_rate, amort_years, io_months, perm_months
@@ -177,15 +252,19 @@ def compute(inputs: dict) -> dict:
             exit_debt_balance = schedule[-1].balance if schedule else 0.0
         else:
             # Sold before stabilizing: sweep through exit, pay off then.
+            sizing = debt.size_permanent_loan(
+                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                debt_yield_constraint, interest_rate, amort_years,
+            )
             for m in range(takeout_month, total + 1):
                 balance = max(0.0, balance + balance * r - noi[m - 1])
             perm_loan = balance
+            governing_constraint = "none"
             exit_debt_balance = balance
             warnings.append(
                 "No permanent takeout occurs before exit — construction debt "
                 "is repaid from sale proceeds."
             )
-        value_for_ltv = stabilized_noi / exit_cap if exit_cap > 0 else 0.0
 
     unlevered[total] += gross_sale_net_of_costs
     net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
@@ -315,4 +394,39 @@ def compute(inputs: dict) -> dict:
     put("gpIrr", waterfall["gpIrr"])
     put("lpEquityMultiple", waterfall["lpMultiple"])
 
-    return {"outputs": outputs, "warnings": warnings, "gprSource": gpr_source}
+    # ------------------------------------------------------------------
+    # Debt sizing detail: governing constraint + rate/NOI stress grid.
+    # ------------------------------------------------------------------
+    debt_block = None
+    if perm_loan > 0:
+        outputs["governingConstraint"] = _GOVERNING_LABELS.get(
+            governing_constraint, governing_constraint
+        )
+        stress = debt.stress_matrix(
+            sizing_noi, value_for_ltv, perm_loan, ltc_or_ltv, dscr_constraint,
+            debt_yield_constraint, interest_rate, amort_years,
+        )
+        worst = next(
+            (c for c in stress if c["rateBumpBps"] == 200 and c["noiHaircutPct"] == 0.10),
+            None,
+        )
+        if worst and worst["dscr"] is not None:
+            put("stressedDscr", worst["dscr"])
+        debt_block = {
+            "loanAmount": perm_loan,
+            "sizedLoanAmount": sizing.amount,
+            "governingConstraint": _GOVERNING_LABELS.get(
+                governing_constraint, governing_constraint
+            ),
+            "candidates": sizing.candidates,
+            "sizingNoi": sizing_noi,
+            "value": value_for_ltv,
+            "stress": stress,
+        }
+
+    return {
+        "outputs": outputs,
+        "warnings": warnings,
+        "gprSource": gpr_source,
+        "debt": debt_block,
+    }

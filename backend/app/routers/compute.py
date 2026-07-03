@@ -22,4 +22,8 @@ def compute(payload: ComputeRequest):
             status_code=422,
             content={"detail": str(exc), "missing": exc.missing},
         )
-    return {"outputs": result["outputs"], "warnings": result["warnings"]}
+    return {
+        "outputs": result["outputs"],
+        "warnings": result["warnings"],
+        "debt": result["debt"],
+    }

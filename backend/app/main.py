@@ -12,6 +12,7 @@ from app.routers import (
     generate,
     mappings,
     market_context,
+    market_rates,
     schema,
     scenarios,
     sensitivity,
@@ -46,6 +47,7 @@ app.include_router(mappings.router)
 app.include_router(scenarios.router)
 app.include_router(generate.router)
 app.include_router(market_context.router)
+app.include_router(market_rates.router)
 app.include_router(documents.router)
 app.include_router(extraction.router)
 app.include_router(sensitivity.router)

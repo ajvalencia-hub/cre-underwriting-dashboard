@@ -183,12 +183,44 @@ export function updateScenario(
   return postJson<Scenario>(`/scenarios/${scenarioId}`, payload, 'PUT')
 }
 
+export interface DebtStressCell {
+  rateBumpBps: number
+  noiHaircutPct: number
+  dscr: number | null
+  refiProceeds: number
+  governingConstraint: string
+  refiShortfall: number
+}
+
+export interface DebtBlock {
+  loanAmount: number
+  sizedLoanAmount: number
+  governingConstraint: string
+  candidates: Record<string, number>
+  sizingNoi: number
+  value: number
+  stress: DebtStressCell[]
+}
+
+export interface ComputeResponse {
+  outputs: Record<string, number | string>
+  warnings: string[]
+  debt: DebtBlock | null
+}
+
 export function computeNative(values: Record<string, unknown>) {
-  return postJson<{ outputs: Record<string, number>; warnings: string[] }>(
-    '/compute',
-    { values },
-    'POST',
-  )
+  return postJson<ComputeResponse>('/compute', { values }, 'POST')
+}
+
+export interface MarketRates {
+  dataSource: string
+  rates: Record<string, number | null>
+  asOf?: Record<string, string>
+  note?: string
+}
+
+export function fetchMarketRates() {
+  return getJson<MarketRates>('/market/rates')
 }
 
 export function fetchDeals() {

@@ -3,6 +3,34 @@
 Non-obvious choices made during the autonomous build run, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## F3 — Debt module
+
+- **[FIN] DSCR sizing uses the amortizing loan constant even when the loan
+  has an IO period** — the standard lender convention; the IO payment is
+  only the sizing basis for a fully interest-only loan (amort = 0). Rejected
+  sizing on the IO payment (overstates proceeds a lender would commit).
+- **[FIN] Sizing-basis semantics:** `in_place` = the inPlaceNoi input
+  (fallback: computed year-1 NOI); `stabilized` = the stabilizedNoi input
+  (fallback: engine's computed stabilized NOI); `underwritten` = the
+  engine's computed stabilized NOI regardless of inputs (the model's own
+  underwriting). Development sizing values the asset at stabilized NOI /
+  exit cap.
+- **[FIN] An explicit loanAmount input overrides sizing** (user intent wins)
+  with a warning when it exceeds sized proceeds. **ltvOrLtc = 0 means
+  all-equity** — DSCR/debt-yield constraints are caps on proceeds, never a
+  source of them.
+- **[FIN] Development takeout: perm = constraint-sized amount; the delta vs
+  the construction balance is a cash-out distribution (+) or an equity
+  paydown (−, warned).** Replaces F2's par refi. Rejected capping at the
+  construction balance — cash-out refis at stabilization are routine.
+- **[FIN] Stress DSCR reprices the existing loan at the stressed rate on the
+  amortizing constant** (the refi-risk question), with refi proceeds re-sized
+  under stressed NOI and value (value scales with NOI at the same cap).
+  The `stressedDscr` schema output is the worst cell (+200bps, NOI −10%).
+- FRED series: SOFR, DGS5, DGS10, MORTGAGE30US; 24h on-disk cache under
+  storage/cache; per-series failure isolation. Rates render as helper text
+  next to the financing rate input — context only, never auto-filled.
+
 ## F2 — Native pro-forma engine
 
 - **[FIN] Day count / periods: monthly, rate = annual/12 (30/360-style).**
