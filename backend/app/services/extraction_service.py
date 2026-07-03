@@ -303,17 +303,36 @@ def _aggregate_to_fields(merged: dict) -> dict:
         if agg["income"].get("otherIncome"):
             fields["otherIncome"] = _field_entry(round(agg["income"]["otherIncome"], 2), doc_ref, confidence, source)
 
+        # Management fee $ -> % conversion basis. Industry convention is % of
+        # EGI (collections), not GPR — GPR overstates the denominator and
+        # understates the pct. Prefer the statement's own EGI line, then a
+        # derived EGI, then GPR as a last resort; the note always names the
+        # basis actually used.
+        vacancy_abs = abs(vacancy_loss) if vacancy_loss else 0
+        credit_abs = abs(agg["income"].get("creditLoss") or 0)
+        other_inc = agg["income"].get("otherIncome") or 0
+        stated_egi = agg["income"].get("effectiveGrossIncome")
+        if stated_egi and stated_egi > 0:
+            fee_basis, fee_basis_label = stated_egi, "the statement's EGI line"
+        elif gpr and (vacancy_abs or credit_abs or other_inc) and gpr - vacancy_abs - credit_abs + other_inc > 0:
+            fee_basis = gpr - vacancy_abs - credit_abs + other_inc
+            fee_basis_label = "EGI derived as GPR less vacancy/credit loss plus other income"
+        elif gpr:
+            fee_basis, fee_basis_label = gpr, "GPR (EGI not derivable from this statement)"
+        else:
+            fee_basis, fee_basis_label = None, None
+
         sign_normalized = set(agg["signNormalizedExpenses"])
         sign_note = "Reported as a negative number in the source statement; sign normalized."
         for category, amount in agg["expenses"].items():
             if category == "other":
                 continue
             notes = sign_note if category in sign_normalized else None
-            if category == "managementFeePct" and gpr:
+            if category == "managementFeePct" and fee_basis:
                 # T-12 gives a dollar amount; the schema field is a % of revenue.
-                conversion_note = "Converted from $ amount using GPR."
+                conversion_note = f"Converted from $ amount using {fee_basis_label}."
                 fields[category] = _field_entry(
-                    round(amount / gpr, 4), doc_ref, confidence, source,
+                    round(amount / fee_basis, 4), doc_ref, confidence, source,
                     notes=f"{conversion_note} {notes}" if notes else conversion_note,
                 )
             elif category == "managementFeePct":
