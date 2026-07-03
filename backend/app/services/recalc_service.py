@@ -26,6 +26,24 @@ def is_available() -> bool:
     return LIBREOFFICE_BIN is not None
 
 
+def _build_convert_command(path: Path, tmp_dir: Path) -> list[str]:
+    # Concurrent soffice processes (generate + sensitivity, or two generates)
+    # contend for the shared user-profile lock and fail intermittently, so
+    # each invocation gets its own scratch profile inside its scratch dir —
+    # cleaned up with it (FINDINGS.md M12).
+    profile_dir = tmp_dir / "lo-profile"
+    return [
+        LIBREOFFICE_BIN or "soffice",
+        "--headless",
+        f"-env:UserInstallation={profile_dir.as_uri()}",
+        "--convert-to",
+        path.suffix.lstrip("."),
+        "--outdir",
+        str(tmp_dir),
+        str(path),
+    ]
+
+
 def recalc_with_libreoffice(path: Path, timeout: int = 60) -> None:
     """Round-trip the workbook through LibreOffice headless so the download already
     shows computed values instead of relying on the user's copy of Excel to recalc.
@@ -46,15 +64,7 @@ def recalc_with_libreoffice(path: Path, timeout: int = 60) -> None:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     try:
         proc = subprocess.run(
-            [
-                LIBREOFFICE_BIN,
-                "--headless",
-                "--convert-to",
-                path.suffix.lstrip("."),
-                "--outdir",
-                str(tmp_dir),
-                str(path),
-            ],
+            _build_convert_command(path, tmp_dir),
             timeout=timeout,
             capture_output=True,
         )
