@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Scenario, Template
-from app.schemas import ScenarioIn, ScenarioOut
+from app.schemas import ScenarioIn, ScenarioOut, ScenarioUpdate
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
@@ -68,12 +68,27 @@ def get_scenario(scenario_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{scenario_id}", response_model=ScenarioOut)
-def update_scenario(scenario_id: str, payload: ScenarioIn, db: Session = Depends(get_db)):
+def update_scenario(scenario_id: str, payload: ScenarioUpdate, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
 
+    # kind and templateId used to be silently ignored on update (FINDINGS.md
+    # M14). kind is immutable — flipping quickscreen<->full changes which
+    # fields are required — so a differing value is rejected, not dropped.
+    # templateId is applied, under the same validation create enforces.
+    if payload.kind is not None and payload.kind != scenario.kind:
+        raise HTTPException(
+            400, f"Scenario kind cannot be changed (this is a '{scenario.kind}' scenario)"
+        )
+    if scenario.kind == "full":
+        if not payload.templateId or not payload.mappingProfileId:
+            raise HTTPException(400, "Full scenarios require a templateId and mappingProfileId")
+        if db.get(Template, payload.templateId) is None:
+            raise HTTPException(404, "Template not found")
+
     scenario.scenario_name = payload.scenarioName
+    scenario.template_id = payload.templateId
     scenario.mapping_profile_id = payload.mappingProfileId
     scenario.inputs = payload.inputs
     db.commit()

@@ -111,6 +111,17 @@ class ScenarioIn(BaseModel):
     inputs: dict[str, Any]
 
 
+class ScenarioUpdate(BaseModel):
+    # Unlike ScenarioIn, kind has no default here: an update that omits kind
+    # means "keep the stored kind", which must be distinguishable from an
+    # explicit (rejected) attempt to change it.
+    scenarioName: str
+    kind: Literal["quickscreen", "full"] | None = None
+    templateId: str | None = None
+    mappingProfileId: str | None = None
+    inputs: dict[str, Any]
+
+
 class ScenarioOut(BaseModel):
     id: str
     scenarioName: str
