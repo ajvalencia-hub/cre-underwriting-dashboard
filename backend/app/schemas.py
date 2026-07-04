@@ -86,8 +86,11 @@ class SensitivityDriver(BaseModel):
 
 
 class SensitivityRequest(BaseModel):
-    templateId: str
-    mappingProfileId: str
+    # mode 'native' sweeps the built-in engine (no template needed);
+    # 'template' is the original openpyxl+LibreOffice path.
+    mode: Literal["native", "template"] = "template"
+    templateId: str | None = None
+    mappingProfileId: str | None = None
     baseValues: dict[str, Any]
     drivers: list[SensitivityDriver]
     outputFieldIds: list[str]
@@ -158,6 +161,7 @@ class ScenarioOut(BaseModel):
     scenarioName: str
     kind: Literal["quickscreen", "full"]
     dealId: str | None
+    sensitivity: dict[str, Any] | None = None
     templateId: str | None
     mappingProfileId: str | None
     inputs: dict[str, Any]

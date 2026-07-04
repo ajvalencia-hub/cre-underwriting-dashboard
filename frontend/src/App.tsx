@@ -534,6 +534,7 @@ function App() {
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
           baseValues={formValues}
+          dealId={activeDealId}
         />
       </div>
 

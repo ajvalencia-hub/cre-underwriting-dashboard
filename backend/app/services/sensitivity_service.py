@@ -17,8 +17,10 @@ from pathlib import Path
 
 from app.config import GENERATED_DIR
 from app.services import excel_writer, recalc_service
+from app.services.proforma import engine
 
-MAX_GRID_POINTS = 30
+MAX_GRID_POINTS = 30  # template mode: each point is a real LibreOffice recalc
+MAX_NATIVE_GRID_POINTS = 625  # native mode: 25 x 25, pure in-process math
 
 
 def cartesian_combos(drivers: list[dict]) -> list[dict]:
@@ -53,4 +55,37 @@ def run_sensitivity(
         finally:
             output_path.unlink(missing_ok=True)
 
+    return {"points": points}
+
+
+def run_native_sensitivity(
+    base_values: dict,
+    drivers: list[dict],
+    output_field_ids: list[str],
+) -> dict:
+    """Native-engine sweep: same response shape as the template path, but each
+    grid point is an in-process engine.compute — no template, no mapping, no
+    LibreOffice. Insufficient inputs at a point become that point's warning
+    rather than a failed run (a sweep can push a deal into invalid territory)."""
+    combos = cartesian_combos(drivers)
+    wanted = set(output_field_ids)
+    points = []
+    for combo in combos:
+        values = {**base_values, **combo}
+        try:
+            result = engine.compute(values)
+            outputs = {
+                key: value
+                for key, value in result["outputs"].items()
+                if not wanted or key in wanted
+            }
+            points.append({"driverValues": combo, "outputs": outputs, "warnings": []})
+        except engine.InsufficientInputsError as exc:
+            points.append(
+                {
+                    "driverValues": combo,
+                    "outputs": {},
+                    "warnings": [f"Grid point not computable: missing {', '.join(exc.missing)}"],
+                }
+            )
     return {"points": points}

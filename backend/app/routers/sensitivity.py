@@ -18,6 +18,26 @@ def run_sensitivity(payload: SensitivityRequest, db: Session = Depends(get_db)):
     if not payload.outputFieldIds:
         raise HTTPException(400, "Select at least one output metric to track.")
 
+    total_points = 1
+    for d in payload.drivers:
+        total_points *= len(d.values)
+
+    if payload.mode == "native":
+        if total_points > sensitivity_service.MAX_NATIVE_GRID_POINTS:
+            raise HTTPException(
+                400,
+                f"Grid too large ({total_points} points) — native mode caps at "
+                f"{sensitivity_service.MAX_NATIVE_GRID_POINTS} combinations.",
+            )
+        outcome = sensitivity_service.run_native_sensitivity(
+            payload.baseValues,
+            [d.model_dump() for d in payload.drivers],
+            payload.outputFieldIds,
+        )
+        return SensitivityResponse(points=outcome["points"])
+
+    if not payload.templateId or not payload.mappingProfileId:
+        raise HTTPException(400, "Template mode requires templateId and mappingProfileId.")
     template = db.get(Template, payload.templateId)
     if template is None:
         raise HTTPException(404, "Template not found")
@@ -37,9 +57,6 @@ def run_sensitivity(payload: SensitivityRequest, db: Session = Depends(get_db)):
             f"'Template & Mapping' first.",
         )
 
-    total_points = 1
-    for d in payload.drivers:
-        total_points *= len(d.values)
     if total_points > sensitivity_service.MAX_GRID_POINTS:
         raise HTTPException(
             400,

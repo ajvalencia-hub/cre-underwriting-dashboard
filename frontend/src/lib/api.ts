@@ -350,11 +350,28 @@ export function confirmExtraction(resultId: string, confirmedValues: Record<stri
 }
 
 export function runSensitivity(payload: {
-  templateId: string
-  mappingProfileId: string
+  mode: 'native' | 'template'
+  templateId?: string | null
+  mappingProfileId?: string | null
   baseValues: Record<string, unknown>
   drivers: SensitivityDriver[]
   outputFieldIds: string[]
 }) {
   return postJson<SensitivityResponse>('/sensitivity', payload, 'POST')
+}
+
+export interface SavedSensitivity {
+  description: string
+  header: string[]
+  rows: string[][]
+  run: {
+    mode: 'native' | 'template'
+    drivers: SensitivityDriver[]
+    outputFieldIds: string[]
+    points: unknown[]
+  }
+}
+
+export function saveScenarioSensitivity(scenarioId: string, sensitivity: SavedSensitivity) {
+  return postJson<Scenario>(`/scenarios/${scenarioId}/sensitivity`, { sensitivity }, 'PUT')
 }

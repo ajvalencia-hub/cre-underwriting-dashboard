@@ -21,6 +21,7 @@ def _to_out(scenario: Scenario) -> ScenarioOut:
         scenarioName=scenario.scenario_name,
         kind=scenario.kind,
         dealId=scenario.deal_id,
+        sensitivity=scenario.sensitivity,
         templateId=scenario.template_id,
         mappingProfileId=scenario.mapping_profile_id,
         inputs=scenario.inputs,
@@ -113,6 +114,24 @@ def update_scenario(scenario_id: str, payload: ScenarioUpdate, db: Session = Dep
     return _to_out(scenario)
 
 
+class SensitivitySaveRequest(BaseModel):
+    # {description, header, rows, run: {mode, drivers, outputFieldIds, points}}
+    sensitivity: dict
+
+
+@router.put("/{scenario_id}/sensitivity", response_model=ScenarioOut)
+def save_sensitivity(
+    scenario_id: str, payload: SensitivitySaveRequest, db: Session = Depends(get_db)
+):
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    scenario.sensitivity = payload.sensitivity
+    db.commit()
+    db.refresh(scenario)
+    return _to_out(scenario)
+
+
 class MemoRequest(BaseModel):
     limitationsText: str | None = None
 
@@ -182,7 +201,7 @@ def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(
         outputs=metrics,
         debt=debt,
         sources_and_uses=sources_and_uses,
-        sensitivity=stored.get("sensitivity"),
+        sensitivity=scenario.sensitivity or stored.get("sensitivity"),
         benchmark_flags=benchmark_flags,
         limitations_text=payload.limitationsText,
         conventions=conventions,

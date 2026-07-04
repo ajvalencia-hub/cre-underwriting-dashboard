@@ -28,6 +28,19 @@ def run_migrations(target_engine=None) -> None:
     _migrate_scenarios_kind_and_nullable(eng)
     _migrate_scenarios_deal_id(eng)
     _backfill_orphan_scenarios_onto_default_deal(eng)
+    _migrate_scenarios_sensitivity(eng)
+
+
+def _migrate_scenarios_sensitivity(eng) -> None:
+    """Scenarios gained a sensitivity JSON column (saved sensitivity runs)."""
+    inspector = inspect(eng)
+    if "scenarios" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("scenarios")}
+    if "sensitivity" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE scenarios ADD COLUMN sensitivity JSON"))
 
 
 def _migrate_scenarios_kind_and_nullable(eng) -> None:

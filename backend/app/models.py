@@ -68,6 +68,9 @@ class Scenario(Base):
     mapping_profile_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     inputs: Mapped[dict] = mapped_column(JSON, default=dict)
     outputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Last saved sensitivity run ({description, header, rows, run}) — feeds
+    # the memo's sensitivity section and the comparison tooling.
+    sensitivity: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
