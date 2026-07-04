@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
 import {
   cellValue,
   groupIntoYears,
@@ -12,7 +13,89 @@ import {
 
 interface CashFlowTabProps {
   statement: Statement | null
+  /** Current deal-input values — the hold sweep re-evaluates them per exit year. */
+  values: Record<string, unknown>
   onGoToCompute: () => void
+}
+
+const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`)
+const mult = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
+const money = (v: number | null | undefined) =>
+  v == null ? '—' : `$${Math.round(v).toLocaleString()}`
+
+function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
+  const rows = response.sweep.rows
+  if (rows.length === 0) return null
+  const width = 560
+  const height = 180
+  const pad = { left: 46, right: 46, top: 10, bottom: 22 }
+  const plotW = width - pad.left - pad.right
+  const plotH = height - pad.top - pad.bottom
+
+  const years = rows.map((r) => r.holdYear)
+  const xFor = (year: number) =>
+    pad.left +
+    (years.length === 1 ? plotW / 2 : ((year - years[0]) / (years[years.length - 1] - years[0])) * plotW)
+
+  const irrValues = rows.flatMap((r) =>
+    [r.leveredIrr, r.unleveredIrr].filter((v): v is number => v != null),
+  )
+  const emValues = rows.map((r) => r.equityMultiple).filter((v): v is number => v != null)
+  const irrMin = Math.min(...irrValues, 0)
+  const irrMax = Math.max(...irrValues, 0.01)
+  const emMin = Math.min(...emValues, 1)
+  const emMax = Math.max(...emValues, 1.01)
+  const yIrr = (v: number) => pad.top + plotH - ((v - irrMin) / (irrMax - irrMin)) * plotH
+  const yEm = (v: number) => pad.top + plotH - ((v - emMin) / (emMax - emMin)) * plotH
+
+  const path = (values: (number | null)[], y: (v: number) => number) =>
+    rows
+      .map((r, i) => {
+        const v = values[i]
+        return v == null ? null : `${i === 0 || values[i - 1] == null ? 'M' : 'L'}${xFor(r.holdYear)},${y(v)}`
+      })
+      .filter(Boolean)
+      .join(' ')
+
+  const modeled = response.sweep.modeledHoldYears
+  return (
+    <svg width={width} height={height} role="img" aria-label="Hold sweep chart">
+      {/* modeled hold marker */}
+      {modeled >= years[0] && modeled <= years[years.length - 1] && (
+        <line
+          x1={xFor(modeled)}
+          y1={pad.top}
+          x2={xFor(modeled)}
+          y2={pad.top + plotH}
+          stroke="#f59e0b"
+          strokeDasharray="4 3"
+        />
+      )}
+      <path d={path(rows.map((r) => r.leveredIrr), yIrr)} fill="none" stroke="#0284c7" strokeWidth={2} />
+      <path d={path(rows.map((r) => r.unleveredIrr), yIrr)} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
+      <path d={path(rows.map((r) => r.equityMultiple), yEm)} fill="none" stroke="#059669" strokeWidth={1.5} strokeDasharray="5 3" />
+      {rows.map((r) => (
+        <g key={r.holdYear}>
+          {r.leveredIrr != null && <circle cx={xFor(r.holdYear)} cy={yIrr(r.leveredIrr)} r={2.5} fill="#0284c7" />}
+          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} fill="#64748b" textAnchor="middle">
+            Y{r.holdYear}
+          </text>
+        </g>
+      ))}
+      <text x={2} y={pad.top + 8} fontSize={9} fill="#0284c7">
+        IRR {pct(irrMax)}
+      </text>
+      <text x={2} y={pad.top + plotH} fontSize={9} fill="#0284c7">
+        {pct(irrMin)}
+      </text>
+      <text x={width - 2} y={pad.top + 8} fontSize={9} fill="#059669" textAnchor="end">
+        {mult(emMax)}
+      </text>
+      <text x={width - 2} y={pad.top + plotH} fontSize={9} fill="#059669" textAnchor="end">
+        {mult(emMin)}
+      </text>
+    </svg>
+  )
 }
 
 const PHASE_STYLE: Record<string, string> = {
@@ -47,8 +130,23 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function CashFlowTab({ statement, onGoToCompute }: CashFlowTabProps) {
+export default function CashFlowTab({ statement, values, onGoToCompute }: CashFlowTabProps) {
   const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set())
+  const [holdSweep, setHoldSweep] = useState<HoldSweepResponse | null>(null)
+  const [holdBusy, setHoldBusy] = useState(false)
+  const [holdError, setHoldError] = useState<string | null>(null)
+
+  async function handleRunHoldSweep() {
+    setHoldBusy(true)
+    setHoldError(null)
+    try {
+      setHoldSweep(await fetchHoldSweep(values))
+    } catch (err) {
+      setHoldError(err instanceof Error ? err.message : 'Hold sweep failed')
+    } finally {
+      setHoldBusy(false)
+    }
+  }
 
   const columns = useMemo(() => {
     if (!statement) return []
@@ -196,6 +294,127 @@ export default function CashFlowTab({ statement, onGoToCompute }: CashFlowTabPro
           </tbody>
         </table>
       </div>
+
+      <details className="mt-4 rounded border border-slate-200 bg-white p-3">
+        <summary className="cursor-pointer select-none text-sm font-semibold text-slate-600">
+          Hold-period &amp; refi analysis
+        </summary>
+        <p className="mt-1 text-xs text-slate-400">
+          Re-evaluates the deal at every whole exit year after stabilization (modeled hold marked),
+          and compares selling at stabilization vs refinancing and holding.
+        </p>
+        <button
+          onClick={() => void handleRunHoldSweep()}
+          disabled={holdBusy}
+          className="mt-2 rounded bg-slate-900 px-3 py-1 text-xs text-white hover:bg-slate-700 disabled:opacity-40"
+        >
+          {holdBusy ? 'Running…' : holdSweep ? 'Re-run' : 'Run hold sweep'}
+        </button>
+        {holdError && <div className="mt-2 text-sm text-red-600">{holdError}</div>}
+        {holdSweep && (
+          <div className="mt-3 space-y-3">
+            {[...holdSweep.sweep.warnings, ...holdSweep.refiVsSale.warnings].map((w, i) => (
+              <div key={i} className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                {w}
+              </div>
+            ))}
+            {holdSweep.sweep.rows.length > 0 && (
+              <>
+                <HoldSweepChart response={holdSweep} />
+                <table className="text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="px-2 py-1 font-medium">Exit year</th>
+                      <th className="px-2 py-1 font-medium">Unlevered IRR</th>
+                      <th className="px-2 py-1 font-medium">Levered IRR</th>
+                      <th className="px-2 py-1 font-medium">Equity multiple</th>
+                      <th className="px-2 py-1 font-medium">Net proceeds</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdSweep.sweep.rows.map((row) => (
+                      <tr
+                        key={row.holdYear}
+                        className={`border-b border-slate-50 ${
+                          row.holdYear === holdSweep.sweep.modeledHoldYears ? 'bg-amber-50 font-medium' : ''
+                        }`}
+                      >
+                        <td className="px-2 py-1">
+                          Year {row.holdYear}
+                          {row.holdYear === holdSweep.sweep.modeledHoldYears && (
+                            <span className="ml-1 text-[10px] text-amber-600">modeled</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">{pct(row.unleveredIrr)}</td>
+                        <td className="px-2 py-1 tabular-nums">{pct(row.leveredIrr)}</td>
+                        <td className="px-2 py-1 tabular-nums">{mult(row.equityMultiple)}</td>
+                        <td className="px-2 py-1 tabular-nums">{money(row.netProceeds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+            {(holdSweep.refiVsSale.saleAtStabilization || holdSweep.refiVsSale.holdThroughRefi) && (
+              <div>
+                <div className="text-xs font-semibold tracking-wide text-slate-500">
+                  REFI VS SALE AT STABILIZATION
+                </div>
+                <table className="mt-1 text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="px-2 py-1 font-medium">Path</th>
+                      <th className="px-2 py-1 font-medium">Hold (yrs)</th>
+                      <th className="px-2 py-1 font-medium">Levered IRR</th>
+                      <th className="px-2 py-1 font-medium">Equity multiple</th>
+                      <th className="px-2 py-1 font-medium">Proceeds detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdSweep.refiVsSale.saleAtStabilization && (
+                      <tr className="border-b border-slate-50">
+                        <td className="px-2 py-1">Sell at stabilization</td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {holdSweep.refiVsSale.saleAtStabilization.holdYears}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {pct(holdSweep.refiVsSale.saleAtStabilization.leveredIrr)}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {mult(holdSweep.refiVsSale.saleAtStabilization.equityMultiple)}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          Net sale {money(holdSweep.refiVsSale.saleAtStabilization.netProceeds)}
+                        </td>
+                      </tr>
+                    )}
+                    {holdSweep.refiVsSale.holdThroughRefi && (
+                      <tr>
+                        <td className="px-2 py-1">Refi &amp; hold to exit</td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {holdSweep.refiVsSale.holdThroughRefi.holdYears}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {pct(holdSweep.refiVsSale.holdThroughRefi.leveredIrr)}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          {mult(holdSweep.refiVsSale.holdThroughRefi.equityMultiple)}
+                        </td>
+                        <td className="px-2 py-1 tabular-nums">
+                          Refi loan {money(holdSweep.refiVsSale.holdThroughRefi.refiLoan)} (
+                          {holdSweep.refiVsSale.holdThroughRefi.governingConstraint}) · cash-out{' '}
+                          {money(holdSweep.refiVsSale.holdThroughRefi.cashOutProceeds)} · costs{' '}
+                          {money(holdSweep.refiVsSale.holdThroughRefi.refiCosts)}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </details>
     </div>
   )
 }

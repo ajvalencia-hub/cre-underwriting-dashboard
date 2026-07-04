@@ -526,7 +526,11 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
-        <CashFlowTab statement={nativeStatement} onGoToCompute={() => setTab('dashboard')} />
+        <CashFlowTab
+          statement={nativeStatement}
+          values={formValues}
+          onGoToCompute={() => setTab('dashboard')}
+        />
       </div>
 
       <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>

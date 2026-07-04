@@ -75,7 +75,11 @@
         { "id": "originationFeePct", "label": "Origination / Loan Fees", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
         { "id": "dscrConstraint", "label": "Min DSCR Sizing Constraint", "type": "number", "min": 1, "max": 3, "default": 1.25 },
         { "id": "debtYieldConstraint", "label": "Min Debt Yield Sizing Constraint", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 },
-        { "id": "sizingNoiBasis", "label": "Sizing NOI Basis", "type": "select", "options": ["in_place", "stabilized", "underwritten"], "default": "stabilized" }
+        { "id": "sizingNoiBasis", "label": "Sizing NOI Basis", "type": "select", "options": ["in_place", "stabilized", "underwritten"], "default": "stabilized" },
+        { "id": "refiRateSpreadPct", "label": "Refi / Takeout Rate Spread (over construction rate)", "type": "percent", "min": -0.05, "max": 0.05, "default": 0,
+          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
+        { "id": "refiCostsPct", "label": "Refi / Takeout Costs (% of new loan)", "type": "percent", "min": 0, "max": 0.05, "default": 0.01,
+          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } }
       ]
     },
     {

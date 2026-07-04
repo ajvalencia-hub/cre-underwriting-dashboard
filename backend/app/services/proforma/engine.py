@@ -123,6 +123,9 @@ def compute(inputs: dict) -> dict:
     unlevered = [0.0] * (total + 1)
     levered = [0.0] * (total + 1)
     debt_service: list[debt.DebtServiceMonth | None] = [None] * (total + 1)
+    # The rate the PERMANENT loan actually carries — reassigned to the refi
+    # rate at a development takeout; acquisitions keep the input rate.
+    interest_rate_for_perm = interest_rate
 
     sources_and_uses: dict = {"uses": [], "sources": []}
 
@@ -289,6 +292,13 @@ def compute(inputs: dict) -> dict:
             ("Equity", initial_equity),
         ]
 
+        # The permanent takeout IS the stabilization refinance: it prices at
+        # the construction rate plus an explicit spread, with explicit costs
+        # (% of the new loan) deducted at takeout. Defaults (0 spread, 0
+        # costs) preserve the original at-par behavior exactly.
+        perm_rate = interest_rate + _num(inputs, "refiRateSpreadPct")
+        refi_costs_pct = _num(inputs, "refiCostsPct")
+
         if takeout_month <= total:
             # Constraint-sized permanent takeout; the delta vs the
             # construction balance is a cash-out to equity (+) or a paydown
@@ -296,7 +306,7 @@ def compute(inputs: dict) -> dict:
             # permanent debt.
             sizing = debt.size_permanent_loan(
                 sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
-                debt_yield_constraint, interest_rate, amort_years,
+                debt_yield_constraint, perm_rate, amort_years,
             ) if ltc_or_ltv > 0 else debt.PermSizing(0.0, "none", {})
             if sizing.amount > 0:
                 perm_loan = sizing.amount
@@ -304,9 +314,12 @@ def compute(inputs: dict) -> dict:
             else:
                 perm_loan = balance
                 governing_constraint = "none"
+            interest_rate_for_perm = perm_rate
+            refi_costs = perm_loan * refi_costs_pct
             refi_delta = perm_loan - balance
-            levered[takeout_month] += refi_delta
+            levered[takeout_month] += refi_delta - refi_costs
             stmt_debt_draws[takeout_month] += refi_delta
+            stmt_loan_fees[takeout_month] += refi_costs
             if refi_delta < 0:
                 warnings.append(
                     f"Permanent loan sizes below the construction balance — a "
@@ -315,7 +328,7 @@ def compute(inputs: dict) -> dict:
                 )
             perm_months = total - takeout_month + 1
             schedule = debt.amortization_schedule(
-                perm_loan, interest_rate, amort_years, io_months, perm_months
+                perm_loan, perm_rate, amort_years, io_months, perm_months
             )
             for m in range(takeout_month, total + 1):
                 entry = schedule[m - takeout_month]
@@ -441,9 +454,9 @@ def compute(inputs: dict) -> dict:
         dscrs = [n / s.payment for n, s in service_months]
         put("minDscr", min(dscrs))
         put("avgDscr", sum(dscrs) / len(dscrs))
-        annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate, amort_years)
+        annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate_for_perm, amort_years)
         if io_months >= total - takeout_month + 1:
-            annual_service = perm_loan * interest_rate  # never leaves IO
+            annual_service = perm_loan * interest_rate_for_perm  # never leaves IO
         put("loanConstant", annual_service / perm_loan)
         put("debtYield", stabilized_noi / perm_loan)
         year1_interest = sum(
@@ -507,7 +520,7 @@ def compute(inputs: dict) -> dict:
         )
         stress = debt.stress_matrix(
             sizing_noi, value_for_ltv, perm_loan, ltc_or_ltv, dscr_constraint,
-            debt_yield_constraint, interest_rate, amort_years,
+            debt_yield_constraint, interest_rate_for_perm, amort_years,
         )
         worst = next(
             (c for c in stress if c["rateBumpBps"] == 200 and c["noiHaircutPct"] == 0.10),

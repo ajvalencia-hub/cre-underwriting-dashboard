@@ -376,6 +376,38 @@ export function saveScenarioSensitivity(scenarioId: string, sensitivity: SavedSe
   return postJson<Scenario>(`/scenarios/${scenarioId}/sensitivity`, { sensitivity }, 'PUT')
 }
 
+export interface HoldSweepRow {
+  holdYear: number
+  unleveredIrr: number | null
+  leveredIrr: number | null
+  equityMultiple: number | null
+  netProceeds: number | null
+}
+
+export interface RefiVsSaleSide {
+  holdYears: number
+  leveredIrr: number | null
+  equityMultiple: number | null
+  netProceeds?: number | null
+  refiLoan?: number | null
+  governingConstraint?: string
+  cashOutProceeds?: number | null
+  refiCosts?: number | null
+}
+
+export interface HoldSweepResponse {
+  sweep: { rows: HoldSweepRow[]; modeledHoldYears: number; warnings: string[] }
+  refiVsSale: {
+    saleAtStabilization: RefiVsSaleSide | null
+    holdThroughRefi: RefiVsSaleSide | null
+    warnings: string[]
+  }
+}
+
+export function fetchHoldSweep(values: Record<string, unknown>) {
+  return postJson<HoldSweepResponse>('/compute/hold-sweep', { values }, 'POST')
+}
+
 export interface TornadoResponse {
   metric: string
   base: number

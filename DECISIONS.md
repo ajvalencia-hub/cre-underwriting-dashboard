@@ -3,6 +3,25 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## G6 — Hold sweep and refi-vs-sale (Run 2)
+
+- **[FIN] The development perm takeout IS the stabilization refinance**, and
+  it now prices explicitly: rate = construction rate + refiRateSpreadPct
+  (default 0), costs = refiCostsPct × new loan (schema default 1%, the
+  standard institutional refi cost load) deducted from equity cash flow at
+  takeout. Sizing, the amortization schedule, DSCR metrics, and the stress
+  grid all use the perm rate. Zero spread + zero costs reproduces Run-1
+  numbers exactly (the parity corpus pins this). Rejected: a separate
+  post-takeout second refi event (two refis inside one modeled hold is not
+  the standard base case); a standalone permanent-rate input (a spread over
+  the observable construction rate is how term sheets quote it).
+- **[FIN] Hold sweep = whole exit years from stabilization+1** (year 1 for
+  day-one-stabilized acquisitions) **through the modeled hold**, each row a
+  full engine re-compute at that holdPeriodYears. The sale-at-stabilization
+  leg of the refi-vs-sale fork computes with hold = stabilizationMonth/12
+  (fractional years are legal — the timeline rounds to months). A deal that
+  never stabilizes inside the hold returns warnings, never crashes.
+
 ## G1 — Waterfall styles and IRR conventions (Run 2)
 
 - **[FIN] American waterfall = ledger + strict sequencing.** Pref accrues

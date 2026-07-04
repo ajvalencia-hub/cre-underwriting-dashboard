@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.services import tornado_service
-from app.services.proforma import engine
+from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
 
@@ -17,6 +17,18 @@ class ComputeRequest(BaseModel):
 class TornadoRequest(BaseModel):
     values: dict[str, Any]
     metric: str = "leveredIrr"
+
+
+@router.post("/hold-sweep")
+def hold_sweep(payload: ComputeRequest):
+    try:
+        sweep = hold.hold_sweep(payload.values)
+        fork = hold.refi_vs_sale(payload.values)
+    except engine.InsufficientInputsError as exc:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "missing": exc.missing}
+        )
+    return {"sweep": sweep, "refiVsSale": fork}
 
 
 @router.post("/tornado")
