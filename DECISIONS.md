@@ -3,6 +3,22 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## G7 — Deal export/import (Run 2)
+
+- **The bundle carries no documents or extraction results.** Documents and
+  extraction results are global in the data model (not deal-scoped), so a
+  deal bundle including them would either leak other deals' material or
+  require a schema-level re-scoping out of proportion to the feature.
+  Bundled instead: deal inputs (incl. quickScreen), every scenario with its
+  outputs snapshot and saved sensitivity run, and NAMED template/mapping
+  references. Rejected: bundling the template .xlsx (binary payloads in a
+  JSON bundle, and templates are firm IP that shouldn't travel with every
+  deal file by default).
+- Import always creates a NEW deal (name suffixed "(imported)"), rewrites
+  every id, clears template/mapping references to placeholders with
+  explicit warnings, and validates exportKind + schemaVersion (=1) before
+  touching the database.
+
 ## G6 — Hold sweep and refi-vs-sale (Run 2)
 
 - **[FIN] The development perm takeout IS the stabilization refinance**, and

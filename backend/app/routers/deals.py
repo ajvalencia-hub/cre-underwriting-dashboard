@@ -1,12 +1,19 @@
+from datetime import datetime, timezone
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Deal, Scenario
+from app.models import Deal, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
 
 router = APIRouter(prefix="/api/deals", tags=["deals"])
+
+EXPORT_KIND = "cre-dashboard-deal"
+EXPORT_SCHEMA_VERSION = 1
 
 
 def _to_out(deal: Deal) -> DealOut:
@@ -70,6 +77,121 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(deal)
     return _to_out(deal)
+
+
+@router.get("/{deal_id}/export")
+def export_deal(deal_id: str, db: Session = Depends(get_db)):
+    """Versioned, self-contained JSON bundle for one deal: inputs (incl. the
+    quickScreen key), scenarios with their outputs and saved sensitivity
+    runs, and NAMED template/mapping references (the underlying .xlsx is
+    deliberately not bundled). Documents and extraction results are global,
+    not deal-scoped, so the bundle carries none (see DECISIONS.md)."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+
+    scenarios = db.execute(
+        select(Scenario).where(Scenario.deal_id == deal_id).order_by(Scenario.created_at)
+    ).scalars().all()
+
+    template_ref = None
+    if deal.active_template_id:
+        template = db.get(Template, deal.active_template_id)
+        template_ref = {"id": deal.active_template_id, "filename": template.filename if template else None}
+    mapping_ref = None
+    if deal.active_mapping_profile_id:
+        profile = db.get(MappingProfile, deal.active_mapping_profile_id)
+        mapping_ref = {
+            "id": deal.active_mapping_profile_id,
+            "profileName": profile.profile_name if profile else None,
+        }
+
+    return {
+        "exportKind": EXPORT_KIND,
+        "schemaVersion": EXPORT_SCHEMA_VERSION,
+        "exportedAt": datetime.now(timezone.utc).isoformat(),
+        "deal": {"name": deal.name, "inputs": deal.inputs},
+        "activeTemplate": template_ref,
+        "activeMappingProfile": mapping_ref,
+        "scenarios": [
+            {
+                "scenarioName": s.scenario_name,
+                "kind": s.kind,
+                "templateId": s.template_id,
+                "mappingProfileId": s.mapping_profile_id,
+                "inputs": s.inputs,
+                "outputs": s.outputs,
+                "sensitivity": s.sensitivity,
+            }
+            for s in scenarios
+        ],
+    }
+
+
+class DealImportRequest(BaseModel):
+    bundle: dict[str, Any]
+
+
+@router.post("/import")
+def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
+    """Creates a NEW deal from an exported bundle — never merges. Internal
+    ids are rewritten; template/mapping references import as named
+    placeholders (cleared ids) since the .xlsx isn't bundled."""
+    bundle = payload.bundle
+    if bundle.get("exportKind") != EXPORT_KIND:
+        raise HTTPException(400, "Not a deal export bundle (exportKind mismatch).")
+    if bundle.get("schemaVersion") != EXPORT_SCHEMA_VERSION:
+        raise HTTPException(
+            400,
+            f"Unsupported bundle schemaVersion {bundle.get('schemaVersion')!r} — "
+            f"this build reads version {EXPORT_SCHEMA_VERSION}.",
+        )
+    deal_data = bundle.get("deal") or {}
+    name = str(deal_data.get("name") or "Imported Deal").strip() or "Imported Deal"
+    inputs = deal_data.get("inputs") if isinstance(deal_data.get("inputs"), dict) else {}
+
+    deal = Deal(name=f"{name} (imported)", inputs=inputs)
+    db.add(deal)
+    db.flush()  # assigns the new deal id for the scenarios below
+
+    warnings: list[str] = []
+    if bundle.get("activeTemplate") or bundle.get("activeMappingProfile"):
+        template_name = (bundle.get("activeTemplate") or {}).get("filename") or "unknown template"
+        warnings.append(
+            f"The exporting machine used template '{template_name}' — templates aren't "
+            "bundled, so re-upload the .xlsx and re-map under 'Template & Mapping'."
+        )
+
+    scenario_count = 0
+    for s in bundle.get("scenarios") or []:
+        if not isinstance(s, dict) or not s.get("scenarioName"):
+            continue
+        kind = s.get("kind") if s.get("kind") in ("quickscreen", "full") else "full"
+        if s.get("templateId") or s.get("mappingProfileId"):
+            warnings.append(
+                f"Scenario '{s['scenarioName']}': template/mapping references were "
+                "cleared (not bundled) — re-link after re-uploading the template."
+            )
+        db.add(
+            Scenario(
+                scenario_name=str(s["scenarioName"]),
+                kind=kind,
+                deal_id=deal.id,
+                template_id=None,
+                mapping_profile_id=None,
+                inputs=s.get("inputs") if isinstance(s.get("inputs"), dict) else {},
+                outputs=s.get("outputs") if isinstance(s.get("outputs"), dict) else {},
+                sensitivity=s.get("sensitivity") if isinstance(s.get("sensitivity"), dict) else None,
+            )
+        )
+        scenario_count += 1
+
+    db.commit()
+    db.refresh(deal)
+    out = _to_out(deal)
+    # Ride the warnings/counts on the response without a new schema: the
+    # client shows them once and they aren't deal state.
+    return {**out.model_dump(), "importWarnings": warnings, "importedScenarios": scenario_count}
 
 
 @router.delete("/{deal_id}")

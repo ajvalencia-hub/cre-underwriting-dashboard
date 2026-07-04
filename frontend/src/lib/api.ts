@@ -376,6 +376,29 @@ export function saveScenarioSensitivity(scenarioId: string, sensitivity: SavedSe
   return postJson<Scenario>(`/scenarios/${scenarioId}/sensitivity`, { sensitivity }, 'PUT')
 }
 
+export interface DealExportBundle {
+  exportKind: string
+  schemaVersion: number
+  exportedAt: string
+  deal: { name: string; inputs: Record<string, unknown> }
+  activeTemplate: { id: string; filename: string | null } | null
+  activeMappingProfile: { id: string; profileName: string | null } | null
+  scenarios: unknown[]
+}
+
+export function exportDeal(dealId: string) {
+  return getJson<DealExportBundle>(`/deals/${dealId}/export`)
+}
+
+export interface DealImportResponse extends Deal {
+  importWarnings: string[]
+  importedScenarios: number
+}
+
+export function importDeal(bundle: DealExportBundle) {
+  return postJson<DealImportResponse>('/deals/import', { bundle }, 'POST')
+}
+
 export interface HoldSweepRow {
   holdYear: number
   unleveredIrr: number | null

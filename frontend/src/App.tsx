@@ -11,12 +11,15 @@ import TemplateUpload from './pages/TemplateUpload'
 import {
   createDeal,
   deleteDeal,
+  exportDeal,
   fetchDeal,
   fetchDeals,
   fetchHealth,
   fetchInputSchema,
   fetchTemplate,
+  importDeal,
   updateDeal,
+  type DealExportBundle,
 } from './lib/api'
 import {
   ACTIVE_DEAL_STORAGE_KEY,
@@ -93,6 +96,9 @@ function App() {
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
   const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
   const [renamingName, setRenamingName] = useState<string | null>(null)
+  const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
+  const [importNotice, setImportNotice] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const activeDealIdRef = useRef<string | null>(null)
   const hydratedRef = useRef(false)
@@ -239,6 +245,56 @@ function App() {
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, remaining[0].id)
     applyDealState(state.schema, remaining[0], new URLSearchParams())
     setActiveDealId(remaining[0].id)
+  }
+
+  async function handleExportDeal() {
+    if (!activeDealId) return
+    await autosaverRef.current!.flush()
+    const bundle = await exportDeal(activeDealId)
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportFile(file: File) {
+    setImportNotice(null)
+    file
+      .text()
+      .then((text) => {
+        const bundle = JSON.parse(text) as DealExportBundle
+        if (bundle.exportKind !== 'cre-dashboard-deal') {
+          setImportNotice('That file is not a deal export bundle.')
+          return
+        }
+        setImportPreview(bundle)
+      })
+      .catch(() => setImportNotice('Could not read that file as JSON.'))
+  }
+
+  async function handleConfirmImport() {
+    if (state.status !== 'ready' || !importPreview) return
+    try {
+      const imported = await importDeal(importPreview)
+      setImportPreview(null)
+      setImportNotice(
+        imported.importWarnings.length > 0
+          ? `Imported with ${imported.importWarnings.length} note(s): ${imported.importWarnings[0]}`
+          : `Imported "${imported.name}" with ${imported.importedScenarios} scenario(s).`,
+      )
+      setDeals((prev) => [imported, ...prev])
+      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, imported.id)
+      applyDealState(state.schema, imported, new URLSearchParams())
+      setActiveDealId(imported.id)
+    } catch (err) {
+      setImportNotice(err instanceof Error ? err.message : 'Import failed')
+      setImportPreview(null)
+    }
   }
 
   function handleSendQuickScreenToDealInputs() {
@@ -436,6 +492,29 @@ function App() {
         >
           Delete
         </button>
+        <button
+          onClick={() => void handleExportDeal()}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          Export
+        </button>
+        <button
+          onClick={() => importInputRef.current?.click()}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          Import
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) handleImportFile(file)
+            e.target.value = ''
+          }}
+        />
         <span
           className={`ml-auto text-xs ${
             autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
@@ -444,6 +523,36 @@ function App() {
           {AUTOSAVE_LABEL[autosaveState]}
         </span>
       </div>
+
+      {importNotice && (
+        <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+          {importNotice}
+        </div>
+      )}
+      {importPreview && (
+        <div className="mb-3 flex items-center gap-3 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-700">
+          <span>
+            Import <span className="font-semibold">{importPreview.deal.name}</span> —{' '}
+            {importPreview.scenarios.length} scenario(s), exported{' '}
+            {new Date(importPreview.exportedAt).toLocaleString()}
+            {importPreview.activeTemplate &&
+              ` · used template "${importPreview.activeTemplate.filename}" (not bundled)`}
+            ?
+          </span>
+          <button
+            onClick={() => void handleConfirmImport()}
+            className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+          >
+            Create new deal
+          </button>
+          <button
+            onClick={() => setImportPreview(null)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-white"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       <div className="mb-6 flex gap-1 border-b border-slate-200">
         {(
