@@ -122,18 +122,120 @@ def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
     return (1 + annual_growth) ** ((month_1_based - 1) // 12)
 
 
+# Detail-mode (H3) category ids -> the statement's legacy category keys, so
+# the Cash Flow view labels stay consistent across modes.
+_DETAIL_CATEGORY_KEYS = {
+    "taxes": "realEstateTaxes",
+    "insurance": "insurance",
+    "utilities": "utilities",
+    "repairs_maintenance": "repairsMaintenance",
+    "payroll": "payroll",
+    "management_fee": "managementFeeFixed",
+    "ga": "generalAdmin",
+    "other": "otherOpex",
+}
+
+
+def has_opex_detail(inputs: dict) -> bool:
+    return any(
+        isinstance(r, dict) and isinstance(r.get("amount"), (int, float)) and r["amount"] > 0
+        for r in (inputs.get("opexLineItems") or [])
+    )
+
+
+def _detail_line_annual(inputs: dict, line: dict) -> tuple[float, str | None]:
+    """Resolve a detail line's annual dollar base per its basis. Returns
+    (annual, warning-or-None). pct_of_egi lines return 0 here — they're
+    EGI-multiplied in the loops."""
+    amount = _num(line, "amount")
+    basis = line.get("basis") or "annual_total"
+    if basis == "per_unit":
+        units = sum(
+            r.get("unitCount") or 0
+            for r in (inputs.get("unitMix") or [])
+            if isinstance(r, dict)
+        )
+        if units <= 0:
+            return amount, (
+                f"Opex line '{line.get('category')}' uses per_unit basis but the "
+                "deal has no unit mix — treated as an annual total."
+            )
+        return amount * units, None
+    if basis == "psf":
+        sf = (
+            sum(_num(l, "sf") for l in (inputs.get("commercialLeases") or []) if isinstance(l, dict))
+            or _num(inputs, "rentableSf")
+            or _num(inputs, "officeRentableSf")
+        )
+        if sf <= 0:
+            return amount, (
+                f"Opex line '{line.get('category')}' uses psf basis but no SF is "
+                "known — treated as an annual total."
+            )
+        return amount * sf, None
+    return amount, None  # annual_total (and pct_of_egi callers never get here)
+
+
 def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
-    """Per-category fixed-expense monthly vectors (growth applied on the
-    operating clock, zero during construction) — shared by both income
-    paths so the expense math exists exactly once."""
+    """The single expense model both income paths consume.
+
+    Legacy mode (no opexLineItems): per-category vectors from the flat dollar
+    fields, egiPctTotal = managementFeePct, recoverable per the H1 default
+    set. Detail mode (H3): per-line categories with basis resolution
+    (annual_total | per_unit | psf), per-line growth (falling back to the
+    deal's expense growth), explicit recoverable flags, and pct_of_egi lines
+    aggregated into egiPctTotal (EGI-based lines are never recoverable —
+    see DECISIONS.md)."""
     expense_growth = (
         _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
     )
+    warnings: list[str] = []
+    total = timeline.total_months
+
+    if has_opex_detail(inputs):
+        lines = []
+        egi_pct_total = 0.0
+        for raw in inputs.get("opexLineItems") or []:
+            if not (isinstance(raw, dict) and _num(raw, "amount") > 0):
+                continue
+            if (raw.get("basis") or "annual_total") == "pct_of_egi":
+                egi_pct_total += _num(raw, "amount")
+                continue
+            annual, warning = _detail_line_annual(inputs, raw)
+            if warning:
+                warnings.append(warning)
+            growth = _num(raw, "growthPct", expense_growth) if raw.get("growthPct") is not None else expense_growth
+            key = _DETAIL_CATEGORY_KEYS.get(raw.get("category") or "other", "otherOpex")
+            recoverable_flag = raw.get("recoverable") in (True, "yes", "true", 1)
+            lines.append({"key": key, "annual": annual, "growth": growth,
+                          "recoverable": recoverable_flag})
+
+        by_category: dict[str, list[float]] = {}
+        recoverable = [0.0] * total
+        for month in range(1, total + 1):
+            operating_month = month - timeline.construction_months
+            for line in lines:
+                vec = by_category.setdefault(line["key"], [0.0] * total)
+                if operating_month < 1:
+                    continue
+                amount = (line["annual"] / 12) * _growth_multiplier(line["growth"], operating_month)
+                vec[month - 1] += amount
+                if line["recoverable"]:
+                    recoverable[month - 1] += amount
+        return {
+            "byCategory": by_category,
+            "recoverable": recoverable,
+            "expenseGrowth": expense_growth,
+            "egiPctTotal": egi_pct_total,
+            "detailMode": True,
+            "warnings": warnings,
+        }
+
     category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
     active = [f for f, v in category_bases.items() if v > 0]
-    by_category: dict[str, list[float]] = {f: [] for f in active}
-    recoverable: list[float] = []
-    for month in range(1, timeline.total_months + 1):
+    by_category = {f: [] for f in active}
+    recoverable = []
+    for month in range(1, total + 1):
         operating_month = month - timeline.construction_months
         if operating_month < 1:
             for f in active:
@@ -152,6 +254,9 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
         "byCategory": by_category,
         "recoverable": recoverable,
         "expenseGrowth": expense_growth,
+        "egiPctTotal": _num(inputs, "managementFeePct"),
+        "detailMode": False,
+        "warnings": warnings,
     }
 
 
@@ -169,6 +274,7 @@ def _build_lease_noi_vector(
     warnings: list[str] = []
     total = timeline.total_months
     expenses = _fixed_expense_vectors(inputs, timeline)
+    warnings.extend(expenses["warnings"])
     recoverable = [v * recoverable_scale for v in expenses["recoverable"]]
     income = leases.build_lease_income(
         inputs, total, recoverable, expenses["expenseGrowth"]
@@ -182,7 +288,7 @@ def _build_lease_noi_vector(
         )
 
     credit_loss_pct = _num(inputs, "creditLossPct")
-    management_fee_pct = _num(inputs, "managementFeePct")
+    management_fee_pct = expenses["egiPctTotal"]
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
     )
@@ -279,9 +385,17 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     )
     # Residential run carries NO fixed dollar expenses (they'd double count);
     # its management fee on its own EGI is the correct linear share.
-    res_inputs = {**inputs, "commercialLeases": []}
+    res_inputs = {**inputs, "commercialLeases": [], "opexLineItems": []}
     for field in EXPENSE_DOLLAR_FIELDS:
         res_inputs[field] = 0
+    # Detail mode: keep the res side's EGI-based lines (mgmt fee) by carrying
+    # them over as legacy managementFeePct so the linear split still works.
+    if has_opex_detail(inputs):
+        res_inputs["managementFeePct"] = sum(
+            _num(r, "amount")
+            for r in (inputs.get("opexLineItems") or [])
+            if isinstance(r, dict) and (r.get("basis") or "annual_total") == "pct_of_egi"
+        )
     residential = build_noi_vector(res_inputs, timeline)
 
     total = timeline.total_months
@@ -358,17 +472,14 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
     )
-    expense_growth = (
-        _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
-    )
     vacancy_pct = _num(inputs, "vacancyPct", 0.05)
     credit_loss_pct = _num(inputs, "creditLossPct")
-    management_fee_pct = _num(inputs, "managementFeePct")
     stabilized_occupancy = max(0.0, 1 - vacancy_pct)
 
-    category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
-    annual_expense_base = sum(category_bases.values())
-    active_categories = [f for f, v in category_bases.items() if v > 0]
+    expenses = _fixed_expense_vectors(inputs, timeline)
+    warnings.extend(expenses["warnings"])
+    management_fee_pct = expenses["egiPctTotal"]
+    fixed_by_category = expenses["byCategory"]
 
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
@@ -379,7 +490,6 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     credit_vec: list[float] = []
     other_vec: list[float] = []
     mgmt_fee_vec: list[float] = []
-    fixed_by_category: dict[str, list[float]] = {f: [] for f in active_categories}
 
     for month in range(1, timeline.total_months + 1):
         phase = timeline.phase(month)
@@ -392,8 +502,6 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
                 vacancy_vec, credit_vec, other_vec, mgmt_fee_vec,
             ):
                 vec.append(0.0)
-            for f in active_categories:
-                fixed_by_category[f].append(0.0)
             continue
 
         if phase == "lease_up":
@@ -404,7 +512,6 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
             occupancy = stabilized_occupancy
 
         rent_mult = _growth_multiplier(rent_growth, operating_month)
-        expense_mult = _growth_multiplier(expense_growth, operating_month)
 
         gpr_month = (annual_gpr / 12) * rent_mult
         other_month = (annual_other / 12) * rent_mult
@@ -418,7 +525,7 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         other_income_month = other_month * occupancy_share
         egi_month = collected_rent + other_income_month
 
-        fixed_expenses_month = (annual_expense_base / 12) * expense_mult
+        fixed_expenses_month = sum(vec[month - 1] for vec in fixed_by_category.values())
         management_fee_month = egi_month * management_fee_pct
         opex_month = fixed_expenses_month + management_fee_month
 
@@ -431,8 +538,6 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         credit_vec.append(credit_loss_month)
         other_vec.append(other_income_month)
         mgmt_fee_vec.append(management_fee_month)
-        for f in active_categories:
-            fixed_by_category[f].append((category_bases[f] / 12) * expense_mult)
 
     return {
         "noi": noi_vec,
@@ -461,6 +566,9 @@ def stabilized_annual_noi(inputs: dict) -> float:
             return sum(_build_mixed_noi_vector(inputs, Timeline(12, 0, 0, 1))["noi"])
         window = _build_lease_noi_vector(inputs, Timeline(12, 0, 0, 1))
         return sum(window["noi"])
+    if has_opex_detail(inputs):
+        # Detail mode: mirror the vector math over a 12-month in-place window.
+        return sum(build_noi_vector(inputs, Timeline(12, 0, 0, 1))["noi"])
 
     annual_gpr, annual_other, _, _ = annual_gpr_and_other_income(inputs)
     vacancy_pct = _num(inputs, "vacancyPct", 0.05)

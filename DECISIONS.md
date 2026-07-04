@@ -3,6 +3,29 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H3 — Expense-line detail (Run 3)
+
+- **When any opexLineItems row exists, detail mode replaces the flat expense
+  fields entirely** (mixing modes silently would double count). One expense
+  model serves both income paths: per-line basis resolution (annual_total |
+  per_unit x unit count | psf x known SF | pct_of_egi), per-line growth
+  falling back to the deal's expense growth, and detail categories mapped
+  onto the statement's legacy category keys so the Cash Flow view stays
+  consistent.
+- **[FIN] pct_of_egi lines are never recoverable** (would be circular — the
+  recovery feeds the EGI the line is computed on; also matches the
+  management-fee norm). Recoverable flags on dollar lines feed the NNN /
+  base-year-stop recovery pool exactly; the H1 default recoverable set
+  applies only in legacy mode.
+- per_unit/psf bases with no known unit count/SF fall back to annual_total
+  WITH a warning, never silently.
+- **Insurance stress = full engine re-computes** with the insurance line(s)
+  bumped +25%/+50% (an internal flag stops recursion), so recovery and
+  management-fee knock-ons are exact rather than approximated deltas.
+  Categorical stress exists only in detail mode; the panel degrades
+  gracefully otherwise. Rejected: analytic delta shortcuts (wrong for NNN
+  deals where insurance is partly recovered).
+
 ## H2 — Mixed-use composition (Run 3)
 
 - **[FIN] Composition, not a third engine:** the residential (unit-mix) and

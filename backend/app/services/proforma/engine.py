@@ -633,6 +633,45 @@ def compute(inputs: dict) -> dict:
         "lpDistributions": waterfall["lpFlows"],
         "gpDistributions": waterfall["gpFlows"],
     }
+    # Insurance stress (H3): categorical stress exists only in expense-detail
+    # mode; each scenario is a full engine re-compute with the insurance
+    # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.
+    if (
+        debt_block is not None
+        and operations.has_opex_detail(inputs)
+        and not inputs.get("_skipCategoricalStress")
+    ):
+        insurance_present = any(
+            isinstance(r, dict) and r.get("category") == "insurance" and _num(r, "amount") > 0
+            for r in inputs.get("opexLineItems") or []
+        )
+        if insurance_present:
+            def _avg_annual_operating_cf(stmt: dict) -> float:
+                months = stmt["exitMonth"]
+                operating = sum(stmt["levered"][1 : months + 1]) - stmt["saleProceedsNet"][months]
+                return operating / (months / 12) if months else 0.0
+
+            base_cf = _avg_annual_operating_cf(statement)
+            insurance_rows = []
+            for bump in (0.25, 0.50):
+                bumped_lines = [
+                    {**r, "amount": _num(r, "amount") * (1 + bump)}
+                    if isinstance(r, dict) and r.get("category") == "insurance"
+                    else r
+                    for r in inputs.get("opexLineItems") or []
+                ]
+                sub = compute(
+                    {**inputs, "opexLineItems": bumped_lines, "_skipCategoricalStress": True}
+                )
+                insurance_rows.append(
+                    {
+                        "bumpPct": bump,
+                        "minDscr": sub["outputs"].get("minDscr"),
+                        "leveredCfDeltaAnnual": _avg_annual_operating_cf(sub["statement"]) - base_cf,
+                    }
+                )
+            debt_block["insuranceStress"] = insurance_rows
+
     if ops.get("leaseDetail"):
         statement["leases"] = ops["leaseDetail"]
     if components:

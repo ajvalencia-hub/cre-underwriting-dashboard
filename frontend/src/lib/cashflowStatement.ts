@@ -72,6 +72,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   payroll: 'Payroll',
   generalAdmin: 'General & admin',
   replacementReserves: 'Replacement reserves',
+  managementFeeFixed: 'Management fee (fixed $)',
+  otherOpex: 'Other opex',
 }
 
 export function statementRows(statement: Statement): StatementRow[] {

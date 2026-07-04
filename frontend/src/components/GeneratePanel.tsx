@@ -185,6 +185,28 @@ export default function GeneratePanel({
                 ))}
             </tbody>
           </table>
+          {debtBlock.insuranceStress && debtBlock.insuranceStress.length > 0 && (
+            <table className="mt-2 text-xs">
+              <thead>
+                <tr className="text-left text-slate-400">
+                  <th className="pr-3 font-medium">Insurance stress</th>
+                  <th className="pr-3 font-medium">Min DSCR</th>
+                  <th className="pr-3 font-medium">Levered CF Δ / yr</th>
+                </tr>
+              </thead>
+              <tbody>
+                {debtBlock.insuranceStress.map((row) => (
+                  <tr key={row.bumpPct} className="text-slate-600">
+                    <td className="pr-3">+{Math.round(row.bumpPct * 100)}%</td>
+                    <td className={`pr-3 ${row.minDscr !== null && row.minDscr < 1 ? 'text-red-600' : ''}`}>
+                      {row.minDscr === null ? '—' : `${row.minDscr.toFixed(2)}x`}
+                    </td>
+                    <td className="pr-3 text-red-600">{fmtMoney(row.leveredCfDeltaAnnual)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
       {result && (

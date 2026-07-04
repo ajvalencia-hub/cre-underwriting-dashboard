@@ -129,7 +129,17 @@
         { "id": "payroll", "label": "Payroll", "type": "currency", "min": 0 },
         { "id": "generalAdmin", "label": "General & Admin", "type": "currency", "min": 0 },
         { "id": "managementFeePct", "label": "Management Fee", "type": "percent", "min": 0, "max": 0.2, "default": 0.03 },
-        { "id": "replacementReserves", "label": "Replacement Reserves", "type": "currency", "min": 0 }
+        { "id": "replacementReserves", "label": "Replacement Reserves", "type": "currency", "min": 0 },
+        { "id": "opexLineItems", "label": "Opex Detail (overrides the fields above when any row exists)", "type": "table",
+          "columns": [
+            { "id": "category", "label": "Category", "type": "select",
+              "options": ["taxes", "insurance", "utilities", "repairs_maintenance", "payroll", "management_fee", "ga", "other"] },
+            { "id": "amount", "label": "Amount ($ or fraction for % of EGI)", "type": "number" },
+            { "id": "basis", "label": "Basis", "type": "select",
+              "options": ["annual_total", "per_unit", "psf", "pct_of_egi"] },
+            { "id": "growthPct", "label": "Growth (blank = deal default)", "type": "percent" },
+            { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] }
+          ] }
       ]
     },
     {

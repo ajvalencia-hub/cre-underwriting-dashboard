@@ -203,6 +203,8 @@ export interface DebtBlock {
   sizingNoi: number
   value: number
   stress: DebtStressCell[]
+  /** H3: present only when opex detail mode carries an insurance line. */
+  insuranceStress?: { bumpPct: number; minDscr: number | null; leveredCfDeltaAnnual: number }[]
 }
 
 export interface ComputeResponse {
