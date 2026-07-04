@@ -142,25 +142,16 @@ def client(monkeypatch):
 
 
 def test_memo_route_returns_docx_via_fresh_compute(client, analytic):
-    scenario = client.post(
+    # Since the native engine landed, full scenarios don't need a template —
+    # they create directly and the memo computes fresh from their inputs.
+    created = client.post(
         "/api/scenarios",
         json={"scenarioName": "Base", "kind": "full", "templateId": None,
               "mappingProfileId": None, "inputs": analytic},
     )
-    # Full scenarios normally require template ids — create as quickscreen? No:
-    # the create endpoint enforces template for kind=full.
-    assert scenario.status_code == 400  # documents the create-side guard
+    assert created.status_code == 200
 
-    # Store one directly with outputs-free full shape via the DB override.
-    from app.models import Scenario
-
-    db = next(app.dependency_overrides[get_db]())
-    row = Scenario(scenario_name="Base", kind="full", inputs=analytic, outputs={})
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-
-    resp = client.post(f"/api/scenarios/{row.id}/memo", json={})
+    resp = client.post(f"/api/scenarios/{created.json()['id']}/memo", json={})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.wordprocessingml"

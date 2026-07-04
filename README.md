@@ -11,7 +11,9 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
 ## Features
 
 - **Deals** — every working session is a persistent deal (autosaved,
-  switchable, multi-deal). Scenarios scope to the active deal.
+  switchable, multi-deal). Scenarios scope to the active deal. Deals
+  export/import as versioned JSON bundles (scenarios and saved sensitivity
+  runs included; templates travel as named placeholders).
 - **0. Quick Screen** — back-of-napkin development feasibility: yield on
   cost vs exit cap with solve-for, an inline sensitivity grid, and a
   perm-takeout check sized by the full engine. Shareable via URL params.
@@ -30,11 +32,29 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
   yield), the governing constraint, and a rate/NOI stress grid. Address
   benchmarks flag assumptions against Census ACS, HUD FMR, FHFA HPA, BLS
   employment, and FEMA flood zones, with per-input hover indicators.
-- **4. Sensitivity** — 1–2 driver sweeps recalculated server-side through
-  your mapped template.
-- **5. Scenarios** — save/compare/load scenario snapshots per deal;
-  **Generate IC Memo** renders a .docx (executive summary, sources & uses,
-  assumptions, returns, debt + stress, market flags, limitations).
+- **4. Cash Flow** — the engine's period-level pro forma: annual table
+  expandable to months, phase band, CSV export, plus a hold-period sweep
+  (returns by exit year, modeled hold marked) and a refi-vs-sale-at-
+  stabilization comparison.
+- **5. Sensitivity** — native-engine sweeps by default (any two inputs, any
+  output metric, up to 25×25), with the mapped-template path available as
+  "Verify via Excel template". Runs can be saved onto a scenario.
+- **6. Scenarios** — save/compare/load scenario snapshots per deal (no
+  template required since the native engine): a comparison view shows only
+  differing inputs plus outputs side-by-side with direction-aware
+  best-value highlighting; a tornado chart ranks one-at-a-time driver
+  perturbations by impact. **Generate IC Memo** renders a .docx — or PDF
+  via LibreOffice — with executive summary, sources & uses, assumptions,
+  returns, debt + stress, saved sensitivity, market flags, limitations, and
+  embedded charts (S&U composition, annual levered cash flow, hold-sweep
+  line, sensitivity heatmap).
+
+**Engine conventions are explicit inputs**: waterfall style (`european`
+whole-fund IRR-hurdle, or `american` deal-by-deal ledger), optional GP
+catch-up %, IRR convention (`periodic_monthly` or date-based `xirr`,
+Actual/365), development refi/takeout rate spread and costs. Defaults
+reproduce the original behavior; the sidebar and memo footnote what was
+used.
 
 The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
@@ -44,13 +64,13 @@ higher one.
 
 | Area | Endpoints |
 |---|---|
-| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` |
-| Compute | `POST /api/compute` → all schema outputs + warnings + debt sizing/stress |
+| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}`, `GET .../{id}/export`, `POST /api/deals/import` |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
 | Templates & mapping | `/api/templates*`, `/api/mappings*` |
 | Generate | `POST /api/generate` (xlsx download, X-Generation-* headers) |
-| Sensitivity | `POST /api/sensitivity` |
-| Documents & extraction | `/api/documents*`, `/api/extraction*` |
-| Scenarios | `/api/scenarios*`, `POST /api/scenarios/{id}/memo` (.docx) |
+| Sensitivity | `POST /api/sensitivity` (mode: native \| template) |
+| Documents & extraction | `/api/documents*`, `/api/extraction*` (results carry a reviewable `unitMixProposal`) |
+| Scenarios | `/api/scenarios*`, `PUT .../{id}/sensitivity`, `POST .../{id}/memo[?format=pdf]` |
 | Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks`, legacy `GET /api/market-context` |
 | Schema | `GET /api/schema` |
 
@@ -92,6 +112,7 @@ UPDATE_GOLDEN=1 pytest tests/test_extraction_golden.py   # regenerate goldens (p
 
 cd frontend
 npm test && npm run build && npm run lint
+npm run e2e     # Playwright smoke: boots a scratch-DB backend + Vite, one happy path
 ```
 
 The parity harness diffs the native engine against the openpyxl+LibreOffice

@@ -8,7 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
+      // VITE_API_PORT lets the e2e harness point at a scratch backend.
+      '/api': `http://127.0.0.1:${process.env.VITE_API_PORT ?? 8000}`,
     },
   },
 })

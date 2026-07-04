@@ -10,7 +10,9 @@ TEMPLATES_DIR = STORAGE_ROOT / "templates"
 GENERATED_DIR = STORAGE_ROOT / "generated"
 DOCUMENTS_DIR = STORAGE_ROOT / "documents"
 DB_DIR = STORAGE_ROOT / "db"
-DB_PATH = DB_DIR / "app.sqlite3"
+# CRE_DB_PATH override exists for test harnesses (e.g. the Playwright smoke
+# boots the API against a scratch database).
+DB_PATH = Path(os.environ.get("CRE_DB_PATH") or DB_DIR / "app.sqlite3")
 
 for d in (TEMPLATES_DIR, GENERATED_DIR, DOCUMENTS_DIR, DB_DIR):
     d.mkdir(parents=True, exist_ok=True)

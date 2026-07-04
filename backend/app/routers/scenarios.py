@@ -52,9 +52,12 @@ def list_scenarios(
 
 @router.post("", response_model=ScenarioOut)
 def create_scenario(payload: ScenarioIn, db: Session = Depends(get_db)):
-    if payload.kind == "full":
-        if not payload.templateId or not payload.mappingProfileId:
-            raise HTTPException(400, "Full scenarios require a templateId and mappingProfileId")
+    # Since the native engine landed, a full scenario no longer NEEDS an
+    # Excel template — template/mapping ids are optional but validated when
+    # provided (and must come as a pair).
+    if payload.kind == "full" and payload.templateId:
+        if not payload.mappingProfileId:
+            raise HTTPException(400, "A templateId requires a mappingProfileId")
         template = db.get(Template, payload.templateId)
         if template is None:
             raise HTTPException(404, "Template not found")
@@ -96,9 +99,9 @@ def update_scenario(scenario_id: str, payload: ScenarioUpdate, db: Session = Dep
         raise HTTPException(
             400, f"Scenario kind cannot be changed (this is a '{scenario.kind}' scenario)"
         )
-    if scenario.kind == "full":
-        if not payload.templateId or not payload.mappingProfileId:
-            raise HTTPException(400, "Full scenarios require a templateId and mappingProfileId")
+    if scenario.kind == "full" and payload.templateId:
+        if not payload.mappingProfileId:
+            raise HTTPException(400, "A templateId requires a mappingProfileId")
         if db.get(Template, payload.templateId) is None:
             raise HTTPException(404, "Template not found")
 

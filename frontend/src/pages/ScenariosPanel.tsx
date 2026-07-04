@@ -67,16 +67,16 @@ export default function ScenariosPanel({
   // Quick Screen tab would never show up here without a full page reload.
   useEffect(() => {
     if (!active) return
-    if (!template || !dealId) {
+    if (!dealId) {
       setScenarios([])
       return
     }
     setLoading(true)
-    fetchScenarios({ templateId: template.id, kind: 'full', dealId })
+    fetchScenarios({ kind: 'full', dealId })
       .then(setScenarios)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load scenarios'))
       .finally(() => setLoading(false))
-  }, [template, active, dealId])
+  }, [active, dealId])
 
   useEffect(() => {
     if (!active || !dealId) return
@@ -88,7 +88,7 @@ export default function ScenariosPanel({
   }, [active, dealId])
 
   async function handleSave() {
-    if (!template || !mappingProfileId) return
+    if (!dealId) return
     setSaving(true)
     setError(null)
     try {
@@ -97,12 +97,14 @@ export default function ScenariosPanel({
           ? { metrics: computedOutputs, ...(computedDebt ? { debt: computedDebt } : {}) }
           : undefined
       const existing = scenarios.find((s) => s.scenarioName === scenarioName)
+      const templateRefs = template && mappingProfileId
+        ? { templateId: template.id, mappingProfileId }
+        : { templateId: null, mappingProfileId: null }
       const saved = existing
         ? await updateScenario(existing.id, {
             scenarioName,
             dealId,
-            templateId: template.id,
-            mappingProfileId,
+            ...templateRefs,
             inputs: values,
             outputs: outputsSnapshot,
           })
@@ -110,8 +112,7 @@ export default function ScenariosPanel({
             scenarioName,
             kind: 'full',
             dealId,
-            templateId: template.id,
-            mappingProfileId,
+            ...templateRefs,
             inputs: values,
             outputs: outputsSnapshot,
           })
@@ -324,11 +325,8 @@ export default function ScenariosPanel({
         </ul>
       </section>
 
-      {!template ? (
-        <div className="text-sm text-slate-500">
-          Upload a template under "1. Template &amp; Mapping" to save and compare full Deal Inputs
-          scenarios.
-        </div>
+      {!dealId ? (
+        <div className="text-sm text-slate-500">Select a deal to save scenarios.</div>
       ) : (
         <>
           <div className="flex items-center gap-2">
@@ -340,14 +338,14 @@ export default function ScenariosPanel({
             />
             <button
               onClick={handleSave}
-              disabled={saving || !mappingProfileId || !scenarioName.trim()}
+              disabled={saving || !scenarioName.trim()}
               className="rounded bg-emerald-600 px-3 py-1 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
             >
               {saving ? 'Saving…' : 'Save current inputs as scenario'}
             </button>
-            {!mappingProfileId && (
+            {!template && (
               <span className="text-xs text-slate-400">
-                Save a mapping profile first to enable scenarios.
+                Scenarios use the native engine — mapping a template is optional.
               </span>
             )}
           </div>

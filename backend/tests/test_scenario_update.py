@@ -101,7 +101,7 @@ def test_template_id_is_applied_on_full_scenario_update(client):
     assert resp.json()["templateId"] == template_b  # previously silently kept template_a
 
 
-def test_full_scenario_update_requires_template_and_profile(client):
+def test_full_scenario_update_validates_template_when_provided(client):
     template_a = _make_template(client)
     created = client.post(
         "/api/scenarios",
@@ -114,12 +114,16 @@ def test_full_scenario_update_requires_template_and_profile(client):
         },
     ).json()
 
+    # Template-less full scenarios are legal since the native engine landed —
+    # an update may clear the references entirely.
     resp = client.put(
         f"/api/scenarios/{created['id']}",
         json={"scenarioName": "Deal", "inputs": {}},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    assert resp.json()["templateId"] is None
 
+    # ...but a PROVIDED templateId must exist and come with a profile.
     resp = client.put(
         f"/api/scenarios/{created['id']}",
         json={
@@ -130,3 +134,9 @@ def test_full_scenario_update_requires_template_and_profile(client):
         },
     )
     assert resp.status_code == 404
+
+    resp = client.put(
+        f"/api/scenarios/{created['id']}",
+        json={"scenarioName": "Deal", "templateId": template_a, "inputs": {}},
+    )
+    assert resp.status_code == 400  # template without a mapping profile
