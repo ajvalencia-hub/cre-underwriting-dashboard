@@ -29,6 +29,19 @@ def run_migrations(target_engine=None) -> None:
     _migrate_scenarios_deal_id(eng)
     _backfill_orphan_scenarios_onto_default_deal(eng)
     _migrate_scenarios_sensitivity(eng)
+    _migrate_extraction_unit_mix_proposal(eng)
+
+
+def _migrate_extraction_unit_mix_proposal(eng) -> None:
+    """extraction_results gained a unit_mix_proposal JSON column (G5)."""
+    inspector = inspect(eng)
+    if "extraction_results" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("extraction_results")}
+    if "unit_mix_proposal" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE extraction_results ADD COLUMN unit_mix_proposal JSON"))
 
 
 def _migrate_scenarios_sensitivity(eng) -> None:

@@ -2,12 +2,21 @@ import { useState } from 'react'
 import ScalarInput from './fields/ScalarInput'
 import { confirmExtraction } from '../lib/api'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
+import {
+  isNonEmptyUnitMix,
+  mergeUnitMix,
+  toSchemaRows,
+  type ProposedUnitMixRow,
+} from '../lib/unitMixMerge'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
 
 interface ExtractionReviewProps {
   schema: InputSchema
   result: ExtractionResult
+  /** The deal's current unitMix rows — a non-empty table triggers the
+   *  replace/merge choice instead of a silent overwrite. */
+  currentUnitMix?: unknown
   onApply: (confirmedValues: Record<string, unknown>) => void
 }
 
@@ -23,9 +32,20 @@ function isTableValue(value: unknown): value is Record<string, unknown>[] {
   return Array.isArray(value)
 }
 
-export default function ExtractionReview({ schema, result, onApply }: ExtractionReviewProps) {
+export default function ExtractionReview({
+  schema,
+  result,
+  currentUnitMix,
+  onApply,
+}: ExtractionReviewProps) {
   const fields = flattenFields(schema)
   const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
+
+  const proposal = result.unitMixProposal ?? null
+  const [mixRows, setMixRows] = useState<ProposedUnitMixRow[]>(() => proposal?.rows ?? [])
+  const [includeUnitMix, setIncludeUnitMix] = useState(Boolean(proposal))
+  const existingMixIsNonEmpty = isNonEmptyUnitMix(currentUnitMix)
+  const [mergeMode, setMergeMode] = useState<'replace' | 'merge'>('merge')
 
   const [accepted, setAccepted] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -46,7 +66,11 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
   const [applied, setApplied] = useState(false)
   const [failuresAcknowledged, setFailuresAcknowledged] = useState(false)
 
-  const fieldEntries = Object.entries(result.fields)
+  // With a dedicated unit-mix section, the generic unitMix field row would be
+  // a confusing second apply path — the section supersedes it.
+  const fieldEntries = Object.entries(result.fields).filter(
+    ([fieldId]) => !(proposal && fieldId === 'unitMix'),
+  )
   const checksByStatus = {
     pass: result.crossValidation.filter((c) => c.status === 'pass'),
     warn: result.crossValidation.filter((c) => c.status === 'warn'),
@@ -70,7 +94,14 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
     try {
       const confirmedValues: Record<string, unknown> = {}
       for (const [fieldId, isAccepted] of Object.entries(accepted)) {
-        if (isAccepted) confirmedValues[fieldId] = editedValues[fieldId]
+        if (isAccepted && !(proposal && fieldId === 'unitMix')) {
+          confirmedValues[fieldId] = editedValues[fieldId]
+        }
+      }
+      if (proposal && includeUnitMix && mixRows.length > 0) {
+        confirmedValues.unitMix = existingMixIsNonEmpty
+          ? mergeUnitMix(currentUnitMix as Record<string, unknown>[], mixRows, mergeMode)
+          : toSchemaRows(mixRows)
       }
       await confirmExtraction(result.id, confirmedValues)
       onApply(confirmedValues)
@@ -249,6 +280,103 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
         </table>
       )}
 
+      {proposal && (
+        <div className="rounded-md border border-sky-200 bg-sky-50/50 p-3">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-600">
+              <input
+                type="checkbox"
+                checked={includeUnitMix}
+                onChange={(e) => setIncludeUnitMix(e.target.checked)}
+              />
+              PROPOSED UNIT MIX ({mixRows.length} type{mixRows.length === 1 ? '' : 's'}, grouped by{' '}
+              {proposal.groupedBy === 'bedBath' ? 'parsed bed/bath' : 'unit-type label'})
+            </label>
+            {existingMixIsNonEmpty && includeUnitMix && (
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="text-amber-600">
+                  The deal already has a unit mix —
+                </span>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={mergeMode === 'merge'}
+                    onChange={() => setMergeMode('merge')}
+                  />
+                  merge (replace matching types only)
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={mergeMode === 'replace'}
+                    onChange={() => setMergeMode('replace')}
+                  />
+                  replace all
+                </label>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-left text-slate-500">
+                <tr>
+                  <th className="px-2 py-1 font-medium">Unit type</th>
+                  <th className="px-2 py-1 font-medium"># Units</th>
+                  <th className="px-2 py-1 font-medium">Avg SF</th>
+                  <th className="px-2 py-1 font-medium">In-place rent</th>
+                  <th className="px-2 py-1 font-medium">Market rent</th>
+                  <th className="px-2 py-1 font-medium text-slate-400">Occupancy</th>
+                  <th className="px-2 py-1 font-medium text-slate-400">Source rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mixRows.map((row, i) => {
+                  const setCell = (key: keyof ProposedUnitMixRow, value: unknown) =>
+                    setMixRows((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, [key]: value } : r)),
+                    )
+                  const numberCell = (key: 'unitCount' | 'avgSf' | 'inPlaceRent' | 'marketRent') => (
+                    <input
+                      type="number"
+                      value={row[key] ?? ''}
+                      onChange={(e) =>
+                        setCell(key, e.target.value === '' ? null : Number(e.target.value))
+                      }
+                      className="w-20 rounded border border-slate-200 px-1 py-0.5"
+                    />
+                  )
+                  return (
+                    <tr key={i} className="border-t border-slate-100">
+                      <td className="px-2 py-1">
+                        <input
+                          value={row.unitType}
+                          onChange={(e) => setCell('unitType', e.target.value)}
+                          className="w-28 rounded border border-slate-200 px-1 py-0.5"
+                        />
+                      </td>
+                      <td className="px-2 py-1">{numberCell('unitCount')}</td>
+                      <td className="px-2 py-1">{numberCell('avgSf')}</td>
+                      <td className="px-2 py-1">{numberCell('inPlaceRent')}</td>
+                      <td className="px-2 py-1">{numberCell('marketRent')}</td>
+                      <td className="px-2 py-1 text-slate-400">
+                        {row.occupancyPct != null
+                          ? `${Math.round(row.occupancyPct * 100)}% (${row.occupiedCount}/${row.unitCount})`
+                          : '—'}
+                      </td>
+                      <td className="px-2 py-1 text-slate-400">{row.sourceRowCount ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Occupancy and source-row counts are extraction provenance — only the schema columns are
+            written to Deal Inputs.
+          </p>
+        </div>
+      )}
+
       {result.unmatched.length > 0 && (
         <div>
           <div className="text-xs font-medium text-slate-400">
@@ -267,10 +395,14 @@ export default function ExtractionReview({ schema, result, onApply }: Extraction
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      {fieldEntries.length > 0 && (
+      {(fieldEntries.length > 0 || proposal) && (
         <button
           onClick={handleApply}
-          disabled={applying || acceptedCount === 0 || applyBlockedByFailures}
+          disabled={
+            applying ||
+            (acceptedCount === 0 && !(proposal && includeUnitMix && mixRows.length > 0)) ||
+            applyBlockedByFailures
+          }
           title={
             applyBlockedByFailures
               ? 'Acknowledge the failed cross-validation check(s) above first.'

@@ -17,6 +17,7 @@ def _to_out(result: ExtractionResult) -> ExtractionResultOut:
         id=result.id,
         documentIds=result.document_ids,
         fields=result.fields,
+        unitMixProposal=result.unit_mix_proposal,
         unmatched=result.unmatched,
         crossValidation=result.cross_validation,
         warnings=result.warnings,
@@ -45,6 +46,7 @@ def run_extraction(payload: ExtractionRequest, db: Session = Depends(get_db)):
     result = ExtractionResult(
         document_ids=payload.documentIds,
         fields=outcome["fields"],
+        unit_mix_proposal=outcome.get("unitMixProposal"),
         unmatched=outcome["unmatchedExtractions"],
         cross_validation=outcome["crossValidation"],
         warnings=outcome["warnings"],

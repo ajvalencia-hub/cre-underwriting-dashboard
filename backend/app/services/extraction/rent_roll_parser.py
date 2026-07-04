@@ -148,27 +148,129 @@ def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet
     return {"rows": parsed_rows, "matchedFields": list(field_cols.keys()), "confidence": round(confidence, 2)}
 
 
-def aggregate_multifamily(rows: list[dict]) -> dict:
+# --------------------------------------------------------------- unit mix
+
+_STUDIO_RE = re.compile(r"studio|\beff", re.IGNORECASE)
+_COMPACT_BED_BATH_RE = re.compile(r"^\s*(\d+)\s*[x/]\s*(\d+(?:\.\d+)?)\s*$")
+_BED_BATH_RE = re.compile(
+    r"(\d+)\s*(?:bd|br|bed)[a-z]*\s*[/x\- ]?\s*(?:(\d+(?:\.\d+)?)\s*(?:ba|bath))?",
+    re.IGNORECASE,
+)
+
+
+def _bed_bath_key(label) -> tuple[int, float | None] | None:
+    """'1BR/1BA' -> (1, 1.0); '2x2' -> (2, 2.0); 'Studio' -> (0, 1.0);
+    'A1' (an opaque floorplan code) -> None."""
+    if not label:
+        return None
+    text = str(label)
+    if _STUDIO_RE.search(text):
+        return (0, 1.0)
+    compact = _COMPACT_BED_BATH_RE.match(text)
+    if compact:
+        return (int(compact.group(1)), float(compact.group(2)))
+    match = _BED_BATH_RE.search(text)
+    if match:
+        baths = float(match.group(2)) if match.group(2) else None
+        return (int(match.group(1)), baths)
+    return None
+
+
+def _bed_bath_label(key: tuple[int, float | None]) -> str:
+    beds, baths = key
+    if beds == 0:
+        return "Studio"
+    if baths is None:
+        return f"{beds} BR"
+    return f"{beds} BR / {baths:g} BA"
+
+
+def propose_unit_mix(rows: list[dict]) -> dict:
+    """Group parsed rent-roll rows into a proposed unit-mix table.
+
+    Grouping key: the unit-type label — UNLESS two different labels parse to
+    the same bed/bath pair (e.g. '1BR/1BA', '1x1', '1 Bed 1 Bath' in one
+    roll), in which case grouping falls back to the parsed bed/bath key with
+    a warning, so inconsistent vocabulary can't split one physical unit type
+    into several rows.
+
+    Returns {"rows": [{unitType, unitCount, avgSf, inPlaceRent, marketRent,
+    occupiedCount, occupancyPct, sourceRowCount}], "groupedBy":
+    "label"|"bedBath", "warnings": [...]}."""
+    warnings: list[str] = []
+
+    key_to_labels: dict[tuple, set[str]] = {}
+    for r in rows:
+        label = r.get("unitType")
+        key = _bed_bath_key(label)
+        if key is not None and label:
+            key_to_labels.setdefault(key, set()).add(str(label).strip())
+    inconsistent = any(len(labels) > 1 for labels in key_to_labels.values())
+
+    if inconsistent:
+        grouped_by = "bedBath"
+        examples = next(sorted(labels) for labels in key_to_labels.values() if len(labels) > 1)
+        warnings.append(
+            "Unit-type labels are inconsistent (e.g. "
+            + " vs ".join(f"'{e}'" for e in examples[:3])
+            + " describe the same bed/bath) — grouped by parsed bed/bath instead of the raw label."
+        )
+
+        def group_key(r):
+            key = _bed_bath_key(r.get("unitType"))
+            if key is not None:
+                return _bed_bath_label(key)
+            return str(r.get("unitType") or "Unspecified").strip()
+    else:
+        grouped_by = "label"
+
+        def group_key(r):
+            return str(r.get("unitType") or "Unspecified").strip()
+
     groups: dict[str, list[dict]] = {}
     for r in rows:
-        key = r["unitType"] or "Unspecified"
-        groups.setdefault(key, []).append(r)
+        groups.setdefault(group_key(r), []).append(r)
 
-    unit_mix = []
+    mix_rows = []
     for unit_type, group in groups.items():
-        sfs = [r["sf"] for r in group if r["sf"] is not None]
-        in_place = [r["inPlaceRentMonthly"] for r in group if r["status"] == "occupied" and r["inPlaceRentMonthly"]]
-        market = [r["marketRentMonthly"] for r in group if r["marketRentMonthly"]]
-        unit_mix.append(
+        sfs = [r["sf"] for r in group if r.get("sf") is not None]
+        in_place = [
+            r["inPlaceRentMonthly"]
+            for r in group
+            if r.get("status") == "occupied" and r.get("inPlaceRentMonthly")
+        ]
+        market = [r["marketRentMonthly"] for r in group if r.get("marketRentMonthly")]
+        occupied = sum(1 for r in group if r.get("status") == "occupied")
+        mix_rows.append(
             {
                 "unitType": unit_type,
                 "unitCount": len(group),
                 "avgSf": round(sum(sfs) / len(sfs)) if sfs else None,
                 "inPlaceRent": round(sum(in_place) / len(in_place)) if in_place else None,
                 "marketRent": round(sum(market) / len(market)) if market else None,
+                "occupiedCount": occupied,
+                "occupancyPct": round(occupied / len(group), 4) if group else None,
+                "sourceRowCount": len(group),
             }
         )
 
+    return {"rows": mix_rows, "groupedBy": grouped_by, "warnings": warnings}
+
+
+def aggregate_multifamily(rows: list[dict]) -> dict:
+    # The unit-mix grouping has ONE implementation: propose_unit_mix. The
+    # legacy unitMix field keeps its original shape (schema columns only).
+    proposal = propose_unit_mix(rows)
+    unit_mix = [
+        {
+            "unitType": row["unitType"],
+            "unitCount": row["unitCount"],
+            "avgSf": row["avgSf"],
+            "inPlaceRent": row["inPlaceRent"],
+            "marketRent": row["marketRent"],
+        }
+        for row in proposal["rows"]
+    ]
     return {"unitMix": unit_mix, **_occupancy_summary(rows)}
 
 

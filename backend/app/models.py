@@ -97,6 +97,8 @@ class ExtractionResult(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     document_ids: Mapped[list] = mapped_column(JSON, default=list)
     fields: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Proposed grouped unit-mix table for multifamily rent rolls (nullable).
+    unit_mix_proposal: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     unmatched: Mapped[list] = mapped_column(JSON, default=list)
     cross_validation: Mapped[list] = mapped_column(JSON, default=list)
     warnings: Mapped[list] = mapped_column(JSON, default=list)

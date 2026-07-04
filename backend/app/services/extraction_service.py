@@ -419,6 +419,14 @@ def run_extraction(documents: list[Document]) -> dict:
 
     fields = _aggregate_to_fields(merged)
 
+    # Proposed unit-mix block (G5): the reviewable grouped table with
+    # per-group provenance, for multifamily rent rolls. Same grouping
+    # implementation as fields["unitMix"] (rent_roll_parser.propose_unit_mix).
+    unit_mix_proposal = None
+    if merged["rentRollRows"] and _looks_multifamily(merged["rentRollRows"]):
+        unit_mix_proposal = rent_roll_parser.propose_unit_mix(merged["rentRollRows"])
+        merged["warnings"].extend(unit_mix_proposal["warnings"])
+
     # "asking price"-style scalars from an OM feed cross-validation even
     # though they're not the schema's canonical purchasePrice field name.
     if "_statedCapRate" not in fields and "goingInCapRate" in fields:
@@ -435,4 +443,5 @@ def run_extraction(documents: list[Document]) -> dict:
         "unmatchedExtractions": merged["unmatchedExtractions"],
         "crossValidation": checks,
         "warnings": merged["warnings"],
+        "unitMixProposal": unit_mix_proposal,
     }

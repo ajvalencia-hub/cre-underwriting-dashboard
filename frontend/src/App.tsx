@@ -486,6 +486,7 @@ function App() {
       <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
         <Documents
           schema={schema}
+          currentUnitMix={formValues.unitMix}
           onApplyExtraction={(confirmedValues) => {
             setFormValues((prev) => ({ ...prev, ...confirmedValues }))
             setTab('dashboard')

@@ -249,6 +249,7 @@ class ExtractionResultOut(BaseModel):
     id: str
     documentIds: list[str]
     fields: dict[str, Any]
+    unitMixProposal: dict[str, Any] | None = None
     unmatched: list[Any]
     crossValidation: list[Any]
     warnings: list[str]
