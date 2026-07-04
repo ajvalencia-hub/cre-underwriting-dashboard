@@ -10,6 +10,14 @@ function matches(condition: FieldCondition, values: FormValues): boolean {
   if (condition.contains !== undefined) {
     return Array.isArray(value) && value.includes(condition.contains)
   }
+  if (condition.notEmpty !== undefined) {
+    const isEmpty =
+      value === undefined ||
+      value === null ||
+      value === '' ||
+      (Array.isArray(value) && value.length === 0)
+    return condition.notEmpty ? !isEmpty : isEmpty
+  }
   return true
 }
 

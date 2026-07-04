@@ -136,6 +136,7 @@ def build_memo(
     sensitivity: dict | None = None,
     benchmark_flags: list[dict] | None = None,
     limitations_text: str | None = None,
+    conventions: dict | None = None,
 ) -> bytes:
     """Assemble the .docx and return its bytes. Optional sections (debt,
     sources & uses, sensitivity, benchmarks) are silently omitted when their
@@ -203,6 +204,25 @@ def build_memo(
         for field_id, label, value_type in _KEY_ASSUMPTION_FIELDS
         if inputs.get(field_id) not in (None, "", 0)
     ]
+    if conventions:
+        if conventions.get("irrConvention"):
+            assumption_rows.append(
+                (
+                    "IRR convention",
+                    "Date-based XIRR (Actual/365)"
+                    if conventions["irrConvention"] == "xirr"
+                    else "Periodic monthly, annualized",
+                )
+            )
+        if conventions.get("waterfallStyle"):
+            assumption_rows.append(
+                (
+                    "Waterfall style",
+                    "American (deal-by-deal ledger)"
+                    if conventions["waterfallStyle"] == "american"
+                    else "European (whole-fund, IRR hurdles)",
+                )
+            )
     if assumption_rows:
         _kv_table(doc, assumption_rows)
 

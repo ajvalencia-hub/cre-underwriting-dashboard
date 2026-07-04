@@ -9,7 +9,29 @@ Month indexing convention used across the engine:
   stabilization_month onward (inclusive).
 """
 
+import calendar
 from dataclasses import dataclass
+from datetime import date
+
+# Deterministic calendar anchor for the XIRR convention: flows are undated in
+# the engine (month-indexed), so XIRR needs a calendar to source actual month
+# lengths from. The epoch only shifts day counts by leap-year noise; it is a
+# documented fixed default, not a guess about the user's closing date.
+ANALYSIS_EPOCH = date(2026, 1, 1)
+
+
+def month_end_dates(count: int, start: date = ANALYSIS_EPOCH) -> list[date]:
+    """Dates for flow indices 0..count-1: index 0 = the start (closing) date;
+    operating month m spans the calendar month at offset m-1 from start and
+    its flow settles at that month's END (closing Jan 1 -> month 1 settles
+    Jan 31, month 12 settles Dec 31 = one year)."""
+    dates = [start]
+    for m in range(1, count):
+        offset = start.month - 1 + m - 1
+        year = start.year + offset // 12
+        month = offset % 12 + 1
+        dates.append(date(year, month, calendar.monthrange(year, month)[1]))
+    return dates
 
 
 @dataclass(frozen=True)

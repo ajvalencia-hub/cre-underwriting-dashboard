@@ -208,6 +208,8 @@ export interface ComputeResponse {
   outputs: Record<string, number | string>
   warnings: string[]
   debt: DebtBlock | null
+  irrConvention: 'periodic_monthly' | 'xirr'
+  waterfallStyle: 'european' | 'american'
 }
 
 export function computeNative(values: Record<string, unknown>) {

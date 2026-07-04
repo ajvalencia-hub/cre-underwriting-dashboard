@@ -76,6 +76,7 @@ function App() {
   const [serverOutputs, setServerOutputs] = useState<Record<string, unknown>>({})
   const [nativeOutputs, setNativeOutputs] = useState<Record<string, unknown>>({})
   const [nativeDebt, setNativeDebt] = useState<Record<string, unknown> | null>(null)
+  const [nativeIrrConvention, setNativeIrrConvention] = useState<'periodic_monthly' | 'xirr' | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
 
   const [deals, setDeals] = useState<Deal[]>([])
@@ -116,6 +117,7 @@ function App() {
     setServerOutputs({})
     setNativeOutputs({})
     setNativeDebt(null)
+    setNativeIrrConvention(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
@@ -358,6 +360,14 @@ function App() {
                     )
                   })}
               </ul>
+              {group === 'Returns' && nativeIrrConvention && (
+                <p className="mt-1 text-[10px] text-slate-400">
+                  IRRs:{' '}
+                  {nativeIrrConvention === 'xirr'
+                    ? 'date-based XIRR (Actual/365)'
+                    : 'periodic monthly, annualized'}
+                </p>
+              )}
             </div>
           ))}
           <p className="mt-4 text-xs text-slate-400">
@@ -493,9 +503,10 @@ function App() {
           mappingProfileId={activeMappingProfileId}
           values={formValues}
           onGenerated={setServerOutputs}
-          onComputedNative={(outputs, debt) => {
+          onComputedNative={(outputs, debt, irrConvention) => {
             setNativeOutputs(outputs)
             setNativeDebt(debt as Record<string, unknown> | null)
+            setNativeIrrConvention(irrConvention ?? null)
           }}
         />
       </div>

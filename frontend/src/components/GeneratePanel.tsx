@@ -7,7 +7,11 @@ interface GeneratePanelProps {
   mappingProfileId: string | null
   values: Record<string, unknown>
   onGenerated?: (outputs: Record<string, unknown>) => void
-  onComputedNative?: (outputs: Record<string, number | string>, debt: DebtBlock | null) => void
+  onComputedNative?: (
+    outputs: Record<string, number | string>,
+    debt: DebtBlock | null,
+    irrConvention?: 'periodic_monthly' | 'xirr',
+  ) => void
 }
 
 const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
@@ -35,10 +39,10 @@ export default function GeneratePanel({
     setComputeError(null)
     setComputeWarnings([])
     try {
-      const { outputs, warnings, debt } = await computeNative(values)
+      const { outputs, warnings, debt, irrConvention } = await computeNative(values)
       setComputeWarnings(warnings)
       setDebtBlock(debt)
-      onComputedNative?.(outputs, debt)
+      onComputedNative?.(outputs, debt, irrConvention)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Native compute failed')
       setDebtBlock(null)

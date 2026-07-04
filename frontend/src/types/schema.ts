@@ -14,6 +14,9 @@ export interface FieldCondition {
   field: string
   equals?: string | number | boolean
   contains?: string
+  /** true = the field must be non-empty (defined, non-null, non-'' and, for
+   *  arrays, non-empty); false = the inverse. */
+  notEmpty?: boolean
 }
 
 export interface VisibleWhen {

@@ -5,7 +5,7 @@ outside this package reimplements any of them.
 """
 
 from app.services.proforma import debt, development, equity, operations, returns
-from app.services.proforma.timeline import Timeline, build_timeline
+from app.services.proforma.timeline import Timeline, build_timeline, month_end_dates
 
 
 class InsufficientInputsError(Exception):
@@ -312,8 +312,21 @@ def compute(inputs: dict) -> dict:
         if value is not None and isinstance(value, (int, float)):
             outputs[key] = float(value)
 
-    put("unleveredIrr", returns.periodic_irr(unlevered))
-    levered_irr = returns.periodic_irr(levered)
+    # IRR convention (G1): periodic_monthly (default, Run-1 behavior) computes
+    # a monthly IRR annualized as (1+i)^12-1; xirr dates every flow at the
+    # engine's month-end calendar and solves actual/365 (Excel convention).
+    irr_convention = inputs.get("irrConvention") or "periodic_monthly"
+    if irr_convention == "xirr":
+        flow_dates = month_end_dates(total + 1)
+
+        def irr_of(flows: list[float]):
+            return returns.xirr(flow_dates, flows)
+    else:
+        irr_convention = "periodic_monthly"
+        irr_of = returns.periodic_irr
+
+    put("unleveredIrr", irr_of(unlevered))
+    levered_irr = irr_of(levered)
     put("leveredIrr", levered_irr)
 
     em = returns.equity_multiple(levered)
@@ -411,16 +424,25 @@ def compute(inputs: dict) -> dict:
     # ------------------------------------------------------------------
     # LP/GP waterfall on the levered equity flows.
     # ------------------------------------------------------------------
+    waterfall_style = inputs.get("waterfallStyle") or "european"
+    if waterfall_style not in ("european", "american"):
+        warnings.append(f"Unknown waterfallStyle '{waterfall_style}' — using european.")
+        waterfall_style = "european"
+    catch_up_pct = inputs.get("catchUpPct")
     waterfall = equity.run_waterfall(
         levered,
         lp_share=_num(inputs, "lpSplitPct", 0.9),
         gp_share=_num(inputs, "gpSplitPct", 0.1),
         preferred_return=_num(inputs, "preferredReturnPct", 0.08),
         tiers=inputs.get("waterfallTiers") or [],
+        style=waterfall_style,
+        catch_up_pct=float(catch_up_pct) if isinstance(catch_up_pct, (int, float)) else None,
     )
     warnings.extend(waterfall["warnings"])
-    put("lpIrr", waterfall["lpIrr"])
-    put("gpIrr", waterfall["gpIrr"])
+    # LP/GP IRRs honor the selected convention (the waterfall's own fields are
+    # always periodic — hurdle math is periodic in both styles).
+    put("lpIrr", irr_of(waterfall["lpFlows"]))
+    put("gpIrr", irr_of(waterfall["gpFlows"]))
     put("lpEquityMultiple", waterfall["lpMultiple"])
 
     # ------------------------------------------------------------------
@@ -459,4 +481,6 @@ def compute(inputs: dict) -> dict:
         "gprSource": gpr_source,
         "debt": debt_block,
         "sourcesAndUses": sources_and_uses,
+        "irrConvention": irr_convention,
+        "waterfallStyle": waterfall_style,
     }

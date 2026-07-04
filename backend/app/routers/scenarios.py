@@ -133,11 +133,16 @@ def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(
     inputs = scenario.inputs or {}
     stored = scenario.outputs or {}
     sources_and_uses = None
+    conventions = None
     try:
         computed = engine.compute(inputs)
         metrics = computed["outputs"]
         debt = computed["debt"]
         sources_and_uses = computed["sourcesAndUses"]
+        conventions = {
+            "irrConvention": computed["irrConvention"],
+            "waterfallStyle": computed["waterfallStyle"],
+        }
     except engine.InsufficientInputsError as exc:
         metrics = stored.get("metrics") or {}
         debt = stored.get("debt")
@@ -180,6 +185,7 @@ def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(
         sensitivity=stored.get("sensitivity"),
         benchmark_flags=benchmark_flags,
         limitations_text=payload.limitationsText,
+        conventions=conventions,
     )
     filename = f"IC Memo - {deal_name} - {scenario.scenario_name}.docx"
     return Response(

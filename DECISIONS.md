@@ -1,7 +1,42 @@
 # Decisions Log
 
-Non-obvious choices made during the autonomous build run, with the
+Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
+
+## G1 — Waterfall styles and IRR conventions (Run 2)
+
+- **[FIN] American waterfall = ledger + strict sequencing.** Pref accrues
+  monthly on (unreturned capital + accrued unpaid pref) at (1+pref)^(1/12)-1
+  — i.e. unpaid pref compounds monthly; capital contributions are pari
+  passu. Distribution order per event: accrued pref (pro rata by accrued
+  balances) → return of capital (pro rata by unreturned balances) → promote
+  stack, where TIER 1's splits apply immediately (its schema hurdle is
+  deemed satisfied by pref + full capital return — deal-by-deal promote
+  crystallizes over the pref) and higher tier hurdles stay LP-IRR-measured.
+  Rejected: annual pref compounding (mismatches the engine's monthly grid);
+  simple (non-compounding) pref (less standard institutionally); measuring
+  tier-1's hurdle by IRR in American too (then, with pari passu capital and
+  a common pref rate, American and European are algebraically identical —
+  the option would be a no-op).
+- **[FIN] GP catch-up target counts the pref as profit.** The catch-up band
+  (which replaces the pref→first-hurdle band) pays catchUpPct of each dollar
+  to the GP until GP cumulative profit = promotePct × total cumulative
+  profit, profits measured as nominal net positions (distributions −
+  contributions). With 100% catch-up this lands the GP at exactly
+  promotePct of ALL profit — the textbook outcome. Rejected: a target
+  excluding the pref from the profit base (makes the target vacuously
+  satisfied at zero and the band dead); time-valued profit bases (no
+  standard reference convention).
+- **[FIN] XIRR dates flows on a fixed calendar: closing = 2026-01-01,
+  operating month m settles at the end of the calendar month at offset m-1**
+  (month 12 = Dec 31 = exactly one year). Actual/365, Excel convention. The
+  epoch is a documented deterministic default (the engine has no closing-
+  date input); it affects results only through month-length/leap noise.
+  Rejected: dating from today() (non-reproducible); adding an
+  analysisStartDate input (a new date-typed field for bp-level noise isn't
+  worth the form surface yet).
+- Defaults preserve Run 1 exactly: waterfallStyle 'european', no catch-up,
+  irrConvention 'periodic_monthly'; the parity templates pin these.
 
 ## F7 — IC memo
 

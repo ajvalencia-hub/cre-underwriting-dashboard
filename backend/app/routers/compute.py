@@ -26,4 +26,6 @@ def compute(payload: ComputeRequest):
         "outputs": result["outputs"],
         "warnings": result["warnings"],
         "debt": result["debt"],
+        "irrConvention": result["irrConvention"],
+        "waterfallStyle": result["waterfallStyle"],
     }
