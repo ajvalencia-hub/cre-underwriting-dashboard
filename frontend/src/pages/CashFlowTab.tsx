@@ -295,6 +295,72 @@ export default function CashFlowTab({ statement, values, onGoToCompute }: CashFl
         </table>
       </div>
 
+      {statement.leases && (
+        <div className="mt-4 rounded border border-slate-200 bg-white p-3">
+          <div className="text-sm font-semibold text-slate-600">Lease expirations</div>
+          <div className="mt-1 text-xs text-slate-500">
+            WALT {statement.leases.walt.toFixed(1)} yrs ·{' '}
+            {Math.round(statement.leases.totalSf).toLocaleString()} SF · year-1 occupancy{' '}
+            {(statement.leases.occupancyYear1 * 100).toFixed(1)}% · stabilized{' '}
+            {(statement.leases.occupancyStabilized * 100).toFixed(1)}%
+          </div>
+          {statement.leases.expirationSchedule.length > 0 && (
+            <div className="mt-2 flex items-end gap-4">
+              <svg
+                width={Math.max(160, statement.leases.expirationSchedule.length * 56)}
+                height={110}
+                role="img"
+                aria-label="Lease expiration schedule"
+              >
+                {statement.leases.expirationSchedule.map((row, i) => {
+                  const barHeight = Math.max(2, row.pctOfRent * 80)
+                  return (
+                    <g key={row.year}>
+                      <rect
+                        x={i * 56 + 8}
+                        y={88 - barHeight}
+                        width={36}
+                        height={barHeight}
+                        rx={2}
+                        fill="#7dd3fc"
+                        stroke="#0284c7"
+                        strokeWidth={0.5}
+                      />
+                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} fill="#475569" textAnchor="middle">
+                        {Math.round(row.pctOfRent * 100)}%
+                      </text>
+                      <text x={i * 56 + 26} y={102} fontSize={10} fill="#64748b" textAnchor="middle">
+                        {row.year}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
+              <table className="text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="px-2 py-1 font-medium">Year</th>
+                    <th className="px-2 py-1 font-medium">SF expiring</th>
+                    <th className="px-2 py-1 font-medium">% of SF</th>
+                    <th className="px-2 py-1 font-medium">% of rent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statement.leases.expirationSchedule.map((row) => (
+                    <tr key={row.year} className="border-b border-slate-50">
+                      <td className="px-2 py-1">{row.year}</td>
+                      <td className="px-2 py-1 tabular-nums">{Math.round(row.sfExpiring).toLocaleString()}</td>
+                      <td className="px-2 py-1 tabular-nums">{(row.pctOfSf * 100).toFixed(1)}%</td>
+                      <td className="px-2 py-1 tabular-nums">{(row.pctOfRent * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <details className="mt-4 rounded border border-slate-200 bg-white p-3">
         <summary className="cursor-pointer select-none text-sm font-semibold text-slate-600">
           Hold-period &amp; refi analysis

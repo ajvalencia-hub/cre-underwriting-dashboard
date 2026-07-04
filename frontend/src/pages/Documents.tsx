@@ -9,6 +9,7 @@ interface DocumentsProps {
   schema: InputSchema
   /** The active deal's current unitMix rows — drives the replace/merge choice. */
   currentUnitMix?: unknown
+  currentCommercialLeases?: unknown
   onApplyExtraction: (confirmedValues: Record<string, unknown>) => void
 }
 
@@ -27,7 +28,12 @@ function confidenceBadge(confidence: number): string {
   return 'bg-slate-100 text-slate-500'
 }
 
-export default function Documents({ schema, currentUnitMix, onApplyExtraction }: DocumentsProps) {
+export default function Documents({
+  schema,
+  currentUnitMix,
+  currentCommercialLeases,
+  onApplyExtraction,
+}: DocumentsProps) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [uploading, setUploading] = useState(false)
@@ -207,6 +213,7 @@ export default function Documents({ schema, currentUnitMix, onApplyExtraction }:
           schema={schema}
           result={extractionResult}
           currentUnitMix={currentUnitMix}
+          currentCommercialLeases={currentCommercialLeases}
           onApply={onApplyExtraction}
         />
       )}

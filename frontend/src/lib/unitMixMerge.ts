@@ -47,6 +47,55 @@ export function isNonEmptyUnitMix(value: unknown): value is Record<string, unkno
  * existing rows are kept in place; proposed types not present get appended.
  * replace: the proposal becomes the whole table.
  */
+export interface ProposedLeaseRow {
+  tenant: string
+  suiteId: string
+  sf: number | null
+  startDate: string | null
+  endDate: string | null
+  baseRentPsfAnnual: number | null
+  escalationType: string
+  escalationValue: number
+  escalationMonths: number
+  recoveryType: string
+  recoveryValue: number
+  freeRentMonths: number
+}
+
+export interface CommercialLeaseProposal {
+  rows: ProposedLeaseRow[]
+  warnings: string[]
+}
+
+function leaseKey(row: { suiteId?: unknown; tenant?: unknown }): string {
+  const suite = String(row.suiteId ?? '').trim().toLowerCase()
+  return suite || String(row.tenant ?? '').trim().toLowerCase()
+}
+
+/** Same semantics as mergeUnitMix, keyed on suiteId (tenant as fallback). */
+export function mergeCommercialLeases(
+  existing: Record<string, unknown>[],
+  proposed: ProposedLeaseRow[],
+  mode: 'replace' | 'merge',
+): Record<string, unknown>[] {
+  if (mode === 'replace') return proposed as unknown as Record<string, unknown>[]
+  const byKey = new Map(proposed.map((row) => [leaseKey(row), row]))
+  const consumed = new Set<string>()
+  const merged = existing.map((row) => {
+    const key = leaseKey(row)
+    const replacement = byKey.get(key)
+    if (replacement && key) {
+      consumed.add(key)
+      return replacement as unknown as Record<string, unknown>
+    }
+    return row
+  })
+  for (const row of proposed) {
+    if (!consumed.has(leaseKey(row))) merged.push(row as unknown as Record<string, unknown>)
+  }
+  return merged
+}
+
 export function mergeUnitMix(
   existing: Record<string, unknown>[],
   proposed: ProposedUnitMixRow[],

@@ -28,10 +28,25 @@ export interface Statement {
   loanBalance: number[]
   saleProceedsNet: number[]
   saleProceedsGross: number[]
+  recoveries: number[]
+  leasingCapital: number[]
   unlevered: number[]
   levered: number[]
   lpDistributions: number[]
   gpDistributions: number[]
+  /** Present only for lease-modeled commercial deals (H1). */
+  leases?: {
+    walt: number
+    totalSf: number
+    occupancyYear1: number
+    occupancyStabilized: number
+    expirationSchedule: {
+      year: number
+      sfExpiring: number
+      pctOfSf: number
+      pctOfRent: number
+    }[]
+  }
 }
 
 export interface StatementRow {
@@ -81,6 +96,7 @@ export function statementRows(statement: Statement): StatementRow[] {
     { key: 'principal', label: 'Principal', kind: 'flow', series: (s) => s.principal, indent: true },
     { key: 'debtService', label: 'Debt service', kind: 'flow', series: (s) => s.debtService },
     { key: 'loanBalance', label: 'Loan balance (end)', kind: 'balance', series: (s) => s.loanBalance },
+    { key: 'leasingCapital', label: 'Leasing capital (TI/LC)', kind: 'flow', series: (s) => s.leasingCapital ?? [] },
     { key: 'saleProceedsNet', label: 'Net sale proceeds', kind: 'flow', series: (s) => s.saleProceedsNet },
     { key: 'unlevered', label: 'Unlevered cash flow', kind: 'flow', series: (s) => s.unlevered },
     { key: 'levered', label: 'Levered cash flow', kind: 'flow', series: (s) => s.levered },

@@ -256,6 +256,44 @@
       ]
     },
     {
+      "id": "commercial_rent_roll",
+      "label": "Commercial Rent Roll (lease-level)",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "retail" },
+        { "field": "propertyType", "equals": "industrial" },
+        { "field": "propertyType", "equals": "office" },
+        { "field": "mixedUseComponents", "contains": "retail" },
+        { "field": "mixedUseComponents", "contains": "industrial" },
+        { "field": "mixedUseComponents", "contains": "office" }
+      ] },
+      "fields": [
+        { "id": "commercialLeases", "label": "Leases", "type": "table",
+          "columns": [
+            { "id": "tenant", "label": "Tenant", "type": "text" },
+            { "id": "suiteId", "label": "Suite", "type": "text" },
+            { "id": "sf", "label": "SF", "type": "number" },
+            { "id": "startDate", "label": "Lease Start", "type": "date" },
+            { "id": "endDate", "label": "Lease End", "type": "date" },
+            { "id": "baseRentPsfAnnual", "label": "Base Rent PSF/yr", "type": "currency" },
+            { "id": "escalationType", "label": "Escalation", "type": "select", "options": ["none", "fixed_pct", "fixed_step"] },
+            { "id": "escalationValue", "label": "Esc. Value (fraction or $psf)", "type": "number" },
+            { "id": "escalationMonths", "label": "Esc. Interval (mo)", "type": "number" },
+            { "id": "recoveryType", "label": "Recovery", "type": "select", "options": ["gross", "NNN", "base_year_stop", "fixed_psf"] },
+            { "id": "recoveryValue", "label": "Fixed Recovery PSF/yr", "type": "currency" },
+            { "id": "freeRentMonths", "label": "Free Rent (mo)", "type": "number" }
+          ] },
+        { "id": "renewalProbability", "label": "Renewal Probability", "type": "percent", "min": 0, "max": 1, "default": 0.7 },
+        { "id": "downtimeMonths", "label": "Re-let Downtime (mo)", "type": "number", "min": 0, "max": 36, "default": 6 },
+        { "id": "marketRentPsf", "label": "Market Rent PSF/yr (blank = in-place at expiry)", "type": "currency", "min": 0 },
+        { "id": "marketRentGrowthPct", "label": "Market Rent Growth", "type": "percent", "min": -0.1, "max": 0.2, "default": 0.03 },
+        { "id": "newTermYears", "label": "Rollover Term (yrs)", "type": "number", "min": 1, "max": 20, "default": 5 },
+        { "id": "tiNewPsf", "label": "TI — New Lease ($psf)", "type": "currency", "min": 0, "default": 0 },
+        { "id": "tiRenewalPsf", "label": "TI — Renewal ($psf)", "type": "currency", "min": 0, "default": 0 },
+        { "id": "lcNewPct", "label": "LC — New (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 },
+        { "id": "lcRenewalPct", "label": "LC — Renewal (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 }
+      ]
+    },
+    {
       "id": "industrial_details",
       "label": "Industrial Details",
       "visibleWhen": { "any": [

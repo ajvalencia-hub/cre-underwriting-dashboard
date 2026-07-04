@@ -77,6 +77,58 @@ def build_acquisition_template(path) -> None:
     wb.save(path)
 
 
+def build_commercial_template(path) -> None:
+    """H1 lease-shape parity case: a single NNN tenant whose recoveries
+    exactly wash the recoverable taxes, so NOI = SF x base rent psf — every
+    downstream formula is then identical in structure to the acquisition
+    case. The lease runs past hold + 12 months (no rollover), escalation
+    none, credit loss 0, vacancyPct 0 — all pinned in the paired inputs."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inputs"
+    labels = [
+        "Lease SF", "Base Rent PSF", "Recoverable Taxes", "Loan Amount",
+        "Interest Rate", "Exit Cap Rate", "Cost of Sale %", "Purchase Price",
+    ]
+    for i, label in enumerate(labels, start=1):
+        ws.cell(row=i, column=1, value=label)
+
+    calc = wb.create_sheet("Calc")
+    calc["A1"] = "=Inputs!B1*Inputs!B2"  # annual NOI (NNN wash: recoveries = taxes)
+    calc["A2"] = "=A1/12"
+    calc["A3"] = "=Inputs!B4*Inputs!B5/12"  # monthly IO debt service
+    calc["A4"] = "=A1/Inputs!B6"  # terminal value (flat forward NOI)
+    calc["A5"] = "=A4*(1-Inputs!B7)-Inputs!B4"  # net sale proceeds
+
+    calc["C1"] = "=-(Inputs!B8-Inputs!B4)"  # equity at close
+    calc["D1"] = "=-Inputs!B8"
+    for row in range(2, HOLD_MONTHS + 1):
+        calc.cell(row=row, column=3, value="=$A$2-$A$3")
+        calc.cell(row=row, column=4, value="=$A$2")
+    calc.cell(row=HOLD_MONTHS + 1, column=3, value="=$A$2-$A$3+$A$5")
+    calc.cell(row=HOLD_MONTHS + 1, column=4, value="=$A$2+$A$4*(1-Inputs!B7)")
+
+    calc["F1"] = "=(1+IRR(C1:C61,0.005))^12-1"
+    calc["F2"] = "=(1+IRR(D1:D61,0.005))^12-1"
+    calc["F3"] = '=SUMIF(C1:C61,">0")/-SUMIF(C1:C61,"<0")'
+    calc["F4"] = "=A4"
+    calc["F5"] = "=A5"
+    calc["F6"] = "=A1/Inputs!B8"  # going-in cap
+    calc["F7"] = "=A1/Inputs!B8"  # yield on cost
+    calc["F8"] = "=A2/A3"  # min DSCR
+    calc["F9"] = "=A2/A3"
+    calc["F10"] = "=A1/Inputs!B4"  # debt yield
+    calc["F11"] = "=Inputs!B4/Inputs!B8"  # LTV
+    calc["F12"] = "=Inputs!B4/Inputs!B8"  # LTC
+    calc["F13"] = "=Inputs!B5"  # loan constant (pure IO)
+    # Break-even ratio: lease-mode stabilized opex = the recoverable taxes
+    # (mgmt fee 0), gross revenue = GPR + recoveries.
+    calc["F14"] = "=(Inputs!B3+Inputs!B4*Inputs!B5)/(Inputs!B1*Inputs!B2+Inputs!B3)"
+    calc["F15"] = "=($A$2-$A$3)*12/(Inputs!B8-Inputs!B4)"  # year-1 CoC
+    calc["F16"] = "=SUM(C1:C61)"  # total profit
+    wb.save(path)
+
+
 def build_development_template(path) -> None:
     wb = openpyxl.Workbook()
     ws = wb.active

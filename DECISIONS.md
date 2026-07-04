@@ -3,6 +3,66 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H1 — Commercial lease engine (Run 3)
+
+- **[FIN] Calendar anchoring:** lease dates map onto the analysis calendar
+  at timeline.ANALYSIS_EPOCH (operating month m = the calendar month at
+  offset m-1). Leases straddling the start are in place at month 1 with
+  escalations counted from their TRUE start date. Rejected: a per-deal
+  analysis-start input (the epoch is already the XIRR convention; one
+  calendar everywhere).
+- **[FIN] Escalation timing:** step-ups apply on lease-start anniversaries
+  every escalationMonths months (default 12); fixed_pct compounds, fixed_step
+  adds $psf. Rejected: calendar-January escalations (less common in
+  commercial leases than anniversary escalations).
+- **[FIN] Free rent abates base rent only** — NNN recoveries are still
+  collected during abatement (tenants customarily pay expenses during free
+  rent). Rejected: gross abatement.
+- **[FIN] Recoverable opex (pre-H3 default):** every fixed category except
+  replacement reserves (capital-natured) and the management fee (%-based,
+  contested). NNN = pro-rata SF share; base-year stop = share of the excess
+  over the base CALENDAR year (lease-start year), floored at zero, with
+  pre-epoch base years extrapolated backward at the expense growth rate;
+  fixed_psf recoveries stay flat (stated $psf). Modified-gross lease types
+  from extraction map to base_year_stop (nearest standard structure);
+  unknown types map to gross — the income-conservative reading.
+- **[FIN] Rollover = expected-value single timeline** (the ARGUS-style
+  simplification): at expiry, with p = renewalProbability, the downtime
+  window collects p x market rent (renewal has no downtime; re-let is
+  vacant), then full market rent; TI [p x renewal + (1-p) x new] x SF and
+  LC [blended pct] x (starting annual rent x newTermYears) are charged in
+  the month AFTER expiry, below NOI. Speculative terms run newTermYears,
+  escalate annually at marketRentGrowthPct, inherit the expiring lease's
+  recovery structure (base years reset), carry no free rent, and roll again
+  through the horizon. Rejected: probability trees (path explosion, no
+  added decision value); deferring re-let TI past downtime (immaterial
+  timing inside an expected-value blend).
+- **[FIN] Market rent** grows in annual steps from the analysis start;
+  when marketRentPsf is unset, each lease's own escalated in-place rent at
+  expiry is its market rent (avoids silent zero-rent rollovers). LC base
+  approximates term rent as starting rent x term years (standard shortcut;
+  ignores intra-term escalations).
+- **[FIN] The general vacancyPct/occupancy machinery never applies to
+  lease-modeled income** — downtime IS the vacancy; credit loss applies to
+  collected revenue (base + recoveries). The otherIncome input rides along
+  grown at the rent-growth clock, un-scaled by occupancy. Break-even
+  occupancy in the engine treats lease deals at occupancy 1.0 for
+  consistency.
+- **[FIN] Stabilized NOI for lease deals** = the first 12 months of the
+  lease-driven NOI (in-place, before rollover) — feeds sizing/YoC/dev exit
+  value. WALT is SF-weighted remaining term (consistent with the extraction
+  module's convention). The expiration schedule counts ORIGINAL contract
+  expiries only (speculative re-expiries are assumptions, not lease facts).
+- **Statement mapping keeps every Run-2 identity:** gpr := scheduled base
+  rent, vacancyLoss := downtime + free rent, otherIncome := recoveries +
+  the otherIncome input; leasing capital is a NEW below-NOI row and the
+  levered identity gains "- leasingCapital". Renewal probability default
+  0.70 (institutional norm 65-75%), downtime 6 months, term 5 years; TI/LC
+  default to ZERO so costs are explicit opt-ins, never silent.
+- Development deals with leases zero lease income during construction with
+  a warning (lease-up phasing for commercial development is out of scope
+  this run).
+
 ## G7 — Deal export/import (Run 2)
 
 - **The bundle carries no documents or extraction results.** Documents and

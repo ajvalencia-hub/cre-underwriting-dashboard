@@ -274,6 +274,68 @@ def aggregate_multifamily(rows: list[dict]) -> dict:
     return {"unitMix": unit_mix, **_occupancy_summary(rows)}
 
 
+_LEASE_TYPE_TO_RECOVERY = {
+    # modified gross maps to a base-year stop as the nearest standard
+    # structure; unknown/absent maps to gross (the income-conservative
+    # reading). See DECISIONS.md (H1).
+    "nnn": "NNN",
+    "gross": "gross",
+    "modified_gross": "base_year_stop",
+    "modified gross": "base_year_stop",
+}
+
+
+def propose_commercial_leases(rows: list[dict]) -> dict:
+    """Map parsed commercial rent-roll rows onto the schema's lease-level
+    commercialLeases shape (H1). Escalations and free rent aren't reliably
+    extractable from a rent roll — they propose as none/zero for the user to
+    edit. Vacant/no-rent rows are skipped with a warning naming them.
+
+    Returns {"rows": [...], "warnings": [...]}."""
+    warnings: list[str] = []
+    proposed: list[dict] = []
+    skipped: list[str] = []
+
+    for r in rows:
+        sf = r.get("sf")
+        rent_monthly = r.get("inPlaceRentMonthly") or r.get("marketRentMonthly")
+        label = r.get("tenant") or r.get("unit") or "?"
+        if not sf or not rent_monthly or r.get("status") == "vacant":
+            skipped.append(str(label))
+            continue
+        lease_type = str(r.get("leaseType") or "").strip().lower()
+        proposed.append(
+            {
+                "tenant": r.get("tenant") or "",
+                "suiteId": r.get("unit") or "",
+                "sf": sf,
+                "startDate": r.get("leaseStart"),
+                "endDate": r.get("leaseEnd"),
+                "baseRentPsfAnnual": round(rent_monthly * 12 / sf, 2),
+                "escalationType": "none",
+                "escalationValue": 0,
+                "escalationMonths": 12,
+                "recoveryType": _LEASE_TYPE_TO_RECOVERY.get(lease_type, "gross"),
+                "recoveryValue": 0,
+                "freeRentMonths": 0,
+            }
+        )
+
+    if skipped:
+        warnings.append(
+            f"{len(skipped)} rent-roll row(s) were vacant or missing SF/rent and "
+            f"were not proposed as leases: {', '.join(skipped[:5])}"
+            + ("…" if len(skipped) > 5 else "")
+        )
+    missing_dates = sum(1 for p in proposed if not p["endDate"])
+    if missing_dates:
+        warnings.append(
+            f"{missing_dates} proposed lease(s) have no expiry date — the engine "
+            "treats them as running through the whole analysis until you set one."
+        )
+    return {"rows": proposed, "warnings": warnings}
+
+
 def aggregate_commercial(rows: list[dict], as_of: date | None = None) -> dict:
     as_of = as_of or date.today()
     weighted_years, walt_sf = 0.0, 0.0

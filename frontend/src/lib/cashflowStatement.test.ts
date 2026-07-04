@@ -42,6 +42,8 @@ function makeStatement(): Statement {
     loanBalance: Array.from({ length: n }, (_, i) => 1000 - i), // declining balance
     saleProceedsNet: zeros(),
     saleProceedsGross: zeros(),
+    recoveries: zeros(),
+    leasingCapital: zeros(),
     unlevered: noi,
     levered: noi,
     lpDistributions: noi.map((v) => v * 0.9),

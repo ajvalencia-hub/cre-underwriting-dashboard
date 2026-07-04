@@ -50,6 +50,12 @@ def load_builtin_cases() -> list[ParityCase]:
             mapping=_load_json(CORPUS_DIR / "development_ltv" / "mapping.json"),
             builder=builders.build_development_template,
         ),
+        ParityCase(
+            name="commercial_nnn",
+            inputs=_load_json(CORPUS_DIR / "commercial_nnn" / "inputs.json"),
+            mapping=_load_json(CORPUS_DIR / "commercial_nnn" / "mapping.json"),
+            builder=builders.build_commercial_template,
+        ),
     ]
 
 

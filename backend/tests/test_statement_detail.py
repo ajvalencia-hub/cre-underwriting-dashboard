@@ -28,8 +28,8 @@ _SERIES_KEYS = [
     "gpr", "vacancyLoss", "creditLoss", "otherIncome", "egi", "managementFee",
     "opexTotal", "noi", "occupancy", "costs", "loanFees", "equityFunded",
     "debtDraws", "interest", "principal", "debtService", "loanBalance",
-    "saleProceedsNet", "saleProceedsGross", "unlevered", "levered",
-    "lpDistributions", "gpDistributions",
+    "saleProceedsNet", "saleProceedsGross", "recoveries", "leasingCapital",
+    "unlevered", "levered", "lpDistributions", "gpDistributions",
 ]
 
 
@@ -63,6 +63,7 @@ def _assert_identities(statement: dict) -> None:
             + statement["debtDraws"][m]
             - statement["costs"][m]
             - statement["loanFees"][m]
+            - statement["leasingCapital"][m]
             + statement["saleProceedsNet"][m]
         )
         assert statement["levered"][m] == pytest.approx(levered, abs=1e-6), f"levered tie @ {m}"

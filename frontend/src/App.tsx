@@ -596,6 +596,7 @@ function App() {
         <Documents
           schema={schema}
           currentUnitMix={formValues.unitMix}
+          currentCommercialLeases={formValues.commercialLeases}
           onApplyExtraction={(confirmedValues) => {
             setFormValues((prev) => ({ ...prev, ...confirmedValues }))
             setTab('dashboard')

@@ -99,6 +99,8 @@ class ExtractionResult(Base):
     fields: Mapped[dict] = mapped_column(JSON, default=dict)
     # Proposed grouped unit-mix table for multifamily rent rolls (nullable).
     unit_mix_proposal: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Proposed lease-level rows for commercial rent rolls (H1, nullable).
+    commercial_lease_proposal: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     unmatched: Mapped[list] = mapped_column(JSON, default=list)
     cross_validation: Mapped[list] = mapped_column(JSON, default=list)
     warnings: Mapped[list] = mapped_column(JSON, default=list)

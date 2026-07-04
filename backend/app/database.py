@@ -33,15 +33,19 @@ def run_migrations(target_engine=None) -> None:
 
 
 def _migrate_extraction_unit_mix_proposal(eng) -> None:
-    """extraction_results gained a unit_mix_proposal JSON column (G5)."""
+    """extraction_results gained a unit_mix_proposal JSON column (G5) and a
+    commercial_lease_proposal column (H1)."""
     inspector = inspect(eng)
     if "extraction_results" not in inspector.get_table_names():
         return
     columns = {c["name"] for c in inspector.get_columns("extraction_results")}
-    if "unit_mix_proposal" in columns:
-        return
     with eng.begin() as conn:
-        conn.execute(text("ALTER TABLE extraction_results ADD COLUMN unit_mix_proposal JSON"))
+        if "unit_mix_proposal" not in columns:
+            conn.execute(text("ALTER TABLE extraction_results ADD COLUMN unit_mix_proposal JSON"))
+        if "commercial_lease_proposal" not in columns:
+            conn.execute(
+                text("ALTER TABLE extraction_results ADD COLUMN commercial_lease_proposal JSON")
+            )
 
 
 def _migrate_scenarios_sensitivity(eng) -> None:

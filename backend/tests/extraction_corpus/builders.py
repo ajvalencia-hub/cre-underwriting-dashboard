@@ -106,6 +106,27 @@ def build_realpage_rent_roll(path) -> None:
     wb.save(path)
 
 
+def build_commercial_rent_roll(path) -> None:
+    """Office/retail-style commercial roll: suite/tenant/SF/monthly rent/
+    lease type/dates, mixed date formats, one vacant suite. Feeds the H1
+    lease-proposal path (rent converts to $psf/yr; lease types map to
+    recovery structures; the vacant suite is skipped with a warning)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rent Roll"
+    headers = ["Suite", "Tenant", "SF", "Monthly Rent", "Lease Type", "Lease Start", "Lease Expiration"]
+    ws.append(headers)
+    rows = [
+        ["100", "Blue Bagel LLC", 2400, 6000, "NNN", "01/01/2024", "12/31/2028"],
+        ["110", "Verde Yoga", 1800, 3900, "Gross", "06/01/2025", "05/31/2030"],
+        ["120", "Corner Dental", 3000, 8250, "Modified Gross", "2023-03-01", "2033-02-28"],
+        ["130", "VACANT", 1200, None, None, None, None],
+    ]
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
 def build_broker_om_pdf(path) -> None:
     styles = getSampleStyleSheet()
     header = ["Unit", "Tenant", "SF", "Rent"]

@@ -17,6 +17,7 @@ Conventions (see DECISIONS.md):
   convention of underwriting NOI net of reserves).
 """
 
+from app.services.proforma import leases
 from app.services.proforma.timeline import Timeline
 
 EXPENSE_DOLLAR_FIELDS = [
@@ -27,6 +28,19 @@ EXPENSE_DOLLAR_FIELDS = [
     "payroll",
     "generalAdmin",
     "replacementReserves",
+]
+
+# H1 default recoverable set for NNN / base-year-stop recoveries: every fixed
+# category EXCEPT replacement reserves (capital-natured, not customarily
+# recovered) and the management fee (%-based and contested). H3's per-line
+# recoverable flags override this. See DECISIONS.md.
+RECOVERABLE_EXPENSE_FIELDS = [
+    "realEstateTaxes",
+    "insurance",
+    "utilities",
+    "repairsMaintenance",
+    "payroll",
+    "generalAdmin",
 ]
 
 
@@ -40,6 +54,17 @@ def _num(inputs: dict, field: str, default: float = 0.0) -> float:
 def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[str]]:
     """Returns (annual GPR, annual other income, source, warnings)."""
     warnings: list[str] = []
+
+    # Lease-level commercial rent roll wins when present (H1). Year-1
+    # scheduled base rent; recoveries ride in "other".
+    if leases.has_leases(inputs):
+        recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
+        income = leases.build_lease_income(
+            inputs, 12, [recoverable_base / 12] * 12, _num(inputs, "expenseGrowthPct", 0.025)
+        )
+        gpr = sum(income["scheduledBaseRent"])
+        other = sum(income["recoveries"]) + _num(inputs, "otherIncome")
+        return gpr, other, "commercialLeases", warnings
 
     unit_mix = inputs.get("unitMix")
     if isinstance(unit_mix, list) and any(
@@ -84,13 +109,142 @@ def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
     return (1 + annual_growth) ** ((month_1_based - 1) // 12)
 
 
+def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
+    """Per-category fixed-expense monthly vectors (growth applied on the
+    operating clock, zero during construction) — shared by both income
+    paths so the expense math exists exactly once."""
+    expense_growth = (
+        _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
+    )
+    category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
+    active = [f for f, v in category_bases.items() if v > 0]
+    by_category: dict[str, list[float]] = {f: [] for f in active}
+    recoverable: list[float] = []
+    for month in range(1, timeline.total_months + 1):
+        operating_month = month - timeline.construction_months
+        if operating_month < 1:
+            for f in active:
+                by_category[f].append(0.0)
+            recoverable.append(0.0)
+            continue
+        mult = _growth_multiplier(expense_growth, operating_month)
+        month_recoverable = 0.0
+        for f in active:
+            amount = (category_bases[f] / 12) * mult
+            by_category[f].append(amount)
+            if f in RECOVERABLE_EXPENSE_FIELDS:
+                month_recoverable += amount
+        recoverable.append(month_recoverable)
+    return {
+        "byCategory": by_category,
+        "recoverable": recoverable,
+        "expenseGrowth": expense_growth,
+    }
+
+
+def _build_lease_noi_vector(inputs: dict, timeline: Timeline) -> dict:
+    """Lease-driven income path (H1): commercial leases produce the revenue
+    stack; the statement identities hold via the mapping
+    gpr := scheduled base rent, vacancyLoss := downtime + free rent,
+    otherIncome := recoveries + the otherIncome input. The general vacancyPct
+    input is NOT applied (downtime IS the vacancy); credit loss applies to
+    collected revenue. Leasing capital (TI/LC) is returned separately and
+    lands BELOW NOI."""
+    warnings: list[str] = []
+    total = timeline.total_months
+    expenses = _fixed_expense_vectors(inputs, timeline)
+    income = leases.build_lease_income(
+        inputs, total, expenses["recoverable"], expenses["expenseGrowth"]
+    )
+    warnings.extend(income["warnings"])
+
+    if timeline.construction_months > 0:
+        warnings.append(
+            "Commercial leases are modeled from the analysis start — lease income "
+            "during the construction period is zeroed."
+        )
+
+    credit_loss_pct = _num(inputs, "creditLossPct")
+    management_fee_pct = _num(inputs, "managementFeePct")
+    rent_growth = (
+        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
+    )
+    other_annual = _num(inputs, "otherIncome")
+
+    gpr_vec, vacancy_vec, credit_vec, other_vec = [], [], [], []
+    egi_vec, mgmt_vec, opex_vec, noi_vec, occupancy_vec = [], [], [], [], []
+    leasing_capital = [0.0] * total
+
+    for month in range(1, total + 1):
+        under_construction = month <= timeline.construction_months
+        if under_construction:
+            for vec in (gpr_vec, vacancy_vec, credit_vec, other_vec, egi_vec,
+                        mgmt_vec, opex_vec, noi_vec, occupancy_vec):
+                vec.append(0.0)
+            continue
+        i = month - 1
+        scheduled = income["scheduledBaseRent"][i]
+        collected = income["collectedBaseRent"][i]
+        recoveries = income["recoveries"][i]
+        # otherIncome input rides alongside, grown at the rent-growth clock;
+        # not occupancy-scaled in lease mode (see DECISIONS.md).
+        operating_month = month - timeline.construction_months
+        other_inc = (other_annual / 12) * _growth_multiplier(rent_growth, operating_month)
+        credit = (collected + recoveries) * credit_loss_pct
+        egi = collected + recoveries + other_inc - credit
+
+        fixed = sum(vec[i] for vec in expenses["byCategory"].values())
+        mgmt = egi * management_fee_pct
+        opex = fixed + mgmt
+
+        gpr_vec.append(scheduled)
+        vacancy_vec.append(income["downtimeLoss"][i] + income["freeRentLoss"][i])
+        credit_vec.append(credit)
+        other_vec.append(recoveries + other_inc)
+        egi_vec.append(egi)
+        mgmt_vec.append(mgmt)
+        opex_vec.append(opex)
+        noi_vec.append(egi - opex)
+        occupancy_vec.append(income["occupancy"][i])
+        leasing_capital[i] = income["leasingCapital"][i]
+
+    return {
+        "noi": noi_vec,
+        "egi": egi_vec,
+        "gpr": gpr_vec,
+        "opex": opex_vec,
+        "occupancy": occupancy_vec,
+        "vacancyLoss": vacancy_vec,
+        "creditLoss": credit_vec,
+        "otherIncome": other_vec,
+        "managementFee": mgmt_vec,
+        "fixedOpexByCategory": expenses["byCategory"],
+        "recoveries": income["recoveries"],
+        "leasingCapital": leasing_capital,
+        "leaseDetail": {
+            "walt": income["walt"],
+            "totalSf": income["totalSf"],
+            "occupancyYear1": income["occupancyYear1"],
+            "occupancyStabilized": income["occupancyStabilized"],
+            "expirationSchedule": income["expirationSchedule"],
+        },
+        "gprSource": "commercialLeases",
+        "warnings": warnings,
+    }
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
     the statement components ("vacancyLoss", "creditLoss", "otherIncome",
     "managementFee", "fixedOpexByCategory") — identities hold by
     construction: egi = gpr - vacancyLoss - creditLoss + otherIncome and
-    noi = egi - opex."""
+    noi = egi - opex. Lease-level commercial rent rolls route through
+    _build_lease_noi_vector (extra keys: recoveries, leasingCapital,
+    leaseDetail)."""
+    if leases.has_leases(inputs):
+        return _build_lease_noi_vector(inputs, timeline)
+
     annual_gpr, annual_other, source, warnings = annual_gpr_and_other_income(inputs)
 
     rent_growth = (
@@ -191,7 +345,13 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 def stabilized_annual_noi(inputs: dict) -> float:
     """Stabilized-year NOI at today's rents (no growth): the sizing/exit basis
     when the deal's own vectors haven't stabilized. Mirrors one stabilized
-    month x 12 of build_noi_vector's math."""
+    month x 12 of build_noi_vector's math. Lease deals use the first
+    12 months of the lease-driven NOI (in-place, before rollover) — see
+    DECISIONS.md."""
+    if leases.has_leases(inputs):
+        window = _build_lease_noi_vector(inputs, Timeline(12, 0, 0, 1))
+        return sum(window["noi"])
+
     annual_gpr, annual_other, _, _ = annual_gpr_and_other_income(inputs)
     vacancy_pct = _num(inputs, "vacancyPct", 0.05)
     credit_loss_pct = _num(inputs, "creditLossPct")

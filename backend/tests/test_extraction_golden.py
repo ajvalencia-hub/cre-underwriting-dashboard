@@ -134,10 +134,48 @@ def test_broker_om_pdf_golden(tmp_path):
     )
 
 
+def test_commercial_rent_roll_golden(tmp_path):
+    path = tmp_path / "commercial_rent_roll.xlsx"
+    builders.build_commercial_rent_roll(path)
+    grid = excel_extractor.extract_grid(path, "xlsx")
+    parsed = rent_roll_parser.parse_rows(
+        grid["headers"], grid["rows"], "commercial_rent_roll.xlsx", grid["sheet"]
+    )
+    proposal = rent_roll_parser.propose_commercial_leases(parsed["rows"])
+    check_golden(
+        "commercial_rent_roll",
+        {
+            "matchedFields": sorted(parsed["matchedFields"]),
+            "rows": parsed["rows"],
+            "leaseProposal": proposal,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Targeted assertions on the hostile details, independent of the golden blobs
 # (so a bad regeneration can't silently bless a regression).
 # ---------------------------------------------------------------------------
+
+
+def test_commercial_lease_proposal_details(tmp_path):
+    path = tmp_path / "crr.xlsx"
+    builders.build_commercial_rent_roll(path)
+    grid = excel_extractor.extract_grid(path, "xlsx")
+    parsed = rent_roll_parser.parse_rows(grid["headers"], grid["rows"], "crr.xlsx", grid["sheet"])
+    proposal = rent_roll_parser.propose_commercial_leases(parsed["rows"])
+
+    by_tenant = {p["tenant"]: p for p in proposal["rows"]}
+    assert set(by_tenant) == {"Blue Bagel LLC", "Verde Yoga", "Corner Dental"}
+    # $6,000/mo x 12 / 2,400sf = $30 psf/yr
+    assert by_tenant["Blue Bagel LLC"]["baseRentPsfAnnual"] == 30.0
+    assert by_tenant["Blue Bagel LLC"]["recoveryType"] == "NNN"
+    assert by_tenant["Verde Yoga"]["recoveryType"] == "gross"
+    assert by_tenant["Corner Dental"]["recoveryType"] == "base_year_stop"
+    assert by_tenant["Blue Bagel LLC"]["startDate"] == "2024-01-01"
+    assert by_tenant["Blue Bagel LLC"]["endDate"] == "2028-12-31"
+    # The vacant suite is skipped and named in a warning.
+    assert any("vacant" in w.lower() or "VACANT" in w for w in proposal["warnings"])
 
 def test_yardi_hostile_details(tmp_path):
     path = tmp_path / "rr.xlsx"

@@ -4,8 +4,10 @@ import { confirmExtraction } from '../lib/api'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import {
   isNonEmptyUnitMix,
+  mergeCommercialLeases,
   mergeUnitMix,
   toSchemaRows,
+  type ProposedLeaseRow,
   type ProposedUnitMixRow,
 } from '../lib/unitMixMerge'
 import type { ExtractionResult } from '../types/extraction'
@@ -17,6 +19,8 @@ interface ExtractionReviewProps {
   /** The deal's current unitMix rows — a non-empty table triggers the
    *  replace/merge choice instead of a silent overwrite. */
   currentUnitMix?: unknown
+  /** Same for the deal's current lease-level commercial rent roll (H1). */
+  currentCommercialLeases?: unknown
   onApply: (confirmedValues: Record<string, unknown>) => void
 }
 
@@ -36,6 +40,7 @@ export default function ExtractionReview({
   schema,
   result,
   currentUnitMix,
+  currentCommercialLeases,
   onApply,
 }: ExtractionReviewProps) {
   const fields = flattenFields(schema)
@@ -46,6 +51,12 @@ export default function ExtractionReview({
   const [includeUnitMix, setIncludeUnitMix] = useState(Boolean(proposal))
   const existingMixIsNonEmpty = isNonEmptyUnitMix(currentUnitMix)
   const [mergeMode, setMergeMode] = useState<'replace' | 'merge'>('merge')
+
+  const leaseProposal = result.commercialLeaseProposal ?? null
+  const [leaseRows, setLeaseRows] = useState<ProposedLeaseRow[]>(() => leaseProposal?.rows ?? [])
+  const [includeLeases, setIncludeLeases] = useState(Boolean(leaseProposal))
+  const existingLeasesNonEmpty = isNonEmptyUnitMix(currentCommercialLeases)
+  const [leaseMergeMode, setLeaseMergeMode] = useState<'replace' | 'merge'>('merge')
 
   const [accepted, setAccepted] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
@@ -102,6 +113,13 @@ export default function ExtractionReview({
         confirmedValues.unitMix = existingMixIsNonEmpty
           ? mergeUnitMix(currentUnitMix as Record<string, unknown>[], mixRows, mergeMode)
           : toSchemaRows(mixRows)
+      }
+      if (leaseProposal && includeLeases && leaseRows.length > 0) {
+        confirmedValues.commercialLeases = existingLeasesNonEmpty
+          ? mergeCommercialLeases(
+              currentCommercialLeases as Record<string, unknown>[], leaseRows, leaseMergeMode,
+            )
+          : leaseRows
       }
       await confirmExtraction(result.id, confirmedValues)
       onApply(confirmedValues)
@@ -377,6 +395,106 @@ export default function ExtractionReview({
         </div>
       )}
 
+      {leaseProposal && (
+        <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-3">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-600">
+              <input
+                type="checkbox"
+                checked={includeLeases}
+                onChange={(e) => setIncludeLeases(e.target.checked)}
+              />
+              PROPOSED COMMERCIAL LEASES ({leaseRows.length}) — escalations/free rent
+              default to none; edit before applying
+            </label>
+            {existingLeasesNonEmpty && includeLeases && (
+              <div className="flex items-center gap-2 text-xs text-slate-600">
+                <span className="text-amber-600">Existing leases —</span>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={leaseMergeMode === 'merge'}
+                    onChange={() => setLeaseMergeMode('merge')}
+                  />
+                  merge by suite
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={leaseMergeMode === 'replace'}
+                    onChange={() => setLeaseMergeMode('replace')}
+                  />
+                  replace all
+                </label>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-left text-slate-500">
+                <tr>
+                  {['Tenant', 'Suite', 'SF', 'Start', 'End', 'Rent PSF/yr', 'Recovery'].map((h) => (
+                    <th key={h} className="px-2 py-1 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {leaseRows.map((row, i) => {
+                  const setCell = (key: keyof ProposedLeaseRow, value: unknown) =>
+                    setLeaseRows((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, [key]: value } : r)),
+                    )
+                  const text = (key: 'tenant' | 'suiteId' | 'startDate' | 'endDate', width = 'w-24') => (
+                    <input
+                      value={(row[key] as string) ?? ''}
+                      onChange={(e) => setCell(key, e.target.value || null)}
+                      className={`${width} rounded border border-slate-200 px-1 py-0.5`}
+                    />
+                  )
+                  return (
+                    <tr key={i} className="border-t border-slate-100">
+                      <td className="px-2 py-1">{text('tenant', 'w-32')}</td>
+                      <td className="px-2 py-1">{text('suiteId', 'w-14')}</td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="number"
+                          value={row.sf ?? ''}
+                          onChange={(e) => setCell('sf', e.target.value === '' ? null : Number(e.target.value))}
+                          className="w-20 rounded border border-slate-200 px-1 py-0.5"
+                        />
+                      </td>
+                      <td className="px-2 py-1">{text('startDate')}</td>
+                      <td className="px-2 py-1">{text('endDate')}</td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="number"
+                          value={row.baseRentPsfAnnual ?? ''}
+                          onChange={(e) =>
+                            setCell('baseRentPsfAnnual', e.target.value === '' ? null : Number(e.target.value))
+                          }
+                          className="w-20 rounded border border-slate-200 px-1 py-0.5"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <select
+                          value={row.recoveryType}
+                          onChange={(e) => setCell('recoveryType', e.target.value)}
+                          className="rounded border border-slate-200 px-1 py-0.5"
+                        >
+                          {['gross', 'NNN', 'base_year_stop', 'fixed_psf'].map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {result.unmatched.length > 0 && (
         <div>
           <div className="text-xs font-medium text-slate-400">
@@ -395,12 +513,14 @@ export default function ExtractionReview({
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      {(fieldEntries.length > 0 || proposal) && (
+      {(fieldEntries.length > 0 || proposal || leaseProposal) && (
         <button
           onClick={handleApply}
           disabled={
             applying ||
-            (acceptedCount === 0 && !(proposal && includeUnitMix && mixRows.length > 0)) ||
+            (acceptedCount === 0 &&
+              !(proposal && includeUnitMix && mixRows.length > 0) &&
+              !(leaseProposal && includeLeases && leaseRows.length > 0)) ||
             applyBlockedByFailures
           }
           title={

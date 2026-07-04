@@ -36,6 +36,7 @@ export interface ExtractionResult {
   documentIds: string[]
   fields: Record<string, ExtractedField>
   unitMixProposal?: import('../lib/unitMixMerge').UnitMixProposal | null
+  commercialLeaseProposal?: import('../lib/unitMixMerge').CommercialLeaseProposal | null
   unmatched: UnmatchedExtraction[]
   crossValidation: CrossValidationCheck[]
   warnings: string[]

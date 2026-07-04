@@ -100,6 +100,10 @@ def compute(inputs: dict) -> dict:
     noi = ops["noi"][:total]
     forward_noi_12 = sum(ops["noi"][total : total + 12])
     stabilized_noi = operations.stabilized_annual_noi(inputs)
+    # Leasing capital (TI/LC on commercial rollovers, H1) is a capital cost
+    # BELOW NOI: it hits the cash-flow vectors but never DSCR or the exit cap
+    # basis. Zeros for non-lease deals.
+    leasing_capital = (ops.get("leasingCapital") or [0.0] * total)[:total]
 
     cost_of_sale = _num(inputs, "costOfSalePct")
     terminal_value = forward_noi_12 / exit_cap
@@ -360,6 +364,11 @@ def compute(inputs: dict) -> dict:
                 "is repaid from sale proceeds."
             )
 
+    for m in range(1, total + 1):
+        if leasing_capital[m - 1]:
+            unlevered[m] -= leasing_capital[m - 1]
+            levered[m] -= leasing_capital[m - 1]
+
     unlevered[total] += gross_sale_net_of_costs
     net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
     levered[total] += net_sale_proceeds
@@ -470,7 +479,12 @@ def compute(inputs: dict) -> dict:
             put("ltc", perm_loan / total_cost_basis)
 
         gpr_annual, other_annual, _, _ = operations.annual_gpr_and_other_income(inputs)
-        occupancy = max(0.0, 1 - _num(inputs, "vacancyPct", 0.05))
+        # Lease-modeled deals embed vacancy as downtime — the general
+        # vacancyPct input never applies to them (H1, DECISIONS.md).
+        occupancy = (
+            1.0 if gpr_source == "commercialLeases"
+            else max(0.0, 1 - _num(inputs, "vacancyPct", 0.05))
+        )
         credit_loss = _num(inputs, "creditLossPct")
         stabilized_egi = gpr_annual * occupancy * (1 - credit_loss) + other_annual
         stabilized_opex = stabilized_egi - stabilized_noi
@@ -545,7 +559,8 @@ def compute(inputs: dict) -> dict:
     # close. Identities hold by construction:
     #   egi = gpr - vacancyLoss - creditLoss + otherIncome
     #   noi = egi - opexTotal
-    #   levered = noi - debtService + debtDraws - costs - loanFees + saleProceedsNet
+    #   levered = noi - debtService + debtDraws - costs - loanFees
+    #             - leasingCapital + saleProceedsNet
     # ------------------------------------------------------------------
     def _padded(key: str) -> list[float]:
         return [0.0] + ops[key][:total]
@@ -584,11 +599,15 @@ def compute(inputs: dict) -> dict:
         "loanBalance": stmt_balance,
         "saleProceedsNet": sale_net_vec,
         "saleProceedsGross": sale_gross_vec,
+        "recoveries": [0.0] + (ops.get("recoveries") or [0.0] * total)[:total],
+        "leasingCapital": [0.0] + leasing_capital,
         "unlevered": unlevered,
         "levered": levered,
         "lpDistributions": waterfall["lpFlows"],
         "gpDistributions": waterfall["gpFlows"],
     }
+    if ops.get("leaseDetail"):
+        statement["leases"] = ops["leaseDetail"]
 
     return {
         "outputs": outputs,

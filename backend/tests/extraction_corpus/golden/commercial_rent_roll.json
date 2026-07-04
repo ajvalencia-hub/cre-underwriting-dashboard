@@ -1,0 +1,143 @@
+{
+  "leaseProposal": {
+    "rows": [
+      {
+        "baseRentPsfAnnual": 30.0,
+        "endDate": "2028-12-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "NNN",
+        "recoveryValue": 0,
+        "sf": 2400.0,
+        "startDate": "2024-01-01",
+        "suiteId": "100",
+        "tenant": "Blue Bagel LLC"
+      },
+      {
+        "baseRentPsfAnnual": 26.0,
+        "endDate": "2030-05-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 1800.0,
+        "startDate": "2025-06-01",
+        "suiteId": "110",
+        "tenant": "Verde Yoga"
+      },
+      {
+        "baseRentPsfAnnual": 33.0,
+        "endDate": "2033-02-28",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "base_year_stop",
+        "recoveryValue": 0,
+        "sf": 3000.0,
+        "startDate": "2023-03-01",
+        "suiteId": "120",
+        "tenant": "Corner Dental"
+      }
+    ],
+    "warnings": [
+      "1 rent-roll row(s) were vacant or missing SF/rent and were not proposed as leases: VACANT"
+    ]
+  },
+  "matchedFields": [
+    "inPlaceRentMonthly",
+    "leaseEnd",
+    "leaseStart",
+    "leaseType",
+    "sf",
+    "tenant",
+    "unit",
+    "unitType"
+  ],
+  "rows": [
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 6000.0,
+      "leaseEnd": "2028-12-31",
+      "leaseStart": "2024-01-01",
+      "leaseType": "NNN",
+      "marketRentMonthly": null,
+      "sf": 2400.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "commercial_rent_roll.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Blue Bagel LLC",
+      "unit": "100",
+      "unitType": "NNN"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 3900.0,
+      "leaseEnd": "2030-05-31",
+      "leaseStart": "2025-06-01",
+      "leaseType": "Gross",
+      "marketRentMonthly": null,
+      "sf": 1800.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "commercial_rent_roll.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Verde Yoga",
+      "unit": "110",
+      "unitType": "Gross"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 8250.0,
+      "leaseEnd": "2033-02-28",
+      "leaseStart": "2023-03-01",
+      "leaseType": "Modified Gross",
+      "marketRentMonthly": null,
+      "sf": 3000.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "commercial_rent_roll.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Corner Dental",
+      "unit": "120",
+      "unitType": "Modified Gross"
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 1200.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "commercial_rent_roll.xlsx",
+        "page": null,
+        "row": 3,
+        "sheet": "Sheet1"
+      },
+      "status": "vacant",
+      "tenant": "VACANT",
+      "unit": "130",
+      "unitType": null
+    }
+  ]
+}

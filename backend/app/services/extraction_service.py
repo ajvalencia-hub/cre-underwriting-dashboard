@@ -423,9 +423,19 @@ def run_extraction(documents: list[Document]) -> dict:
     # per-group provenance, for multifamily rent rolls. Same grouping
     # implementation as fields["unitMix"] (rent_roll_parser.propose_unit_mix).
     unit_mix_proposal = None
+    commercial_lease_proposal = None
     if merged["rentRollRows"] and _looks_multifamily(merged["rentRollRows"]):
         unit_mix_proposal = rent_roll_parser.propose_unit_mix(merged["rentRollRows"])
         merged["warnings"].extend(unit_mix_proposal["warnings"])
+    elif merged["rentRollRows"]:
+        # Non-multifamily rolls propose lease-level rows (H1) through the
+        # same human-review gate.
+        commercial_lease_proposal = rent_roll_parser.propose_commercial_leases(
+            merged["rentRollRows"]
+        )
+        merged["warnings"].extend(commercial_lease_proposal["warnings"])
+        if not commercial_lease_proposal["rows"]:
+            commercial_lease_proposal = None
 
     # "asking price"-style scalars from an OM feed cross-validation even
     # though they're not the schema's canonical purchasePrice field name.
@@ -444,4 +454,5 @@ def run_extraction(documents: list[Document]) -> dict:
         "crossValidation": checks,
         "warnings": merged["warnings"],
         "unitMixProposal": unit_mix_proposal,
+        "commercialLeaseProposal": commercial_lease_proposal,
     }
