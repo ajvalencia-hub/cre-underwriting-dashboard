@@ -7,12 +7,13 @@ from app.database import get_db
 from app.models import Deal, Scenario, Template
 from app.routers.generate import _content_disposition
 from app.schemas import ScenarioIn, ScenarioOut, ScenarioUpdate
-from app.services import benchmarks, memo_service
-from app.services.proforma import engine
+from app.services import benchmarks, memo_service, soffice
+from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PDF_MEDIA_TYPE = "application/pdf"
 
 
 def _to_out(scenario: Scenario) -> ScenarioOut:
@@ -137,10 +138,25 @@ class MemoRequest(BaseModel):
 
 
 @router.post("/{scenario_id}/memo")
-def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(get_db)):
-    """Render the IC memo .docx. Numbers come ONLY from a fresh engine compute
-    of the scenario's inputs, falling back to the scenario's stored outputs —
-    the memo service itself contains zero financial math."""
+def generate_memo(
+    scenario_id: str,
+    payload: MemoRequest,
+    format: str = "docx",
+    db: Session = Depends(get_db),
+):
+    """Render the IC memo (.docx, or PDF via LibreOffice with ?format=pdf).
+    Numbers come ONLY from a fresh engine compute of the scenario's inputs,
+    falling back to the scenario's stored outputs — the memo service itself
+    contains zero financial math."""
+    if format not in ("docx", "pdf"):
+        raise HTTPException(400, "format must be 'docx' or 'pdf'")
+    if format == "pdf" and not soffice.is_available():
+        raise HTTPException(
+            409,
+            "PDF export needs LibreOffice on the server, which isn't installed/"
+            "detected — download the .docx instead, or install LibreOffice.",
+        )
+
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
@@ -153,15 +169,23 @@ def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(
     stored = scenario.outputs or {}
     sources_and_uses = None
     conventions = None
+    statement = None
+    hold_sweep = None
     try:
         computed = engine.compute(inputs)
         metrics = computed["outputs"]
         debt = computed["debt"]
         sources_and_uses = computed["sourcesAndUses"]
+        statement = computed["statement"]
         conventions = {
             "irrConvention": computed["irrConvention"],
             "waterfallStyle": computed["waterfallStyle"],
         }
+        try:
+            sweep = hold.hold_sweep(inputs)
+            hold_sweep = sweep if sweep["rows"] else None
+        except Exception:  # noqa: BLE001 — the sweep chart is strictly optional
+            hold_sweep = None
     except engine.InsufficientInputsError as exc:
         metrics = stored.get("metrics") or {}
         debt = stored.get("debt")
@@ -205,7 +229,32 @@ def generate_memo(scenario_id: str, payload: MemoRequest, db: Session = Depends(
         benchmark_flags=benchmark_flags,
         limitations_text=payload.limitationsText,
         conventions=conventions,
+        statement=statement,
+        hold_sweep=hold_sweep,
     )
+
+    if format == "pdf":
+        import uuid
+
+        from app.config import GENERATED_DIR
+
+        docx_path = GENERATED_DIR / f"{uuid.uuid4()}.docx"
+        docx_path.write_bytes(memo_bytes)
+        try:
+            converted = soffice.convert_file(docx_path, "pdf")
+            pdf_bytes = converted.read_bytes()
+            soffice.remove_scratch(converted)
+        except RuntimeError as exc:
+            raise HTTPException(500, f"PDF conversion failed: {exc}") from exc
+        finally:
+            docx_path.unlink(missing_ok=True)
+        filename = f"IC Memo - {deal_name} - {scenario.scenario_name}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type=PDF_MEDIA_TYPE,
+            headers={"Content-Disposition": _content_disposition(filename)},
+        )
+
     filename = f"IC Memo - {deal_name} - {scenario.scenario_name}.docx"
     return Response(
         content=memo_bytes,

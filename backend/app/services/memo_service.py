@@ -16,9 +16,10 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 
 from app.config import FIRM_NAME, MEMO_BRAND_COLOR
+from app.services import memo_charts
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "data" / "input_schema.json"
 _OUTPUT_META: dict[str, dict] = {
@@ -110,6 +111,12 @@ def _grid_table(doc: Document, header: list[str], rows: list[list[str]]) -> None
             table.rows[r].cells[c].text = text
 
 
+def _add_chart(doc: Document, png: bytes | None) -> None:
+    """Insert a rendered chart; a None (data absent) is silently skipped."""
+    if png:
+        doc.add_picture(BytesIO(png), width=Inches(6))
+
+
 def _numbered_footer(doc: Document) -> None:
     footer = doc.sections[0].footer
     paragraph = footer.paragraphs[0]
@@ -137,6 +144,8 @@ def build_memo(
     benchmark_flags: list[dict] | None = None,
     limitations_text: str | None = None,
     conventions: dict | None = None,
+    statement: dict | None = None,
+    hold_sweep: dict | None = None,
 ) -> bytes:
     """Assemble the .docx and return its bytes. Optional sections (debt,
     sources & uses, sensitivity, benchmarks) are silently omitted when their
@@ -196,6 +205,7 @@ def build_memo(
         if source_rows:
             doc.add_paragraph("Sources").runs[0].font.bold = True
             _kv_table(doc, source_rows)
+        _add_chart(doc, memo_charts.sources_uses_bars(sources_and_uses))
 
     # ---- Key assumptions ---------------------------------------------------
     _heading(doc, "Key Assumptions")
@@ -240,6 +250,8 @@ def build_memo(
         _kv_table(doc, return_rows)
     else:
         doc.add_paragraph("No computed return metrics are stored for this scenario.")
+    _add_chart(doc, memo_charts.annual_cashflow_bars(statement))
+    _add_chart(doc, memo_charts.hold_sweep_line(hold_sweep))
 
     # ---- Debt summary --------------------------------------------------------
     if debt:
@@ -286,6 +298,7 @@ def build_memo(
             [str(h) for h in sensitivity.get("header", [])],
             [[str(cell) for cell in row] for row in sensitivity["rows"]],
         )
+        _add_chart(doc, memo_charts.sensitivity_heatmap(sensitivity))
 
     # ---- Market context flags ---------------------------------------------------
     if benchmark_flags:

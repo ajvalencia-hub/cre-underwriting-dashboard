@@ -293,8 +293,11 @@ export async function deleteDeal(dealId: string): Promise<void> {
   return del(`/deals/${dealId}`)
 }
 
-export async function generateMemo(scenarioId: string): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}/memo`, {
+export async function generateMemo(
+  scenarioId: string,
+  format: 'docx' | 'pdf' = 'docx',
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}/memo?format=${format}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),

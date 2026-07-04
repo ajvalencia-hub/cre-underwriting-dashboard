@@ -125,11 +125,11 @@ export default function ScenariosPanel({
 
   const [memoBusyId, setMemoBusyId] = useState<string | null>(null)
 
-  async function handleGenerateMemo(scenarioId: string) {
+  async function handleGenerateMemo(scenarioId: string, format: 'docx' | 'pdf' = 'docx') {
     setMemoBusyId(scenarioId)
     setError(null)
     try {
-      const { blob, filename } = await generateMemo(scenarioId)
+      const { blob, filename } = await generateMemo(scenarioId, format)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -389,6 +389,14 @@ export default function ScenariosPanel({
                       className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-40"
                     >
                       {memoBusyId === s.id ? 'Generating…' : 'Generate IC Memo'}
+                    </button>
+                    <button
+                      onClick={() => handleGenerateMemo(s.id, 'pdf')}
+                      disabled={memoBusyId === s.id}
+                      title="PDF variant — converted server-side via LibreOffice."
+                      className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+                    >
+                      PDF
                     </button>
                     <button
                       onClick={() => handleDelete(s.id)}
