@@ -176,6 +176,38 @@ def _detail_line_annual(inputs: dict, line: dict) -> tuple[float, str | None]:
     return amount, None  # annual_total (and pct_of_egi callers never get here)
 
 
+DEFAULT_ASSESSMENT_RATIO = 0.85
+
+
+def projected_reassessed_taxes(
+    purchase_price: float, assessment_ratio: float, millage_rate: float
+) -> float:
+    """Post-sale reassessment projection (H4): the taxable value resets to
+    assessment_ratio x purchase price and the full millage applies. Pure —
+    also served to the UI via the property-tax router for display."""
+    return purchase_price * assessment_ratio * millage_rate
+
+
+def _reassessed_tax_annual(inputs: dict) -> tuple[float | None, str | None]:
+    """Returns (annual-projected-taxes, warning). None when the toggle is off
+    or required inputs are missing (with a warning in the latter case)."""
+    if not inputs.get("useReassessedTaxes"):
+        return None, None
+    price = _num(inputs, "purchasePrice")
+    if price <= 0:  # development: reassess on all-in cost
+        price = (
+            _num(inputs, "landCost") + _num(inputs, "hardCosts") + _num(inputs, "softCosts")
+        )
+    millage = _num(inputs, "millageRatePct")
+    if price <= 0 or millage <= 0:
+        return None, (
+            "Reassessed taxes are enabled but purchase price or millage rate "
+            "is missing — modeled taxes left unchanged."
+        )
+    ratio = _num(inputs, "assessmentRatio") or DEFAULT_ASSESSMENT_RATIO
+    return projected_reassessed_taxes(price, ratio, millage), None
+
+
 def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     """The single expense model both income paths consume.
 
@@ -192,9 +224,24 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     warnings: list[str] = []
     total = timeline.total_months
 
+    reassessed_taxes, reassess_warning = _reassessed_tax_annual(inputs)
+    if reassess_warning:
+        warnings.append(reassess_warning)
+    elif reassessed_taxes is not None:
+        warnings.append(
+            f"Reassessed property taxes modeled: ${reassessed_taxes:,.0f}/yr "
+            "(assessed value x millage) replaces the input real estate taxes."
+        )
+    tax_growth = (
+        _num(inputs, "reassessedTaxGrowthPct")
+        if inputs.get("reassessedTaxGrowthPct") is not None
+        else expense_growth
+    )
+
     if has_opex_detail(inputs):
         lines = []
         egi_pct_total = 0.0
+        tax_lines_recoverable = False
         for raw in inputs.get("opexLineItems") or []:
             if not (isinstance(raw, dict) and _num(raw, "amount") > 0):
                 continue
@@ -207,8 +254,19 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
             growth = _num(raw, "growthPct", expense_growth) if raw.get("growthPct") is not None else expense_growth
             key = _DETAIL_CATEGORY_KEYS.get(raw.get("category") or "other", "otherOpex")
             recoverable_flag = raw.get("recoverable") in (True, "yes", "true", 1)
+            if reassessed_taxes is not None and key == "realEstateTaxes":
+                # reassessment replaces every modeled tax line (H4)
+                tax_lines_recoverable = tax_lines_recoverable or recoverable_flag
+                continue
             lines.append({"key": key, "annual": annual, "growth": growth,
                           "recoverable": recoverable_flag})
+        if reassessed_taxes is not None:
+            lines.append({
+                "key": "realEstateTaxes",
+                "annual": reassessed_taxes,
+                "growth": tax_growth,
+                "recoverable": tax_lines_recoverable,
+            })
 
         by_category: dict[str, list[float]] = {}
         recoverable = [0.0] * total
@@ -232,6 +290,8 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
         }
 
     category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
+    if reassessed_taxes is not None:
+        category_bases["realEstateTaxes"] = reassessed_taxes
     active = [f for f, v in category_bases.items() if v > 0]
     by_category = {f: [] for f in active}
     recoverable = []
@@ -243,9 +303,14 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
             recoverable.append(0.0)
             continue
         mult = _growth_multiplier(expense_growth, operating_month)
+        tax_mult = (
+            _growth_multiplier(tax_growth, operating_month)
+            if reassessed_taxes is not None
+            else mult
+        )
         month_recoverable = 0.0
         for f in active:
-            amount = (category_bases[f] / 12) * mult
+            amount = (category_bases[f] / 12) * (tax_mult if f == "realEstateTaxes" else mult)
             by_category[f].append(amount)
             if f in RECOVERABLE_EXPENSE_FIELDS:
                 month_recoverable += amount

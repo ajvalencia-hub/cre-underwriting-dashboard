@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import FieldRow, { type FieldIndicator } from './fields/FieldRow'
 import MarketContextPanel from './MarketContextPanel'
+import PropertyTaxLookup from './PropertyTaxLookup'
 import { fetchBenchmarks, fetchMarketRates, type BenchmarkResult, type MarketRates } from '../lib/api'
 import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
 import { isVisible } from '../lib/visibility'
@@ -55,6 +56,28 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
   const assetClass = typeof values.propertyType === 'string' ? values.propertyType : ''
   const subject = useMemo(() => deriveBenchmarkSubject(values), [values])
   const subjectKey = JSON.stringify(subject)
+
+  // Modeled annual RE taxes for the assessor-lookup caution note: detail tax
+  // lines (annual_total only — other bases need engine context) or the flat
+  // field. Display comparison only, never math.
+  const modeledTaxes = useMemo(() => {
+    const lines = Array.isArray(values.opexLineItems)
+      ? (values.opexLineItems as Record<string, unknown>[])
+      : []
+    const detailTaxes = lines
+      .filter(
+        (l) =>
+          l &&
+          l.category === 'taxes' &&
+          typeof l.amount === 'number' &&
+          (l.basis === undefined || l.basis === null || l.basis === 'annual_total'),
+      )
+      .reduce((sum, l) => sum + (l.amount as number), 0)
+    if (detailTaxes > 0) return detailTaxes
+    return typeof values.realEstateTaxes === 'number' && values.realEstateTaxes > 0
+      ? values.realEstateTaxes
+      : null
+  }, [values.opexLineItems, values.realEstateTaxes])
 
   useEffect(() => {
     if (!address.trim() && !market.trim()) {
@@ -119,6 +142,19 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     indicator={fieldIndicators[field.id]}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'useReassessedTaxes' && (
+                    <PropertyTaxLookup
+                      address={address}
+                      purchasePrice={
+                        typeof values.purchasePrice === 'number' ? values.purchasePrice : null
+                      }
+                      assessmentRatio={
+                        typeof values.assessmentRatio === 'number' ? values.assessmentRatio : null
+                      }
+                      modeledTaxes={modeledTaxes}
+                      onApplyMillage={(rate) => onFieldChange('millageRatePct', rate)}
+                    />
+                  )}
                 </Fragment>
               ))}
           </div>

@@ -267,6 +267,33 @@ export function fetchBenchmarks(payload: {
   return postJson<BenchmarkResult>('/market/benchmarks', payload, 'POST')
 }
 
+export interface PropertyTaxLookupResult {
+  dataSource: string
+  folio: string | null
+  address: string | null
+  assessedValue: number | null
+  taxableValue: number | null
+  millageRate: number | null
+  currentTaxes: number | null
+  jurisdiction: string
+  asOf: string | null
+  note: string | null
+  projection: {
+    assessmentRatio: number
+    projectedAssessedValue: number
+    projectedAnnualTaxes: number
+  } | null
+}
+
+export function lookupPropertyTax(payload: {
+  query: string
+  county?: string | null
+  purchasePrice?: number | null
+  assessmentRatio?: number | null
+}) {
+  return postJson<PropertyTaxLookupResult>('/property-tax/lookup', payload, 'POST')
+}
+
 export function fetchDeals() {
   return getJson<Deal[]>('/deals')
 }

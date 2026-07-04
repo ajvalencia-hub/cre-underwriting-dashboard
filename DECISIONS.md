@@ -3,6 +3,36 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H4 — Property tax module (Run 3)
+
+- **[FIN] Reassessment projection: taxes = price x assessmentRatio x
+  millage.** Price = purchase price (acquisitions) or land + hard + soft
+  costs (developments). assessmentRatio defaults to 0.85 (FL sales commonly
+  assess below the transfer price; Save-Our-Homes caps don't apply to a new
+  owner). Rejected: modeling the 10% non-homestead cap phase-in — the cap
+  applies to increases AFTER the reset year, and underwriting the full
+  reset is the conservative norm.
+- **useReassessedTaxes defaults OFF** — every deal reproduces its current
+  outputs exactly until the user opts in. When ON it REPLACES the modeled
+  taxes in both expense modes (legacy flat field and every detail tax
+  line); in detail mode the recoverable flag survives if any replaced tax
+  line was recoverable, so NNN recoveries track the reassessed amount.
+- **[FIN] Reassessed taxes grow at reassessedTaxGrowthPct** (blank = the
+  deal's expense growth) while other categories keep the deal growth —
+  assessed values move on their own cycle, not with opex inflation.
+- Missing millage/price with the toggle on → warning + unchanged taxes,
+  never a silent zero. The projection formula lives once in operations.py;
+  the lookup router and the UI are pure consumers of it.
+- **Adapter contract** (services/property_tax): lookup(address-or-folio) →
+  normalized dict, dataSource="unavailable" + note on any failure, 24h
+  source_cache, never raises. Miami-Dade uses the PA public proxy; millage
+  is derived as currentTaxes / taxableValue when not stated. A new county
+  is one module + one registry line.
+- **Lookup UI writes nothing without a click** — same human-gate as
+  extraction review; the only input write is the explicit "Apply millage
+  rate" button. The caution note (modeled taxes below the reassessed
+  projection, 5% grace) is display-only.
+
 ## H3 — Expense-line detail (Run 3)
 
 - **When any opexLineItems row exists, detail mode replaces the flat expense

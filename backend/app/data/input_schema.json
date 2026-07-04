@@ -139,7 +139,14 @@
               "options": ["annual_total", "per_unit", "psf", "pct_of_egi"] },
             { "id": "growthPct", "label": "Growth (blank = deal default)", "type": "percent" },
             { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] }
-          ] }
+          ] },
+        { "id": "useReassessedTaxes", "label": "Model Reassessed Property Taxes", "type": "boolean", "default": false },
+        { "id": "millageRatePct", "label": "Millage Rate (total, e.g. 1.97%)", "type": "percent", "min": 0, "max": 0.05,
+          "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } },
+        { "id": "assessmentRatio", "label": "Assessed Value (% of purchase price)", "type": "percent", "min": 0.1, "max": 1.5, "default": 0.85,
+          "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } },
+        { "id": "reassessedTaxGrowthPct", "label": "Reassessed Tax Growth (blank = expense growth)", "type": "percent", "min": -0.1, "max": 0.2,
+          "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } }
       ]
     },
     {

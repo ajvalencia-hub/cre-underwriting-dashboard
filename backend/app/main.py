@@ -13,6 +13,7 @@ from app.routers import (
     mappings,
     market_context,
     market_rates,
+    property_tax,
     schema,
     scenarios,
     sensitivity,
@@ -51,6 +52,7 @@ app.include_router(market_rates.router)
 app.include_router(documents.router)
 app.include_router(extraction.router)
 app.include_router(sensitivity.router)
+app.include_router(property_tax.router)
 
 
 @app.get("/api/health")
