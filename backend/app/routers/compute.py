@@ -1,9 +1,10 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.services import tornado_service
 from app.services.proforma import engine
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -11,6 +12,23 @@ router = APIRouter(prefix="/api/compute", tags=["compute"])
 
 class ComputeRequest(BaseModel):
     values: dict[str, Any]
+
+
+class TornadoRequest(BaseModel):
+    values: dict[str, Any]
+    metric: str = "leveredIrr"
+
+
+@router.post("/tornado")
+def tornado(payload: TornadoRequest):
+    try:
+        return tornado_service.run_tornado(payload.values, payload.metric)
+    except engine.InsufficientInputsError as exc:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "missing": exc.missing}
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("")

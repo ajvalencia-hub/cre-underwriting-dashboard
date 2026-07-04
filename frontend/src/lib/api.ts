@@ -375,3 +375,13 @@ export interface SavedSensitivity {
 export function saveScenarioSensitivity(scenarioId: string, sensitivity: SavedSensitivity) {
   return postJson<Scenario>(`/scenarios/${scenarioId}/sensitivity`, { sensitivity }, 'PUT')
 }
+
+export interface TornadoResponse {
+  metric: string
+  base: number
+  bars: { key: string; label: string; low: number | null; high: number | null; impact: number }[]
+}
+
+export function fetchTornado(values: Record<string, unknown>, metric: string) {
+  return postJson<TornadoResponse>('/compute/tornado', { values, metric }, 'POST')
+}

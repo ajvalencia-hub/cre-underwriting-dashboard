@@ -1,13 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   deleteScenario,
   fetchScenarios,
+  fetchTornado,
   generateMemo,
   saveScenario,
   updateScenario,
+  type TornadoResponse,
 } from '../lib/api'
-import { formatValue } from '../lib/formatValue'
+import { formatOutputValue, formatValue } from '../lib/formatValue'
 import { flattenFields } from '../lib/schemaFields'
+import {
+  bestValueIndex,
+  buildComparisonRows,
+  tornadoGeometry,
+} from '../lib/scenarioComparison'
 import type { QuickScreenInputs } from '../lib/quickScreenMath'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
@@ -28,7 +35,7 @@ interface ScenariosPanelProps {
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
 
-const MAX_COMPARE = 3
+const MAX_COMPARE = 4
 
 export default function ScenariosPanel({
   schema,
@@ -158,16 +165,116 @@ export default function ScenariosPanel({
   }
 
   const compared = scenarios.filter((s) => compareIds.includes(s.id))
-  const compareFieldIds = Array.from(
-    new Set(
-      compared.flatMap((s) =>
-        Object.keys(s.inputs).filter((k) => {
-          const v = s.inputs[k]
-          return v !== undefined && v !== null && v !== ''
-        }),
-      ),
-    ),
+  const [showIdentical, setShowIdentical] = useState(false)
+  const comparisonRows = useMemo(
+    () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [schema, compareIds.join(','), scenarios],
   )
+
+  // ---- tornado ----
+  const [tornadoScenarioId, setTornadoScenarioId] = useState('')
+  const [tornadoMetric, setTornadoMetric] = useState('leveredIrr')
+  const [tornado, setTornado] = useState<TornadoResponse | null>(null)
+  const [tornadoBusy, setTornadoBusy] = useState(false)
+  const [tornadoError, setTornadoError] = useState<string | null>(null)
+
+  async function handleRunTornado() {
+    const scenario = scenarios.find((s) => s.id === tornadoScenarioId)
+    if (!scenario) return
+    setTornadoBusy(true)
+    setTornadoError(null)
+    setTornado(null)
+    try {
+      setTornado(await fetchTornado(scenario.inputs, tornadoMetric))
+    } catch (err) {
+      setTornadoError(err instanceof Error ? err.message : 'Tornado analysis failed')
+    } finally {
+      setTornadoBusy(false)
+    }
+  }
+
+  function TornadoChart({
+    tornado,
+    format,
+  }: {
+    tornado: TornadoResponse
+    format: (v: number) => string
+  }) {
+    const width = 640
+    const rowHeight = 28
+    const labelWidth = 190
+    const chartWidth = width - labelWidth - 70
+    const bars = tornadoGeometry(tornado.bars, tornado.base, format)
+    const height = bars.length * rowHeight + 24
+    return (
+      <div className="mt-3 overflow-x-auto rounded border border-slate-200 bg-white p-3">
+        <div className="mb-1 text-xs text-slate-500">
+          Base {format(tornado.base)} — bar ends show the metric at the down/up perturbation.
+        </div>
+        <svg width={width} height={height} role="img" aria-label="Tornado chart">
+          {/* base line */}
+          <line
+            x1={labelWidth + chartWidth / 2}
+            y1={4}
+            x2={labelWidth + chartWidth / 2}
+            y2={height - 20}
+            stroke="#cbd5e1"
+            strokeDasharray="3 3"
+          />
+          {bars.map((bar, i) => {
+            const y = i * rowHeight + 8
+            const x0 = labelWidth + bar.x0 * chartWidth
+            const x1 = labelWidth + bar.x1 * chartWidth
+            return (
+              <g key={bar.key}>
+                <text x={0} y={y + 13} fontSize={11} fill="#475569">
+                  {bar.label}
+                </text>
+                <rect
+                  x={Math.min(x0, x1)}
+                  y={y}
+                  width={Math.max(2, Math.abs(x1 - x0))}
+                  height={16}
+                  rx={2}
+                  fill="#7dd3fc"
+                  stroke="#0284c7"
+                  strokeWidth={0.5}
+                />
+                {(() => {
+                  const lowPx = labelWidth + bar.lowX * chartWidth
+                  const highPx = labelWidth + bar.highX * chartWidth
+                  const lowOnLeft = lowPx <= highPx
+                  return (
+                    <>
+                      <text
+                        x={lowOnLeft ? Math.min(x0, x1) - 4 : Math.max(x0, x1) + 4}
+                        y={y + 12}
+                        fontSize={9}
+                        fill="#94a3b8"
+                        textAnchor={lowOnLeft ? 'end' : 'start'}
+                      >
+                        ↓ {bar.lowLabel}
+                      </text>
+                      <text
+                        x={lowOnLeft ? Math.max(x0, x1) + 4 : Math.min(x0, x1) - 4}
+                        y={y + 12}
+                        fontSize={9}
+                        fill="#94a3b8"
+                        textAnchor={lowOnLeft ? 'start' : 'end'}
+                      >
+                        ↑ {bar.highLabel}
+                      </text>
+                    </>
+                  )
+                })()}
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -295,16 +402,25 @@ export default function ScenariosPanel({
             </ul>
           </section>
 
-          {compared.length > 0 && (
+          {compared.length >= 2 && (
             <section>
               <h2 className="text-sm font-semibold tracking-wide text-slate-500">
                 COMPARISON ({compared.length} of {MAX_COMPARE})
               </h2>
+              <label className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={showIdentical}
+                  onChange={(e) => setShowIdentical(e.target.checked)}
+                />
+                Show identical inputs
+              </label>
+
               <div className="mt-2 overflow-x-auto rounded border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="px-3 py-2 font-medium text-slate-500">Field</th>
+                      <th className="px-3 py-2 font-medium text-slate-500">Input</th>
                       {compared.map((s) => (
                         <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
                           {s.scenarioName}
@@ -313,14 +429,88 @@ export default function ScenariosPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {compareFieldIds.map((fieldId) => {
-                      const field = fieldById.get(fieldId)
+                    {(() => {
+                      const visible = comparisonRows.filter((r) => r.differs || showIdentical)
+                      if (visible.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={compared.length + 1} className="px-3 py-2 text-slate-400">
+                              No differing inputs — these scenarios share every value.
+                            </td>
+                          </tr>
+                        )
+                      }
+                      const output: ReactNode[] = []
+                      let lastSection = ''
+                      for (const row of visible) {
+                        if (row.sectionLabel !== lastSection) {
+                          lastSection = row.sectionLabel
+                          output.push(
+                            <tr key={`sec-${row.sectionLabel}`} className="bg-slate-50">
+                              <td
+                                colSpan={compared.length + 1}
+                                className="px-3 py-1 text-[10px] font-semibold tracking-wide text-slate-400"
+                              >
+                                {row.sectionLabel.toUpperCase()}
+                              </td>
+                            </tr>,
+                          )
+                        }
+                        output.push(
+                          <tr
+                            key={row.fieldId}
+                            className={`border-b border-slate-50 ${row.differs ? '' : 'text-slate-400'}`}
+                          >
+                            <td className="px-3 py-1.5 text-slate-500">{row.label}</td>
+                            {row.values.map((value, i) => (
+                              <td key={i} className={`px-3 py-1.5 ${row.differs ? 'font-medium' : ''}`}>
+                                {formatValue(fieldById.get(row.fieldId), value)}
+                              </td>
+                            ))}
+                          </tr>,
+                        )
+                      }
+                      return output
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 className="mt-4 text-xs font-semibold tracking-wide text-slate-500">
+                OUTPUTS — best value highlighted where direction is unambiguous
+              </h3>
+              <div className="mt-1 overflow-x-auto rounded border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left">
+                      <th className="px-3 py-2 font-medium text-slate-500">Metric</th>
+                      {compared.map((s) => (
+                        <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
+                          {s.scenarioName}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schema.outputs.map((metric) => {
+                      const values = compared.map((s) => {
+                        const metrics = (s.outputs as { metrics?: Record<string, unknown> })?.metrics
+                        const v = metrics?.[metric.id]
+                        return typeof v === 'number' ? v : null
+                      })
+                      if (values.every((v) => v === null)) return null
+                      const best = bestValueIndex(metric.id, values)
                       return (
-                        <tr key={fieldId} className="border-b border-slate-50">
-                          <td className="px-3 py-1.5 text-slate-500">{field?.label ?? fieldId}</td>
-                          {compared.map((s) => (
-                            <td key={s.id} className="px-3 py-1.5">
-                              {formatValue(field, s.inputs[fieldId])}
+                        <tr key={metric.id} className="border-b border-slate-50">
+                          <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
+                          {values.map((v, i) => (
+                            <td
+                              key={i}
+                              className={`px-3 py-1.5 tabular-nums ${
+                                best === i ? 'bg-emerald-50 font-semibold text-emerald-700' : ''
+                              }`}
+                            >
+                              {v === null ? '—' : formatOutputValue(metric, v)}
                             </td>
                           ))}
                         </tr>
@@ -329,8 +519,61 @@ export default function ScenariosPanel({
                   </tbody>
                 </table>
               </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Outputs come from each scenario's saved compute snapshot — re-save a scenario after
+                computing to refresh them.
+              </p>
             </section>
           )}
+
+          <section>
+            <h2 className="text-sm font-semibold tracking-wide text-slate-500">TORNADO</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              One-driver-at-a-time perturbation of a scenario (±10%; rate/cap ±50 bps) through the
+              native engine, sorted by impact on the chosen metric.
+            </p>
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <select
+                value={tornadoScenarioId}
+                onChange={(e) => setTornadoScenarioId(e.target.value)}
+                className="rounded border border-slate-300 px-2 py-1 text-sm"
+              >
+                <option value="">Select scenario…</option>
+                {scenarios.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.scenarioName}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={tornadoMetric}
+                onChange={(e) => setTornadoMetric(e.target.value)}
+                className="rounded border border-slate-300 px-2 py-1 text-sm"
+              >
+                {schema.outputs.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => void handleRunTornado()}
+                disabled={!tornadoScenarioId || tornadoBusy}
+                className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:opacity-40"
+              >
+                {tornadoBusy ? 'Running…' : 'Run tornado'}
+              </button>
+            </div>
+            {tornadoError && <div className="mt-2 text-sm text-red-600">{tornadoError}</div>}
+            {tornado && (
+              <TornadoChart
+                tornado={tornado}
+                format={(v) =>
+                  formatOutputValue(schema.outputs.find((m) => m.id === tornado.metric)!, v)
+                }
+              />
+            )}
+          </section>
         </>
       )}
     </div>
