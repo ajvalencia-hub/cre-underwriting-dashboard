@@ -1,3 +1,4 @@
+import type { Statement } from './cashflowStatement'
 import type { InputSchema } from '../types/schema'
 import type { SheetGrid, TemplateSummary } from '../types/template'
 import type { AutoMatchResult, MappingProfile, MappingsById } from '../types/mapping'
@@ -210,10 +211,18 @@ export interface ComputeResponse {
   debt: DebtBlock | null
   irrConvention: 'periodic_monthly' | 'xirr'
   waterfallStyle: 'european' | 'american'
+  statement?: Statement
 }
 
-export function computeNative(values: Record<string, unknown>) {
-  return postJson<ComputeResponse>('/compute', { values }, 'POST')
+export function computeNative(
+  values: Record<string, unknown>,
+  options: { detail?: boolean } = {},
+) {
+  return postJson<ComputeResponse>(
+    `/compute${options.detail ? '?detail=true' : ''}`,
+    { values },
+    'POST',
+  )
 }
 
 export interface MarketRates {

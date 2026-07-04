@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
+import CashFlowTab from './pages/CashFlowTab'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
@@ -25,6 +26,7 @@ import {
   type Autosaver,
   type AutosaveState,
 } from './lib/dealPersistence'
+import type { Statement } from './lib/cashflowStatement'
 import { formatOutputValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
@@ -46,7 +48,14 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
-type Tab = 'quickscreen' | 'documents' | 'setup' | 'dashboard' | 'sensitivity' | 'scenarios'
+type Tab =
+  | 'quickscreen'
+  | 'documents'
+  | 'setup'
+  | 'dashboard'
+  | 'cashflow'
+  | 'sensitivity'
+  | 'scenarios'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -77,6 +86,7 @@ function App() {
   const [nativeOutputs, setNativeOutputs] = useState<Record<string, unknown>>({})
   const [nativeDebt, setNativeDebt] = useState<Record<string, unknown> | null>(null)
   const [nativeIrrConvention, setNativeIrrConvention] = useState<'periodic_monthly' | 'xirr' | null>(null)
+  const [nativeStatement, setNativeStatement] = useState<Statement | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
 
   const [deals, setDeals] = useState<Deal[]>([])
@@ -118,6 +128,7 @@ function App() {
     setNativeOutputs({})
     setNativeDebt(null)
     setNativeIrrConvention(null)
+    setNativeStatement(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
@@ -441,8 +452,9 @@ function App() {
             ['documents', '1. Documents'],
             ['setup', '2. Template & Mapping'],
             ['dashboard', '3. Deal Inputs'],
-            ['sensitivity', '4. Sensitivity'],
-            ['scenarios', '5. Scenarios'],
+            ['cashflow', '4. Cash Flow'],
+            ['sensitivity', '5. Sensitivity'],
+            ['scenarios', '6. Scenarios'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -503,12 +515,17 @@ function App() {
           mappingProfileId={activeMappingProfileId}
           values={formValues}
           onGenerated={setServerOutputs}
-          onComputedNative={(outputs, debt, irrConvention) => {
+          onComputedNative={(outputs, debt, irrConvention, statement) => {
             setNativeOutputs(outputs)
             setNativeDebt(debt as Record<string, unknown> | null)
             setNativeIrrConvention(irrConvention ?? null)
+            setNativeStatement(statement ?? null)
           }}
         />
+      </div>
+
+      <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
+        <CashFlowTab statement={nativeStatement} onGoToCompute={() => setTab('dashboard')} />
       </div>
 
       <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>

@@ -86,7 +86,11 @@ def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
 
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
-    {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"}."""
+    {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
+    the statement components ("vacancyLoss", "creditLoss", "otherIncome",
+    "managementFee", "fixedOpexByCategory") — identities hold by
+    construction: egi = gpr - vacancyLoss - creditLoss + otherIncome and
+    noi = egi - opex."""
     annual_gpr, annual_other, source, warnings = annual_gpr_and_other_income(inputs)
 
     rent_growth = (
@@ -100,13 +104,20 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     management_fee_pct = _num(inputs, "managementFeePct")
     stabilized_occupancy = max(0.0, 1 - vacancy_pct)
 
-    annual_expense_base = sum(_num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS)
+    category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
+    annual_expense_base = sum(category_bases.values())
+    active_categories = [f for f, v in category_bases.items() if v > 0]
 
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
     opex_vec: list[float] = []
     noi_vec: list[float] = []
     occupancy_vec: list[float] = []
+    vacancy_vec: list[float] = []
+    credit_vec: list[float] = []
+    other_vec: list[float] = []
+    mgmt_fee_vec: list[float] = []
+    fixed_by_category: dict[str, list[float]] = {f: [] for f in active_categories}
 
     for month in range(1, timeline.total_months + 1):
         phase = timeline.phase(month)
@@ -114,11 +125,13 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         # so a 24-month build doesn't silently bank two years of rent growth.
         operating_month = month - timeline.construction_months
         if operating_month < 1:
-            gpr_vec.append(0.0)
-            egi_vec.append(0.0)
-            opex_vec.append(0.0)
-            noi_vec.append(0.0)
-            occupancy_vec.append(0.0)
+            for vec in (
+                gpr_vec, egi_vec, opex_vec, noi_vec, occupancy_vec,
+                vacancy_vec, credit_vec, other_vec, mgmt_fee_vec,
+            ):
+                vec.append(0.0)
+            for f in active_categories:
+                fixed_by_category[f].append(0.0)
             continue
 
         if phase == "lease_up":
@@ -134,11 +147,14 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         gpr_month = (annual_gpr / 12) * rent_mult
         other_month = (annual_other / 12) * rent_mult
         # Credit loss applies to collected (occupied) revenue.
-        collected_rent = gpr_month * occupancy * (1 - credit_loss_pct)
+        vacancy_loss_month = gpr_month * (1 - occupancy)
+        credit_loss_month = gpr_month * occupancy * credit_loss_pct
+        collected_rent = gpr_month - vacancy_loss_month - credit_loss_month
         # Ancillary income scales with occupancy too — an empty building
         # collects no parking/RUBS.
         occupancy_share = occupancy / stabilized_occupancy if stabilized_occupancy > 0 else 0.0
-        egi_month = collected_rent + other_month * occupancy_share
+        other_income_month = other_month * occupancy_share
+        egi_month = collected_rent + other_income_month
 
         fixed_expenses_month = (annual_expense_base / 12) * expense_mult
         management_fee_month = egi_month * management_fee_pct
@@ -149,6 +165,12 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         opex_vec.append(opex_month)
         noi_vec.append(egi_month - opex_month)
         occupancy_vec.append(occupancy)
+        vacancy_vec.append(vacancy_loss_month)
+        credit_vec.append(credit_loss_month)
+        other_vec.append(other_income_month)
+        mgmt_fee_vec.append(management_fee_month)
+        for f in active_categories:
+            fixed_by_category[f].append((category_bases[f] / 12) * expense_mult)
 
     return {
         "noi": noi_vec,
@@ -156,6 +178,11 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "gpr": gpr_vec,
         "opex": opex_vec,
         "occupancy": occupancy_vec,
+        "vacancyLoss": vacancy_vec,
+        "creditLoss": credit_vec,
+        "otherIncome": other_vec,
+        "managementFee": mgmt_fee_vec,
+        "fixedOpexByCategory": fixed_by_category,
         "gprSource": source,
         "warnings": warnings,
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { computeNative, generateWorkbook, type DebtBlock } from '../lib/api'
+import type { Statement } from '../lib/cashflowStatement'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
@@ -11,6 +12,7 @@ interface GeneratePanelProps {
     outputs: Record<string, number | string>,
     debt: DebtBlock | null,
     irrConvention?: 'periodic_monthly' | 'xirr',
+    statement?: Statement | null,
   ) => void
 }
 
@@ -39,10 +41,12 @@ export default function GeneratePanel({
     setComputeError(null)
     setComputeWarnings([])
     try {
-      const { outputs, warnings, debt, irrConvention } = await computeNative(values)
+      const { outputs, warnings, debt, irrConvention, statement } = await computeNative(values, {
+        detail: true,
+      })
       setComputeWarnings(warnings)
       setDebtBlock(debt)
-      onComputedNative?.(outputs, debt, irrConvention)
+      onComputedNative?.(outputs, debt, irrConvention, statement ?? null)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Native compute failed')
       setDebtBlock(null)

@@ -14,7 +14,7 @@ class ComputeRequest(BaseModel):
 
 
 @router.post("")
-def compute(payload: ComputeRequest):
+def compute(payload: ComputeRequest, detail: bool = False):
     try:
         result = engine.compute(payload.values)
     except engine.InsufficientInputsError as exc:
@@ -22,10 +22,14 @@ def compute(payload: ComputeRequest):
             status_code=422,
             content={"detail": str(exc), "missing": exc.missing},
         )
-    return {
+    response = {
         "outputs": result["outputs"],
         "warnings": result["warnings"],
         "debt": result["debt"],
         "irrConvention": result["irrConvention"],
         "waterfallStyle": result["waterfallStyle"],
     }
+    if detail:
+        # The period-level statement: the engine's own vectors, no recompute.
+        response["statement"] = result["statement"]
+    return response

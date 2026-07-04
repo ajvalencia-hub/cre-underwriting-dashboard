@@ -126,6 +126,17 @@ def compute(inputs: dict) -> dict:
 
     sources_and_uses: dict = {"uses": [], "sources": []}
 
+    # Statement vectors (index 0 = close), assembled alongside the cash-flow
+    # build so the period detail is the SAME numbers, never a recomputation.
+    stmt_costs = [0.0] * (total + 1)  # project cash costs (ex loan fees)
+    stmt_loan_fees = [0.0] * (total + 1)  # cash loan fees (levered only)
+    stmt_equity_funded = [0.0] * (total + 1)
+    stmt_debt_draws = [0.0] * (total + 1)  # loan fundings incl. net refi delta
+    stmt_interest = [0.0] * (total + 1)
+    stmt_principal = [0.0] * (total + 1)
+    stmt_service = [0.0] * (total + 1)
+    stmt_balance = [0.0] * (total + 1)
+
     if deal_type == "acquisition":
         purchase_price = _num(inputs, "purchasePrice")
         basis = (
@@ -179,6 +190,18 @@ def compute(inputs: dict) -> dict:
         perm_loan = loan_amount
         value_for_ltv = purchase_price
 
+        stmt_costs[0] = basis
+        stmt_loan_fees[0] = loan_fees
+        stmt_equity_funded[0] = initial_equity
+        stmt_debt_draws[0] = loan_amount
+        stmt_balance[0] = loan_amount
+        for m in range(1, total + 1):
+            entry = schedule[m - 1]
+            stmt_interest[m] = entry.interest
+            stmt_principal[m] = entry.principal
+            stmt_service[m] = entry.payment
+            stmt_balance[m] = entry.balance
+
         sources_and_uses["uses"] = [
             ("Purchase price", purchase_price),
             ("Closing costs", purchase_price * _num(inputs, "closingCostsPct")),
@@ -220,6 +243,16 @@ def compute(inputs: dict) -> dict:
             if m <= total:
                 unlevered[m] -= cost
                 levered[m] -= financing.equity_funded[m]
+                stmt_costs[m] = cost
+                stmt_equity_funded[m] = financing.equity_funded[m]
+                stmt_debt_draws[m] = financing.draws[m]
+                stmt_balance[m] = financing.balances[m]
+                if m >= 1:
+                    # Capitalized interest (and the fee at the first draw) is
+                    # the balance change beyond the cash draw.
+                    stmt_interest[m] = (
+                        financing.balances[m] - financing.balances[m - 1] - financing.draws[m]
+                    )
         for m in range(1, total + 1):
             unlevered[m] += noi[m - 1]
 
@@ -229,7 +262,16 @@ def compute(inputs: dict) -> dict:
         balance = financing.ending_balance
         r = interest_rate / 12
         for m in range(timeline.construction_months + 1, takeout_month):
+            prior = balance
             balance = max(0.0, balance + balance * r - noi[m - 1])
+            if m <= total:
+                # The sweep is debt service in statement terms: interest on
+                # the prior balance, the remainder principal (negative =
+                # further accrual). Matches the engine's zero levered CF.
+                stmt_interest[m] = prior * r
+                stmt_service[m] = noi[m - 1]
+                stmt_principal[m] = noi[m - 1] - prior * r
+                stmt_balance[m] = balance
 
         value_for_ltv = stabilized_noi / exit_cap if exit_cap > 0 else 0.0
 
@@ -264,6 +306,7 @@ def compute(inputs: dict) -> dict:
                 governing_constraint = "none"
             refi_delta = perm_loan - balance
             levered[takeout_month] += refi_delta
+            stmt_debt_draws[takeout_month] += refi_delta
             if refi_delta < 0:
                 warnings.append(
                     f"Permanent loan sizes below the construction balance — a "
@@ -278,6 +321,10 @@ def compute(inputs: dict) -> dict:
                 entry = schedule[m - takeout_month]
                 levered[m] += noi[m - 1] - entry.payment
                 debt_service[m] = entry
+                stmt_interest[m] = entry.interest
+                stmt_principal[m] = entry.principal
+                stmt_service[m] = entry.payment
+                stmt_balance[m] = entry.balance
             exit_debt_balance = schedule[-1].balance if schedule else 0.0
         else:
             # Sold before stabilizing: sweep through exit, pay off then.
@@ -286,7 +333,12 @@ def compute(inputs: dict) -> dict:
                 debt_yield_constraint, interest_rate, amort_years,
             )
             for m in range(takeout_month, total + 1):
+                prior = balance
                 balance = max(0.0, balance + balance * r - noi[m - 1])
+                stmt_interest[m] = prior * r
+                stmt_service[m] = noi[m - 1]
+                stmt_principal[m] = noi[m - 1] - prior * r
+                stmt_balance[m] = balance
             perm_loan = balance
             governing_constraint = "none"
             exit_debt_balance = balance
@@ -475,6 +527,56 @@ def compute(inputs: dict) -> dict:
             "stress": stress,
         }
 
+    # ------------------------------------------------------------------
+    # Period-level statement (G2): the vectors above, packaged. Index 0 =
+    # close. Identities hold by construction:
+    #   egi = gpr - vacancyLoss - creditLoss + otherIncome
+    #   noi = egi - opexTotal
+    #   levered = noi - debtService + debtDraws - costs - loanFees + saleProceedsNet
+    # ------------------------------------------------------------------
+    def _padded(key: str) -> list[float]:
+        return [0.0] + ops[key][:total]
+
+    sale_net_vec = [0.0] * (total + 1)
+    sale_net_vec[total] = net_sale_proceeds
+    sale_gross_vec = [0.0] * (total + 1)
+    sale_gross_vec[total] = gross_sale_net_of_costs
+
+    statement = {
+        "months": list(range(total + 1)),
+        "phases": ["close"] + [timeline.phase(m) for m in range(1, total + 1)],
+        "constructionMonths": timeline.construction_months,
+        "stabilizationMonth": timeline.stabilization_month,
+        "exitMonth": total,
+        "gpr": _padded("gpr"),
+        "vacancyLoss": _padded("vacancyLoss"),
+        "creditLoss": _padded("creditLoss"),
+        "otherIncome": _padded("otherIncome"),
+        "egi": _padded("egi"),
+        "fixedOpexByCategory": {
+            category: [0.0] + vec[:total]
+            for category, vec in ops["fixedOpexByCategory"].items()
+        },
+        "managementFee": _padded("managementFee"),
+        "opexTotal": _padded("opex"),
+        "noi": [0.0] + noi,
+        "occupancy": _padded("occupancy"),
+        "costs": stmt_costs,
+        "loanFees": stmt_loan_fees,
+        "equityFunded": stmt_equity_funded,
+        "debtDraws": stmt_debt_draws,
+        "interest": stmt_interest,
+        "principal": stmt_principal,
+        "debtService": stmt_service,
+        "loanBalance": stmt_balance,
+        "saleProceedsNet": sale_net_vec,
+        "saleProceedsGross": sale_gross_vec,
+        "unlevered": unlevered,
+        "levered": levered,
+        "lpDistributions": waterfall["lpFlows"],
+        "gpDistributions": waterfall["gpFlows"],
+    }
+
     return {
         "outputs": outputs,
         "warnings": warnings,
@@ -483,4 +585,5 @@ def compute(inputs: dict) -> dict:
         "sourcesAndUses": sources_and_uses,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
+        "statement": statement,
     }
