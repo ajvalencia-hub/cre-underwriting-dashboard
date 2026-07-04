@@ -23,6 +23,8 @@
     { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
     { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
     { "id": "developmentSpreadBps", "label": "Development Spread (over exit cap)", "type": "percent", "group": "Yield & Value" },
+    { "id": "residentialYieldOnCost", "label": "Residential Yield on Cost", "type": "percent", "group": "Yield & Value" },
+    { "id": "commercialYieldOnCost", "label": "Commercial Yield on Cost", "type": "percent", "group": "Yield & Value" },
     { "id": "breakEvenOccupancy", "label": "Breakeven Occupancy", "type": "percent", "group": "Yield & Value" },
     { "id": "terminalValue", "label": "Terminal / Reversion Value", "type": "currency", "group": "Yield & Value" },
     { "id": "netSaleProceeds", "label": "Net Sale Proceeds", "type": "currency", "group": "Yield & Value" },
@@ -151,7 +153,11 @@
         { "id": "costOfSalePct", "label": "Cost of Sale", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 },
         { "id": "discountRatePct", "label": "Discount Rate (NPV)", "type": "percent", "min": 0, "max": 0.3, "default": 0.1 },
         { "id": "irrConvention", "label": "IRR Convention", "type": "select",
-          "options": ["periodic_monthly", "xirr"], "default": "periodic_monthly" }
+          "options": ["periodic_monthly", "xirr"], "default": "periodic_monthly" },
+        { "id": "residentialExitCapPct", "label": "Residential Exit Cap (mixed-use)", "type": "percent", "min": 0, "max": 0.2,
+          "visibleWhen": { "all": [{ "field": "propertyType", "equals": "mixed_use" }] } },
+        { "id": "commercialExitCapPct", "label": "Commercial Exit Cap (mixed-use)", "type": "percent", "min": 0, "max": 0.2,
+          "visibleWhen": { "all": [{ "field": "propertyType", "equals": "mixed_use" }] } }
       ]
     },
     {

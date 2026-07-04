@@ -3,6 +3,36 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H2 — Mixed-use composition (Run 3)
+
+- **[FIN] Composition, not a third engine:** the residential (unit-mix) and
+  commercial (lease) paths run side by side and SUM. Fixed opex exists
+  exactly once; the management fee is EGI-based and therefore splits
+  linearly across components. Blended NOI = residential NOI + commercial
+  NOI by construction (tested per month).
+- **[FIN] Commercial recoveries in mixed deals** recover only the
+  commercial SHARE of the property's recoverable opex, pro-rated by year-1
+  scheduled revenue (commercial rent / (commercial rent + residential
+  GPR)). Rejected: SF-based sharing (residential SF is unreliable —
+  unitMix.avgSf is optional); full-property recovery (overstates income);
+  EGI-based sharing (circular — EGI depends on recoveries).
+- **[FIN] Component reporting allocation:** shared fixed opex is allocated
+  to components pro-rata to monthly component EGI — reporting only, the
+  blend is exact regardless. Blended occupancy displays as the EGI-weighted
+  average of component occupancies (unit-based and SF-based occupancies
+  aren't otherwise commensurable).
+- **[FIN] Component-level exit:** when BOTH residentialExitCapPct and
+  commercialExitCapPct are set, terminal value = sum of component forward
+  12-month NOIs at their own caps; otherwise single-cap behavior is
+  unchanged. Debt SIZING keeps the blended single-cap value either way
+  (lenders size on blended NOI). Per-component yield on cost allocates the
+  cost basis pro-rata to component value at the component caps (blended cap
+  when unset) — the component YoCs bracket the blended YoC by construction.
+  Rejected: NOI-share basis allocation (degenerates to the blended YoC for
+  every component).
+- The otherIncome input counts once, on the residential side, in mixed
+  deals.
+
 ## H1 — Commercial lease engine (Run 3)
 
 - **[FIN] Calendar anchoring:** lease dates map onto the analysis calendar

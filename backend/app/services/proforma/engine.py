@@ -106,7 +106,19 @@ def compute(inputs: dict) -> dict:
     leasing_capital = (ops.get("leasingCapital") or [0.0] * total)[:total]
 
     cost_of_sale = _num(inputs, "costOfSalePct")
-    terminal_value = forward_noi_12 / exit_cap
+    # Component-level exit (H2): when BOTH component caps are provided on a
+    # mixed deal, blended value = sum of component forward NOIs at their own
+    # caps; otherwise the single-cap behavior is unchanged.
+    components = ops.get("components")
+    res_exit_cap = _num(inputs, "residentialExitCapPct")
+    com_exit_cap = _num(inputs, "commercialExitCapPct")
+    if components and res_exit_cap > 0 and com_exit_cap > 0:
+        terminal_value = (
+            sum(components["residential"]["noi"][total : total + 12]) / res_exit_cap
+            + sum(components["commercial"]["noi"][total : total + 12]) / com_exit_cap
+        )
+    else:
+        terminal_value = forward_noi_12 / exit_cap
     gross_sale_net_of_costs = terminal_value * (1 - cost_of_sale)
 
     ltc_or_ltv = _num(inputs, "ltvOrLtc", 0.65)
@@ -441,6 +453,21 @@ def compute(inputs: dict) -> dict:
 
     yield_on_cost = stabilized_noi / total_cost_basis if total_cost_basis > 0 else None
     put("yieldOnCost", yield_on_cost)
+    # Per-component yield on cost (H2): basis allocated pro-rata to component
+    # value at the component caps (blended cap when unset). See DECISIONS.md.
+    if components and total_cost_basis > 0 and total >= 1:
+        window = min(12, total)
+        stab_res = sum(components["residential"]["noi"][:window]) * (12 / window)
+        stab_com = sum(components["commercial"]["noi"][:window]) * (12 / window)
+        cap_r = res_exit_cap if res_exit_cap > 0 else exit_cap
+        cap_c = com_exit_cap if com_exit_cap > 0 else exit_cap
+        value_r = stab_res / cap_r if cap_r > 0 else 0.0
+        value_c = stab_com / cap_c if cap_c > 0 else 0.0
+        if value_r > 0 and value_c > 0:
+            basis_r = total_cost_basis * value_r / (value_r + value_c)
+            basis_c = total_cost_basis - basis_r
+            put("residentialYieldOnCost", stab_res / basis_r)
+            put("commercialYieldOnCost", stab_com / basis_c)
     if deal_type == "acquisition":
         in_place_noi = _num(inputs, "inPlaceNoi")
         year1_noi = sum(noi[: min(12, total)]) * (12 / min(12, total)) if total else 0.0
@@ -608,6 +635,11 @@ def compute(inputs: dict) -> dict:
     }
     if ops.get("leaseDetail"):
         statement["leases"] = ops["leaseDetail"]
+    if components:
+        statement["components"] = {
+            name: {key: [0.0] + vec[:total] for key, vec in comp.items()}
+            for name, comp in components.items()
+        }
 
     return {
         "outputs": outputs,

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
 import {
   cellValue,
+  filterComponent,
   groupIntoYears,
   monthColumns,
   rowTotal,
@@ -9,6 +10,7 @@ import {
   statementToCsv,
   type PeriodColumn,
   type Statement,
+  type StatementComponent,
 } from '../lib/cashflowStatement'
 
 interface CashFlowTabProps {
@@ -130,8 +132,13 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function CashFlowTab({ statement, values, onGoToCompute }: CashFlowTabProps) {
+export default function CashFlowTab({ statement: rawStatement, values, onGoToCompute }: CashFlowTabProps) {
   const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set())
+  const [component, setComponent] = useState<StatementComponent>('blended')
+  const statement = useMemo(
+    () => (rawStatement ? filterComponent(rawStatement, component) : null),
+    [rawStatement, component],
+  )
   const [holdSweep, setHoldSweep] = useState<HoldSweepResponse | null>(null)
   const [holdBusy, setHoldBusy] = useState(false)
   const [holdError, setHoldError] = useState<string | null>(null)
@@ -196,6 +203,18 @@ export default function CashFlowTab({ statement, values, onGoToCompute }: CashFl
         <span className="text-xs text-slate-400">
           Click a year header to expand its months.
         </span>
+        {rawStatement?.components && (
+          <select
+            value={component}
+            onChange={(e) => setComponent(e.target.value as StatementComponent)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs"
+            aria-label="Income statement component"
+          >
+            <option value="blended">Blended</option>
+            <option value="residential">Residential</option>
+            <option value="commercial">Commercial</option>
+          </select>
+        )}
         <div className="ml-auto flex gap-2">
           <button
             onClick={() => download('cashflow-annual.csv', statementToCsv(statement, 'annual'))}

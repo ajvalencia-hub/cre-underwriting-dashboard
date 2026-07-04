@@ -34,6 +34,11 @@ export interface Statement {
   levered: number[]
   lpDistributions: number[]
   gpDistributions: number[]
+  /** Present only for mixed-use deals (H2): per-component income vectors. */
+  components?: Record<
+    'residential' | 'commercial',
+    { gpr: number[]; vacancyLoss: number[]; creditLoss: number[]; otherIncome: number[]; egi: number[]; opex: number[]; noi: number[] }
+  >
   /** Present only for lease-modeled commercial deals (H1). */
   leases?: {
     walt: number
@@ -104,6 +109,31 @@ export function statementRows(statement: Statement): StatementRow[] {
     { key: 'gpDistributions', label: 'GP cash flow', kind: 'flow', series: (s) => s.gpDistributions, indent: true },
   )
   return rows
+}
+
+export type StatementComponent = 'blended' | 'residential' | 'commercial'
+
+/** H2: view a mixed deal's income statement through one component. Income
+ *  rows come from the component vectors; opex/NOI use the reporting
+ *  allocation; capital and debt rows stay blended (they aren't split). */
+export function filterComponent(statement: Statement, component: StatementComponent): Statement {
+  if (component === 'blended' || !statement.components) return statement
+  const comp = statement.components[component]
+  if (!comp) return statement
+  return {
+    ...statement,
+    gpr: comp.gpr,
+    vacancyLoss: comp.vacancyLoss,
+    creditLoss: comp.creditLoss,
+    otherIncome: comp.otherIncome,
+    egi: comp.egi,
+    opexTotal: comp.opex,
+    noi: comp.noi,
+    // category detail and management fee aren't component-split — hide them
+    // rather than show blended numbers under a component heading.
+    fixedOpexByCategory: {},
+    managementFee: comp.opex.map(() => 0),
+  }
 }
 
 export interface PeriodColumn {

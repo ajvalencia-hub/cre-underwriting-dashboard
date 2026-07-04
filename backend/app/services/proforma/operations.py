@@ -51,12 +51,20 @@ def _num(inputs: dict, field: str, default: float = 0.0) -> float:
     return float(value)
 
 
+def has_residential(inputs: dict) -> bool:
+    unit_mix = inputs.get("unitMix")
+    return isinstance(unit_mix, list) and any(
+        isinstance(r, dict) and r.get("unitCount") for r in unit_mix
+    )
+
+
 def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[str]]:
     """Returns (annual GPR, annual other income, source, warnings)."""
     warnings: list[str] = []
 
-    # Lease-level commercial rent roll wins when present (H1). Year-1
-    # scheduled base rent; recoveries ride in "other".
+    # Lease-level commercial rent roll (H1); alongside a unit mix it becomes
+    # a mixed-use composition (H2). Year-1 scheduled base rent; recoveries
+    # ride in "other".
     if leases.has_leases(inputs):
         recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
         income = leases.build_lease_income(
@@ -64,6 +72,11 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
         )
         gpr = sum(income["scheduledBaseRent"])
         other = sum(income["recoveries"]) + _num(inputs, "otherIncome")
+        if has_residential(inputs):
+            res_gpr, res_other, _, _ = annual_gpr_and_other_income(
+                {**inputs, "commercialLeases": []}
+            )
+            return gpr + res_gpr, other + res_other - _num(inputs, "otherIncome"), "mixed", warnings
         return gpr, other, "commercialLeases", warnings
 
     unit_mix = inputs.get("unitMix")
@@ -142,19 +155,23 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     }
 
 
-def _build_lease_noi_vector(inputs: dict, timeline: Timeline) -> dict:
+def _build_lease_noi_vector(
+    inputs: dict, timeline: Timeline, recoverable_scale: float = 1.0
+) -> dict:
     """Lease-driven income path (H1): commercial leases produce the revenue
     stack; the statement identities hold via the mapping
     gpr := scheduled base rent, vacancyLoss := downtime + free rent,
     otherIncome := recoveries + the otherIncome input. The general vacancyPct
     input is NOT applied (downtime IS the vacancy); credit loss applies to
     collected revenue. Leasing capital (TI/LC) is returned separately and
-    lands BELOW NOI."""
+    lands BELOW NOI. recoverable_scale < 1 is the mixed-use case (H2):
+    commercial tenants recover only the commercial share of property opex."""
     warnings: list[str] = []
     total = timeline.total_months
     expenses = _fixed_expense_vectors(inputs, timeline)
+    recoverable = [v * recoverable_scale for v in expenses["recoverable"]]
     income = leases.build_lease_income(
-        inputs, total, expenses["recoverable"], expenses["expenseGrowth"]
+        inputs, total, recoverable, expenses["expenseGrowth"]
     )
     warnings.extend(income["warnings"])
 
@@ -233,6 +250,95 @@ def _build_lease_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     }
 
 
+_INCOME_KEYS = ("gpr", "vacancyLoss", "creditLoss", "otherIncome", "egi")
+
+
+def _commercial_income_share(inputs: dict) -> float:
+    """Stabilized commercial share of property revenue (year-1 scheduled
+    commercial rent vs residential GPR) — the pro-rata basis for how much of
+    the property's recoverable opex commercial tenants can recover in a
+    mixed-use deal (H2, DECISIONS.md)."""
+    com_income = leases.build_lease_income(inputs, 12, [0.0] * 12, 0.0)
+    com_rent = sum(com_income["scheduledBaseRent"])
+    res_gpr, _, _, _ = annual_gpr_and_other_income({**inputs, "commercialLeases": []})
+    total = com_rent + res_gpr
+    return com_rent / total if total > 0 else 1.0
+
+
+def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
+    """Mixed-use composition (H2): the residential path (unit mix, vacancy,
+    occupancy ramp) and the commercial lease path run side by side and SUM.
+    Fixed opex exists exactly once (carried by the commercial run);
+    management fee is EGI-based and therefore splits linearly. For component
+    REPORTING, shared fixed opex is allocated pro-rata to monthly component
+    EGI. Blended NOI = residential NOI + commercial NOI by construction."""
+    com_share = _commercial_income_share(inputs)
+    commercial = _build_lease_noi_vector(
+        {**inputs, "unitMix": [], "otherIncome": 0}, timeline,
+        recoverable_scale=com_share,
+    )
+    # Residential run carries NO fixed dollar expenses (they'd double count);
+    # its management fee on its own EGI is the correct linear share.
+    res_inputs = {**inputs, "commercialLeases": []}
+    for field in EXPENSE_DOLLAR_FIELDS:
+        res_inputs[field] = 0
+    residential = build_noi_vector(res_inputs, timeline)
+
+    total = timeline.total_months
+    blended = {key: [residential[key][m] + commercial[key][m] for m in range(total)]
+               for key in _INCOME_KEYS}
+    mgmt = [residential["managementFee"][m] + commercial["managementFee"][m] for m in range(total)]
+    fixed_by_category = commercial["fixedOpexByCategory"]
+    fixed_total = [
+        sum(vec[m] for vec in fixed_by_category.values()) for m in range(total)
+    ]
+    opex = [fixed_total[m] + mgmt[m] for m in range(total)]
+    noi = [blended["egi"][m] - opex[m] for m in range(total)]
+
+    # EGI-weighted blended occupancy; component fixed-opex allocation for
+    # reporting only (the blend is exact regardless).
+    occupancy = []
+    components = {
+        "residential": {k: [] for k in (*_INCOME_KEYS, "opex", "noi")},
+        "commercial": {k: [] for k in (*_INCOME_KEYS, "opex", "noi")},
+    }
+    for m in range(total):
+        egi_r, egi_c = residential["egi"][m], commercial["egi"][m]
+        egi_total = egi_r + egi_c
+        share_r = egi_r / egi_total if egi_total > 0 else 0.5
+        occupancy.append(
+            residential["occupancy"][m] * share_r + commercial["occupancy"][m] * (1 - share_r)
+        )
+        for key in _INCOME_KEYS:
+            components["residential"][key].append(residential[key][m])
+            components["commercial"][key].append(commercial[key][m])
+        opex_r = fixed_total[m] * share_r + residential["managementFee"][m]
+        opex_c = fixed_total[m] * (1 - share_r) + commercial["managementFee"][m]
+        components["residential"]["opex"].append(opex_r)
+        components["commercial"]["opex"].append(opex_c)
+        components["residential"]["noi"].append(egi_r - opex_r)
+        components["commercial"]["noi"].append(egi_c - opex_c)
+
+    return {
+        "noi": noi,
+        "egi": blended["egi"],
+        "gpr": blended["gpr"],
+        "opex": opex,
+        "occupancy": occupancy,
+        "vacancyLoss": blended["vacancyLoss"],
+        "creditLoss": blended["creditLoss"],
+        "otherIncome": blended["otherIncome"],
+        "managementFee": mgmt,
+        "fixedOpexByCategory": fixed_by_category,
+        "recoveries": commercial["recoveries"],
+        "leasingCapital": commercial["leasingCapital"],
+        "leaseDetail": commercial["leaseDetail"],
+        "components": components,
+        "gprSource": "mixed",
+        "warnings": residential["warnings"] + commercial["warnings"],
+    }
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
@@ -242,6 +348,8 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     noi = egi - opex. Lease-level commercial rent rolls route through
     _build_lease_noi_vector (extra keys: recoveries, leasingCapital,
     leaseDetail)."""
+    if leases.has_leases(inputs) and has_residential(inputs):
+        return _build_mixed_noi_vector(inputs, timeline)
     if leases.has_leases(inputs):
         return _build_lease_noi_vector(inputs, timeline)
 
@@ -349,6 +457,8 @@ def stabilized_annual_noi(inputs: dict) -> float:
     12 months of the lease-driven NOI (in-place, before rollover) — see
     DECISIONS.md."""
     if leases.has_leases(inputs):
+        if has_residential(inputs):
+            return sum(_build_mixed_noi_vector(inputs, Timeline(12, 0, 0, 1))["noi"])
         window = _build_lease_noi_vector(inputs, Timeline(12, 0, 0, 1))
         return sum(window["noi"])
 
