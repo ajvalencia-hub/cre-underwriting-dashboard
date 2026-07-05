@@ -3,6 +3,26 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I4 — Mixed-use opex allocation basis (Run 4)
+
+- **[FIN] Three bases** for the commercial share of shared opex:
+  revenue_share_y1 (default = Run-3's frozen year-1 scheduled-revenue
+  share), sf (commercial SF vs unit-mix SF — one scalar), and
+  revenue_share_annual (the y1 ratio recomputed per calendar year, gross
+  scheduled revenue on both sides so occupancy noise doesn't move the
+  split).
+- **Under the DEFAULT basis, component reporting keeps Run-3's monthly-EGI
+  split** (the pool uses y1 revenue share, reporting uses EGI — the
+  legacy pairing), because changing the reporting split at defaults would
+  move component NOIs on existing deals. The sf and revenue_share_annual
+  bases drive BOTH the pool and the reporting split, per the spec's
+  internal-consistency requirement. Component NOIs sum to blended under
+  every basis by construction (the allocation only redistributes fixed
+  opex).
+- sf basis with unknown SF on either side (no lease SF or no unit-mix Avg
+  SF) falls back to the default basis with an explicit warning — never a
+  silent half-basis.
+
 ## I3 — Base-year gross-up (Run 4)
 
 - **[FIN] Gross-up applies to base_year_stop leases only** (the

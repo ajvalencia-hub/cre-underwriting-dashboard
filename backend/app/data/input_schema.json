@@ -141,6 +141,9 @@
             { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] },
             { "id": "variableWithOccupancy", "label": "Variable w/ Occupancy (blank = category default)", "type": "select", "options": ["", "no", "yes"] }
           ] },
+        { "id": "opexAllocationBasis", "label": "Mixed-Use Opex Allocation", "type": "select",
+          "options": ["revenue_share_y1", "sf", "revenue_share_annual"], "default": "revenue_share_y1",
+          "visibleWhen": { "all": [{ "field": "propertyType", "equals": "mixed_use" }] } },
         { "id": "useReassessedTaxes", "label": "Model Reassessed Property Taxes", "type": "boolean", "default": false },
         { "id": "millageRatePct", "label": "Millage Rate (total, e.g. 1.97%)", "type": "percent", "min": 0, "max": 0.05,
           "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } },

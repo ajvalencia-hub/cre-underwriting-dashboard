@@ -343,8 +343,16 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     }
 
 
+def _scale_at(scale, index: int) -> float:
+    """recoverable_scale may be a scalar (Run-3) or a per-month vector (I4's
+    revenue_share_annual basis)."""
+    if isinstance(scale, list):
+        return scale[index] if index < len(scale) else (scale[-1] if scale else 1.0)
+    return scale
+
+
 def _build_lease_noi_vector(
-    inputs: dict, timeline: Timeline, recoverable_scale: float = 1.0
+    inputs: dict, timeline: Timeline, recoverable_scale=1.0
 ) -> dict:
     """Lease-driven income path (H1): commercial leases produce the revenue
     stack; the statement identities hold via the mapping
@@ -358,7 +366,9 @@ def _build_lease_noi_vector(
     total = timeline.total_months
     expenses = _fixed_expense_vectors(inputs, timeline)
     warnings.extend(expenses["warnings"])
-    recoverable = [v * recoverable_scale for v in expenses["recoverable"]]
+    recoverable = [
+        v * _scale_at(recoverable_scale, i) for i, v in enumerate(expenses["recoverable"])
+    ]
 
     credit_loss_pct = _num(inputs, "creditLossPct")
     management_fee_pct = expenses["egiPctTotal"]
@@ -400,7 +410,8 @@ def _build_lease_noi_vector(
     if gross_up is not None:
         if expenses["detailMode"]:
             variable_recoverable = [
-                v * recoverable_scale for v in expenses["recoverableVariable"]
+                v * _scale_at(recoverable_scale, i)
+                for i, v in enumerate(expenses["recoverableVariable"])
             ]
         else:
             warnings.append(
@@ -499,14 +510,85 @@ def _commercial_income_share(inputs: dict) -> float:
     return com_rent / total if total > 0 else 1.0
 
 
+def _allocation_shares(inputs: dict, total: int):
+    """I4: the commercial share of shared property opex per the chosen
+    basis. Returns (pool_scale: float | list[float],
+    reporting_share_c: list[float] | None, warnings).
+
+    - revenue_share_y1 (default, Run-3): frozen year-1 scheduled-revenue
+      share for the pool; reporting keeps the legacy monthly-EGI split
+      (reporting_share_c None).
+    - sf: commercial SF / (commercial SF + residential unit-mix SF); one
+      scalar drives BOTH pool and reporting. Falls back to the default with
+      a warning when either side's SF is unknown.
+    - revenue_share_annual: the y1 ratio recomputed per calendar year (a
+      per-month vector), driving BOTH pool and reporting.
+    """
+    basis = inputs.get("opexAllocationBasis") or "revenue_share_y1"
+    warnings: list[str] = []
+
+    if basis == "sf":
+        com_sf = sum(
+            _num(l, "sf") for l in (inputs.get("commercialLeases") or [])
+            if isinstance(l, dict)
+        )
+        res_sf = sum(
+            _num(r, "unitCount") * _num(r, "avgSf")
+            for r in (inputs.get("unitMix") or [])
+            if isinstance(r, dict)
+        )
+        if com_sf > 0 and res_sf > 0:
+            share = com_sf / (com_sf + res_sf)
+            return share, [share] * total, warnings
+        warnings.append(
+            "opexAllocationBasis 'sf' needs SF on both sides (lease SF and "
+            "unit-mix Avg SF) — falling back to the year-1 revenue share."
+        )
+        basis = "revenue_share_y1"
+
+    if basis == "revenue_share_annual":
+        com_sched = leases.build_lease_income(
+            inputs, total, [0.0] * total, 0.0
+        )["scheduledBaseRent"]
+        res_gpr_annual, _, _, _ = annual_gpr_and_other_income(
+            {**inputs, "commercialLeases": []}
+        )
+        rent_growth = (
+            _num(inputs, "rentGrowthPct")
+            if inputs.get("rentGrowthMode") != "flat" else 0.0
+        )
+        res_gpr = [
+            (res_gpr_annual / 12) * _growth_multiplier(rent_growth, m)
+            for m in range(1, total + 1)
+        ]
+        # Group by calendar year (epoch-anchored, same mapping as leases.py).
+        year_of = [
+            leases.ANALYSIS_EPOCH.year
+            + (leases.ANALYSIS_EPOCH.month - 1 + m) // 12
+            for m in range(total)
+        ]
+        share_by_year: dict[int, float] = {}
+        for year in set(year_of):
+            months_in = [m for m in range(total) if year_of[m] == year]
+            com_y = sum(com_sched[m] for m in months_in)
+            res_y = sum(res_gpr[m] for m in months_in)
+            share_by_year[year] = com_y / (com_y + res_y) if com_y + res_y > 0 else 1.0
+        vector = [share_by_year[year_of[m]] for m in range(total)]
+        return vector, vector, warnings
+
+    return _commercial_income_share(inputs), None, warnings
+
+
 def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Mixed-use composition (H2): the residential path (unit mix, vacancy,
     occupancy ramp) and the commercial lease path run side by side and SUM.
     Fixed opex exists exactly once (carried by the commercial run);
     management fee is EGI-based and therefore splits linearly. For component
     REPORTING, shared fixed opex is allocated pro-rata to monthly component
-    EGI. Blended NOI = residential NOI + commercial NOI by construction."""
-    com_share = _commercial_income_share(inputs)
+    EGI under the default basis, or by the chosen I4 basis. Blended NOI =
+    residential NOI + commercial NOI by construction under every basis."""
+    total_months = timeline.total_months
+    com_share, reporting_share_c, alloc_warnings = _allocation_shares(inputs, total_months)
     commercial = _build_lease_noi_vector(
         {**inputs, "unitMix": [], "otherIncome": 0}, timeline,
         recoverable_scale=com_share,
@@ -547,9 +629,15 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     for m in range(total):
         egi_r, egi_c = residential["egi"][m], commercial["egi"][m]
         egi_total = egi_r + egi_c
-        share_r = egi_r / egi_total if egi_total > 0 else 0.5
+        egi_share_r = egi_r / egi_total if egi_total > 0 else 0.5
+        # Reporting opex split: legacy monthly-EGI share under the default
+        # basis; the chosen I4 basis otherwise (so pool and reporting agree).
+        share_r = (
+            1 - reporting_share_c[m] if reporting_share_c is not None else egi_share_r
+        )
         occupancy.append(
-            residential["occupancy"][m] * share_r + commercial["occupancy"][m] * (1 - share_r)
+            residential["occupancy"][m] * egi_share_r
+            + commercial["occupancy"][m] * (1 - egi_share_r)
         )
         for key in _INCOME_KEYS:
             components["residential"][key].append(residential[key][m])
@@ -577,7 +665,7 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "leaseDetail": commercial["leaseDetail"],
         "components": components,
         "gprSource": "mixed",
-        "warnings": residential["warnings"] + commercial["warnings"],
+        "warnings": alloc_warnings + residential["warnings"] + commercial["warnings"],
     }
 
 
