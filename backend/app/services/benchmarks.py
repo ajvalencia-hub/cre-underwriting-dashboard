@@ -107,6 +107,7 @@ def derive_subject_from_inputs(inputs: dict) -> dict:
     unit_mix = inputs.get("unitMix")
     if isinstance(unit_mix, list):
         total_rent, total_units = 0.0, 0
+        total_sf, sf_units = 0.0, 0
         mix: dict[int, int] = {}
         for row in unit_mix:
             if not isinstance(row, dict):
@@ -116,6 +117,10 @@ def derive_subject_from_inputs(inputs: dict) -> dict:
             if count and rent:
                 total_rent += count * float(rent)
                 total_units += int(count)
+            avg_sf = row.get("avgSf") or 0
+            if count and avg_sf:
+                total_sf += int(count) * float(avg_sf)
+                sf_units += int(count)
             unit_type = str(row.get("unitType") or "")
             match = _BEDROOM_RE.search(unit_type)
             bedrooms = (
@@ -127,6 +132,8 @@ def derive_subject_from_inputs(inputs: dict) -> dict:
                 mix[bedrooms] = mix.get(bedrooms, 0) + int(count)
         if total_units:
             subject["avgRentMonthly"] = total_rent / total_units
+        if sf_units:
+            subject["avgUnitSf"] = total_sf / sf_units
         if mix:
             subject["bedroomMix"] = [{"bedrooms": b, "count": c} for b, c in mix.items()]
 

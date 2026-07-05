@@ -4,6 +4,7 @@
 
 export interface BenchmarkSubject {
   avgRentMonthly?: number
+  avgUnitSf?: number
   bedroomMix?: { bedrooms: number; count: number }[]
   rentGrowthPct?: number
   expenseRatioPct?: number
@@ -39,6 +40,8 @@ export function deriveBenchmarkSubject(values: Record<string, unknown>): Benchma
   if (Array.isArray(unitMix)) {
     let totalRent = 0
     let totalUnits = 0
+    let totalSf = 0
+    let sfUnits = 0
     const mixByBedrooms = new Map<number, number>()
     for (const row of unitMix) {
       if (typeof row !== 'object' || row === null) continue
@@ -54,12 +57,18 @@ export function deriveBenchmarkSubject(values: Record<string, unknown>): Benchma
         totalRent += count * rent
         totalUnits += count
       }
+      const avgSf = typeof record.avgSf === 'number' ? record.avgSf : 0
+      if (count > 0 && avgSf > 0) {
+        totalSf += count * avgSf
+        sfUnits += count
+      }
       const bedrooms = bedroomsFromUnitType(record.unitType)
       if (count > 0 && bedrooms !== undefined) {
         mixByBedrooms.set(bedrooms, (mixByBedrooms.get(bedrooms) ?? 0) + count)
       }
     }
     if (totalUnits > 0) subject.avgRentMonthly = totalRent / totalUnits
+    if (sfUnits > 0) subject.avgUnitSf = totalSf / sfUnits
     if (mixByBedrooms.size > 0) {
       subject.bedroomMix = [...mixByBedrooms.entries()].map(([bedrooms, count]) => ({
         bedrooms,

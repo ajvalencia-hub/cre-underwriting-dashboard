@@ -174,48 +174,144 @@ def _type_ok(comp_type: str, asset_class: str) -> bool:
     return a in c or c in a
 
 
+# I6: rent comparison tiers. Each tier needs MIN_COMPS_FOR_FLAG comps to be
+# usable; comparison falls through tier by tier and states which one fired.
+_BEDROOM_RE = re.compile(r"(\d)\s*(bd|br|bed)", re.IGNORECASE)
+
+
+def _bedrooms_of(unit_type: str | None) -> int | None:
+    if not unit_type:
+        return None
+    match = _BEDROOM_RE.search(unit_type)
+    if match:
+        return min(3, int(match.group(1)))
+    return 0 if re.search(r"studio|eff", unit_type, re.IGNORECASE) else None
+
+
+def weighted_type_median(
+    comp_rows: list, bedroom_mix: list[dict]
+) -> tuple[float, int] | None:
+    """Tier 1: median rent per bedroom class, weighted by the SUBJECT's
+    unit-type distribution. Usable only when EVERY weighted subject class
+    has >= MIN_COMPS_FOR_FLAG typed comps (a half-covered mix would silently
+    skew the blend). Returns (weighted median, comps used) or None."""
+    by_class: dict[int, list[float]] = {}
+    for comp in comp_rows:
+        bedrooms = _bedrooms_of(comp.unit_type)
+        if bedrooms is not None and comp.avg_rent:
+            by_class.setdefault(bedrooms, []).append(comp.avg_rent)
+
+    total_weight, blended, used = 0.0, 0.0, 0
+    for entry in bedroom_mix:
+        count = entry.get("count") or 0
+        if count <= 0:
+            continue
+        rents = by_class.get(entry.get("bedrooms"))
+        if not rents or len(rents) < MIN_COMPS_FOR_FLAG:
+            return None
+        blended += count * median(rents)
+        total_weight += count
+        used += len(rents)
+    if total_weight <= 0:
+        return None
+    return blended / total_weight, used
+
+
+def _rent_comparison(comp_rows: list, subject: dict):
+    """Returns (subject_value, benchmark_value, count, basis_label,
+    low_confidence) for the best usable tier, or None."""
+    subject_rent = subject.get("avgRentMonthly")
+    if not isinstance(subject_rent, (int, float)) or subject_rent <= 0:
+        return None
+
+    # Tier 1: unit-type weighted (typed comps covering the subject's mix).
+    mix = subject.get("bedroomMix") or []
+    if mix:
+        typed = weighted_type_median(comp_rows, mix)
+        if typed is not None:
+            blended, used = typed
+            return subject_rent, blended, used, "unit-type weighted median", False
+
+    # Tier 2: $/SF (subject and comp SF both known).
+    subject_sf = subject.get("avgUnitSf")
+    if isinstance(subject_sf, (int, float)) and subject_sf > 0:
+        psf = [c.avg_rent / c.avg_sf for c in comp_rows if c.avg_rent and c.avg_sf]
+        if len(psf) >= MIN_COMPS_FOR_FLAG:
+            return (
+                subject_rent / subject_sf, median(psf), len(psf),
+                "$/SF median", False,
+            )
+
+    # Tier 3: raw pooled median — flagged as low confidence.
+    rents = [c.avg_rent for c in comp_rows if c.avg_rent]
+    if len(rents) >= MIN_COMPS_FOR_FLAG:
+        return subject_rent, median(rents), len(rents), "pooled median", True
+    return None
+
+
+def _sale_basis_note(sale_rows: list, asset_class: str) -> str:
+    """I6: the sale-comp basis appropriate to the asset class, as context in
+    the flag explanation — $/unit for multifamily, $/SF otherwise."""
+    prefer_unit = "multifamily" in (asset_class or "").lower() or "mixed" in (asset_class or "").lower()
+    if prefer_unit:
+        per_unit = [c.price / c.units for c in sale_rows if c.price and c.units]
+        if len(per_unit) >= MIN_COMPS_FOR_FLAG:
+            return f" Median ${median(per_unit):,.0f}/unit across {len(per_unit)} priced comps."
+    per_sf = [c.price / c.sf for c in sale_rows if c.price and c.sf]
+    if len(per_sf) >= MIN_COMPS_FOR_FLAG:
+        return f" Median ${median(per_sf):,.0f}/SF across {len(per_sf)} priced comps."
+    return ""
+
+
 def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -> list[dict]:
-    """Comps-DB flags in the benchmarks.py flag shape. Only fires with at
-    least MIN_COMPS_FOR_FLAG comps in the deal's market — two comps are an
-    anecdote, not a benchmark."""
+    """Comps-DB flags in the benchmarks.py flag shape. The minimum-comps
+    rule applies PER COMPARISON TIER (I6) — two comps are an anecdote at
+    every tier."""
     flags: list[dict] = []
 
-    subject_rent = subject.get("avgRentMonthly")
-    if isinstance(subject_rent, (int, float)) and subject_rent > 0:
-        rents = [
-            c.avg_rent
-            for c in db.execute(_market_filter(select(RentComp), RentComp, market)).scalars()
-            if c.avg_rent and _type_ok(c.property_type, asset_class)
-        ]
-        if len(rents) >= MIN_COMPS_FOR_FLAG:
-            comps_median = median(rents)
-            premium = subject_rent / comps_median - 1
-            verdict = (
-                "warning" if premium > RENT_VS_COMPS_WARNING
-                else "caution" if premium > RENT_VS_COMPS_CAUTION
-                else "ok"
+    rent_rows = [
+        c
+        for c in db.execute(_market_filter(select(RentComp), RentComp, market)).scalars()
+        if _type_ok(c.property_type, asset_class)
+    ]
+    comparison = _rent_comparison(rent_rows, subject)
+    if comparison is not None:
+        subject_value, benchmark_value, count, basis, low_confidence = comparison
+        premium = subject_value / benchmark_value - 1
+        verdict = (
+            "warning" if premium > RENT_VS_COMPS_WARNING
+            else "caution" if premium > RENT_VS_COMPS_CAUTION
+            else "ok"
+        )
+        unit = "/SF/mo" if "$/SF" in basis else "/mo"
+        explanation = (
+            f"Subject rent ${subject_value:,.2f}{unit} vs ${benchmark_value:,.2f} "
+            f"({basis}, {count} rent comps, {premium:+.0%})."
+        )
+        if low_confidence:
+            explanation += (
+                " Low-confidence comparison: pooled across unit types — add typed"
+                " or $/SF comps to tighten it."
             )
-            flags.append({
-                "metric": "rent_vs_comps",
-                "subjectValue": subject_rent,
-                "benchmarkValue": comps_median,
-                "source": "comps_db",
-                "asOf": "",
-                "verdict": verdict,
-                "explanation": (
-                    f"Subject rent ${subject_rent:,.0f}/mo vs ${comps_median:,.0f} median of "
-                    f"{len(rents)} rent comps ({premium:+.0%})."
-                ),
-                "relatedFieldIds": ["unitMix", "grossPotentialRent"],
-            })
+        flags.append({
+            "metric": "rent_vs_comps",
+            "subjectValue": subject_value,
+            "benchmarkValue": benchmark_value,
+            "source": "comps_db",
+            "asOf": "",
+            "verdict": verdict,
+            "explanation": explanation,
+            "relatedFieldIds": ["unitMix", "grossPotentialRent"],
+        })
 
     exit_cap = subject.get("exitCapRatePct")
     if isinstance(exit_cap, (int, float)) and exit_cap > 0:
-        caps = [
-            c.cap_rate_pct
+        sale_rows = [
+            c
             for c in db.execute(_market_filter(select(SaleComp), SaleComp, market)).scalars()
-            if c.cap_rate_pct and _type_ok(c.property_type, asset_class)
+            if _type_ok(c.property_type, asset_class)
         ]
+        caps = [c.cap_rate_pct for c in sale_rows if c.cap_rate_pct]
         if len(caps) >= MIN_COMPS_FOR_FLAG:
             comps_median = median(caps)
             compression = comps_median - exit_cap  # positive = exit below today's comps
@@ -239,6 +335,7 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
                         if compression > 0
                         else "no compression assumed."
                     )
+                    + _sale_basis_note(sale_rows, asset_class)
                 ),
                 "relatedFieldIds": ["exitCapRatePct"],
             })

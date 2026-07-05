@@ -3,6 +3,25 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I6 — Comp normalization (Run 4)
+
+- **Rent flags compare in tiers, best evidence first**: (1) unit-type
+  weighted — per-bedroom medians blended by the SUBJECT's unit-count
+  distribution; usable only when EVERY weighted subject class has ≥3
+  typed comps (a half-covered mix would silently skew the blend, so it
+  disqualifies the tier rather than partially applying); (2) $/SF —
+  subject rent/avg-unit-SF vs the comp rent/SF median when both sides
+  have SF; (3) pooled median with an explicit "low-confidence comparison"
+  note. The minimum-3 rule applies PER TIER; thresholds (+10% caution /
+  +20% warning) are unchanged at every tier. The explanation always
+  states which basis fired.
+- Sale-comp flags keep the cap-rate comparison as the signal; the
+  explanation now carries the asset-class-appropriate price basis as
+  context — median $/unit for multifamily/mixed, $/SF otherwise — when ≥3
+  priced comps support it.
+- Subject gains avgUnitSf (unit-count-weighted Avg SF), derived
+  identically on the frontend and the memo path.
+
 ## I5 — Non-ad-valorem assessments (Run 4)
 
 - **[FIN] Non-ad-valorem assessments are a separate fixed line** with its
