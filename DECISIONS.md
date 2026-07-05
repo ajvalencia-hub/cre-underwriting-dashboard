@@ -3,6 +3,22 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H7 — Pipeline view (Run 3)
+
+- Pipeline stages: screening → underwriting → loi → under_contract →
+  closed | dead (the standard acquisition funnel). Existing deals migrate
+  to "screening" via the check-and-migrate pattern; status rides the same
+  partial-update PUT as autosave, so a status change never clobbers inputs
+  and vice versa.
+- **Staleness = days since the deal was last touched** (updated_at, which
+  autosave already maintains): amber at 14 days, red at 30. Terminal
+  stages (closed/dead) are never flagged — those deals are supposed to sit
+  still — and they're hidden from the pipeline by default behind a toggle.
+- The Deals tab is a table sorted by stage then recency (not a kanban —
+  drag-and-drop adds a dependency for a 6-value select). Opening a deal
+  flushes the autosaver, switches the active deal, and jumps to Deal
+  Inputs.
+
 ## H6 — Demographics panel (Run 3)
 
 - Trends come from the SAME four sources the benchmarks already use (ACS,

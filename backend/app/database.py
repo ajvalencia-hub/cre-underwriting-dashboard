@@ -30,6 +30,21 @@ def run_migrations(target_engine=None) -> None:
     _backfill_orphan_scenarios_onto_default_deal(eng)
     _migrate_scenarios_sensitivity(eng)
     _migrate_extraction_unit_mix_proposal(eng)
+    _migrate_deals_status(eng)
+
+
+def _migrate_deals_status(eng) -> None:
+    """Deals gained a pipeline status column (H7); existing rows default to
+    'screening'."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "status" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN status VARCHAR DEFAULT 'screening'"))
+        conn.execute(text("UPDATE deals SET status = 'screening' WHERE status IS NULL"))
 
 
 def _migrate_extraction_unit_mix_proposal(eng) -> None:
@@ -155,10 +170,17 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
         if default_deal_id is None:
             default_deal_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).isoformat(sep=" ")
+            # status only exists once create_all/_migrate_deals_status has run;
+            # both happen before this backfill, but a hand-built legacy table
+            # may still lack it — probe instead of assuming.
+            deal_columns = {c["name"] for c in inspector.get_columns("deals")}
+            status_col = ", status" if "status" in deal_columns else ""
+            status_val = ", 'screening'" if "status" in deal_columns else ""
             conn.execute(
                 text(
-                    "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at) "
-                    "VALUES (:id, 'Default Deal', '{}', NULL, NULL, :now, :now)"
+                    "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at"
+                    f"{status_col}) "
+                    f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val})"
                 ),
                 {"id": default_deal_id, "now": now},
             )

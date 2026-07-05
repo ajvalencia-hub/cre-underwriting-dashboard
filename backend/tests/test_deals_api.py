@@ -140,3 +140,53 @@ def test_legacy_backfill_assigns_orphans_to_default_deal(tmp_path):
     with eng.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM deals")).scalar() == 1
     eng.dispose()
+
+
+def test_deal_status_lifecycle(client):
+    """H7: new deals start at 'screening'; status PUTs update it without
+    clobbering anything; invalid stages are rejected."""
+    deal = client.post("/api/deals", json={"name": "Pipeline Deal", "inputs": {"x": 1}}).json()
+    assert deal["status"] == "screening"
+
+    moved = client.put(f"/api/deals/{deal['id']}", json={"status": "underwriting"}).json()
+    assert moved["status"] == "underwriting"
+    assert moved["inputs"] == {"x": 1}  # untouched by a status-only PUT
+
+    autosaved = client.put(f"/api/deals/{deal['id']}", json={"inputs": {"x": 2}}).json()
+    assert autosaved["status"] == "underwriting"  # untouched by an inputs-only PUT
+
+    assert client.put(f"/api/deals/{deal['id']}", json={"status": "bogus"}).status_code == 422
+
+
+def test_deals_status_migration(tmp_path):
+    """A pre-H7 deals table gains the status column with 'screening'
+    backfilled, idempotently."""
+    eng = create_engine(f"sqlite:///{tmp_path / 'pre_status.sqlite3'}")
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE deals (
+                    id VARCHAR PRIMARY KEY,
+                    name VARCHAR,
+                    inputs JSON,
+                    active_template_id VARCHAR,
+                    active_mapping_profile_id VARCHAR,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("INSERT INTO deals (id, name, inputs) VALUES ('d1', 'Old Deal', '{}')")
+        )
+
+    run_migrations(eng)
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT status FROM deals WHERE id = 'd1'")).scalar() == "screening"
+
+    run_migrations(eng)  # idempotent
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM deals")).scalar() == 1
+    eng.dispose()

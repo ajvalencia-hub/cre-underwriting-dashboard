@@ -46,6 +46,9 @@ class Deal(Base):
     # The full Deal Inputs form values, plus a "quickScreen" key holding the
     # Quick Screen inputs — one JSON blob per deal, autosaved from the client.
     inputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Pipeline stage (H7): screening | underwriting | loi | under_contract |
+    # closed | dead. Existing deals migrate to "screening".
+    status: Mapped[str] = mapped_column(String, default="screening")
     active_template_id: Mapped[str | None] = mapped_column(String, nullable=True)
     active_mapping_profile_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

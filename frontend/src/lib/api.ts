@@ -403,6 +403,7 @@ export function updateDeal(
   payload: {
     name?: string
     inputs?: Record<string, unknown>
+    status?: import('../types/deal').DealStatus
     activeTemplateId?: string | null
     activeMappingProfileId?: string | null
   },

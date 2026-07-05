@@ -4,6 +4,7 @@ import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
 import CashFlowTab from './pages/CashFlowTab'
 import CompsPage from './pages/CompsPage'
+import PipelinePage from './pages/PipelinePage'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
@@ -53,6 +54,7 @@ type LoadState =
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
 type Tab =
+  | 'pipeline'
   | 'quickscreen'
   | 'documents'
   | 'setup'
@@ -559,6 +561,7 @@ function App() {
       <div className="mb-6 flex gap-1 border-b border-slate-200">
         {(
           [
+            ['pipeline', 'Deals'],
             ['quickscreen', '0. Quick Screen'],
             ['documents', '1. Documents'],
             ['setup', '2. Template & Mapping'],
@@ -585,6 +588,22 @@ function App() {
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
+      <div style={{ display: tab === 'pipeline' ? 'block' : 'none' }}>
+        <PipelinePage
+          deals={deals}
+          activeDealId={activeDealId}
+          onOpenDeal={(dealId) => {
+            void switchDeal(dealId).then(() => setTab('dashboard'))
+          }}
+          onStatusChange={(dealId, status) => {
+            void updateDeal(dealId, { status }).then((updated) =>
+              setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
+            )
+          }}
+          onNewDeal={() => void handleNewDeal()}
+        />
+      </div>
+
       <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
         <QuickScreen
           inputs={quickScreenInputs}

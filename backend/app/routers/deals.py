@@ -21,6 +21,7 @@ def _to_out(deal: Deal) -> DealOut:
         id=deal.id,
         name=deal.name,
         inputs=deal.inputs,
+        status=deal.status or "screening",
         activeTemplateId=deal.active_template_id,
         activeMappingProfileId=deal.active_mapping_profile_id,
         createdAt=deal.created_at,
@@ -69,6 +70,8 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
         deal.name = payload.name.strip()
     if "inputs" in provided and payload.inputs is not None:
         deal.inputs = payload.inputs
+    if "status" in provided and payload.status is not None:
+        deal.status = payload.status
     if "activeTemplateId" in provided:
         deal.active_template_id = payload.activeTemplateId
     if "activeMappingProfileId" in provided:
