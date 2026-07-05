@@ -162,6 +162,13 @@ export default function PipelinePage({
                     >
                       Share
                     </a>
+                    <a
+                      href={`/api/deals/${deal.id}/deck.pptx`}
+                      title="One-page investment summary (PowerPoint)"
+                      className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
+                    >
+                      Deck
+                    </a>
                     <button
                       onClick={() => onOpenDeal(deal.id)}
                       className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"

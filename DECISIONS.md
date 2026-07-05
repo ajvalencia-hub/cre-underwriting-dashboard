@@ -3,6 +3,17 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H12 — One-page deck export (Run 3)
+
+- One 16:9 slide, deliberately: title bar, six metric tiles, an
+  assumptions column, and the memo's OWN matplotlib charts (annual
+  levered cash flow, sources & uses) — no new chart code, no new numbers.
+  Zero financial math in the renderer (memo/share rule); every value is a
+  formatted pass-through from a fresh engine compute.
+- An incomputable deal 422s with the missing-input list (unlike the HTML
+  share, which renders an error page — a broken link is fine in a browser
+  but a corrupt .pptx download is not).
+
 ## H11 — Native Excel model export (Run 3)
 
 - **Refuse rather than degrade**: deal shapes whose math can't be mirrored

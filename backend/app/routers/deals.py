@@ -7,13 +7,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
-from app.services import deal_history, share_html
+from app.services import deal_history, deck_service, share_html
 from app.services.proforma import engine
+
+PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 router = APIRouter(prefix="/api/deals", tags=["deals"])
 
@@ -147,6 +149,30 @@ def share_deal(deal_id: str, db: Session = Depends(get_db)):
     return HTMLResponse(
         content=page,
         headers={"Content-Disposition": f'inline; filename="{safe_name}-share.html"'},
+    )
+
+
+@router.get("/{deal_id}/deck.pptx")
+def deal_deck(deal_id: str, db: Session = Depends(get_db)):
+    """One-page investment-summary deck (H12) — computed fresh, zero math in
+    the renderer (same rule as the memo and HTML share)."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    try:
+        result = engine.compute(deal.inputs or {})
+    except engine.InsufficientInputsError as exc:
+        raise HTTPException(
+            422, f"Deck needs a computable deal — missing inputs: {', '.join(exc.missing)}."
+        ) from exc
+    content = deck_service.build_deck(deal.name, deal.inputs or {}, result)
+    safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", deal.name).strip()[:60] or "deal"
+    return Response(
+        content=content,
+        media_type=PPTX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}-summary.pptx"'
+        },
     )
 
 
