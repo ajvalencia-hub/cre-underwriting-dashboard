@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { computeNative, generateWorkbook, type DebtBlock } from '../lib/api'
+import { computeNative, exportNativeModel, generateWorkbook, type DebtBlock } from '../lib/api'
 import type { Statement } from '../lib/cashflowStatement'
 import type { TemplateSummary } from '../types/template'
 
@@ -33,8 +33,30 @@ export default function GeneratePanel({
   const [computeWarnings, setComputeWarnings] = useState<string[]>([])
   const [computeError, setComputeError] = useState<string | null>(null)
   const [debtBlock, setDebtBlock] = useState<DebtBlock | null>(null)
+  const [exportingModel, setExportingModel] = useState(false)
 
   const ready = Boolean(template && mappingProfileId)
+
+  async function handleExportModel() {
+    setExportingModel(true)
+    setComputeError(null)
+    try {
+      const { blob, warnings } = await exportNativeModel(values)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'native-model.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      if (warnings.length > 0) setComputeWarnings(warnings)
+    } catch (err) {
+      setComputeError(err instanceof Error ? err.message : 'Excel model export failed')
+    } finally {
+      setExportingModel(false)
+    }
+  }
 
   async function handleComputeNative() {
     setComputing(true)
@@ -111,6 +133,14 @@ export default function GeneratePanel({
             className="rounded border border-sky-600 px-4 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:opacity-40"
           >
             {computing ? 'Computing…' : 'Compute (native)'}
+          </button>
+          <button
+            onClick={handleExportModel}
+            disabled={exportingModel}
+            title="Download a formula-live Excel model of this deal — no template needed. Supported for acquisition deals without lease-level or waterfall features."
+            className="rounded border border-slate-400 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {exportingModel ? 'Exporting…' : 'Export Excel model'}
           </button>
           <label className="flex items-center gap-1 text-xs text-slate-500">
             <input

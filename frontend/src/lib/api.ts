@@ -149,6 +149,22 @@ export async function generateWorkbook(payload: {
   return { blob, filename, warnings, writtenCount, outputs }
 }
 
+export async function exportNativeModel(
+  values: Record<string, unknown>,
+): Promise<{ blob: Blob; warnings: string[] }> {
+  const res = await fetch(`${API_BASE}/generate/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res))
+  }
+  const warningsHeader = res.headers.get('X-Generation-Warnings')
+  const warnings: string[] = warningsHeader ? JSON.parse(warningsHeader) : []
+  return { blob: await res.blob(), warnings }
+}
+
 export function fetchScenarios(
   params: { templateId?: string; kind?: 'quickscreen' | 'full'; dealId?: string } = {},
 ) {

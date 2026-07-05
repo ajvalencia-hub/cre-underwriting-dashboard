@@ -3,6 +3,29 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H11 — Native Excel model export (Run 3)
+
+- **Refuse rather than degrade**: deal shapes whose math can't be mirrored
+  formula-for-formula (development draws, lease-level rolls, opex detail
+  lines, waterfall tiers, XIRR, reassessed taxes) 422 with the full blocker
+  list. Rejected: exporting those as static values inside a formula
+  workbook — a file that LOOKS live but silently isn't is worse than no
+  file.
+- **[FIN] Two deliberate value-not-formula cells**, both flagged on the
+  Notes sheet: the loan amount (the engine's min-of-LTV/DSCR/debt-yield
+  sizing, written as the sized value) and annual GPR/other income (unit-mix
+  and per-SF sections collapse to the same annual dollars the engine
+  uses). Everything downstream — growth clocks, vacancy/credit stack,
+  SUMPRODUCT expense growth, IO→amortizing schedule with the engine's
+  exact PMT/ROUND convention, forward-12 exit cap, (1+IRR)^12-1
+  annualization, SUMIF equity multiple — is live formulas.
+- **Three-way parity is a permanent harness case**: python -m
+  tests.parity.run now also exports two native workbooks
+  (analytic_acquisition = hand-algebra fixture; amortizing_growth =
+  growth + credit loss + IO→amort + app-sized loan) and diffs the
+  LibreOffice-recalced cells against the engine under the same
+  tolerances as the template corpus. Zero deltas at introduction.
+
 ## H10 — Read-only HTML share (Run 3)
 
 - **The share page is computed fresh from the deal's saved inputs at

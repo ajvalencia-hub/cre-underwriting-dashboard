@@ -6,11 +6,16 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from typing import Any
+
+from pydantic import BaseModel
+
 from app.config import GENERATED_DIR
 from app.database import get_db
 from app.models import MappingProfile, Template
 from app.schemas import GenerateRequest
-from app.services import excel_writer, mapping_service, recalc_service
+from app.services import excel_model_export, excel_writer, mapping_service, recalc_service
+from app.services.proforma import engine as proforma_engine
 
 router = APIRouter(prefix="/api/generate", tags=["generate"])
 
@@ -26,6 +31,34 @@ def _content_disposition(filename: str) -> str:
     """
     ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+class ModelExportRequest(BaseModel):
+    values: dict[str, Any]
+
+
+@router.post("/model")
+def export_native_model(payload: ModelExportRequest):
+    """H11: formula-live Excel model built from the deal inputs — no template
+    or mapping needed. 422s with the blocker list when the deal shape can't
+    be mirrored as formulas."""
+    try:
+        content, warnings = excel_model_export.build_model_workbook(payload.values)
+    except excel_model_export.UnsupportedModelFeatures as exc:
+        raise HTTPException(
+            422,
+            "Excel model export doesn't support: " + "; ".join(exc.features),
+        ) from exc
+    except proforma_engine.InsufficientInputsError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": _content_disposition("native-model.xlsx"),
+            "X-Generation-Warnings": json.dumps(warnings),
+        },
+    )
 
 
 @router.post("")

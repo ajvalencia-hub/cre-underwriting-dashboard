@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from tests.parity.cases import load_all_cases
+from tests.parity.export_case import run_export_parity
 from tests.parity.harness import format_diff_table, run_case
 
 
@@ -31,6 +32,16 @@ def main() -> int:
 
             print(format_diff_table(case.name, result["diffs"]))
             failures += sum(1 for d in result["diffs"] if not d.ok)
+            print()
+
+        # H11: the native-exported (formula-live) workbook is its own path —
+        # same recalc, same tolerances.
+        for name, diffs, skip_reason in run_export_parity(workdir):
+            if diffs is None:
+                print(f"{name}: SKIPPED — {skip_reason}")
+                continue
+            print(format_diff_table(name, diffs))
+            failures += sum(1 for d in diffs if not d.ok)
             print()
 
     if failures:
