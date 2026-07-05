@@ -10,10 +10,16 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
 
 ## Features
 
-- **Deals** — every working session is a persistent deal (autosaved,
-  switchable, multi-deal). Scenarios scope to the active deal. Deals
-  export/import as versioned JSON bundles (scenarios and saved sensitivity
-  runs included; templates travel as named placeholders).
+- **Deals (pipeline home)** — every working session is a persistent deal
+  (autosaved, switchable, multi-deal). The Deals tab is a pipeline view:
+  stage chips (screening → underwriting → LOI → under contract → closed |
+  dead), inline status changes, staleness badges (amber 14d / red 30d
+  untouched), and per-deal **Share** (self-contained read-only HTML) and
+  **Deck** (one-page .pptx) exports. Scenarios scope to the active deal.
+  Deals export/import as versioned JSON bundles (scenarios and saved
+  sensitivity runs included; templates travel as named placeholders). Every
+  input change is snapshotted (10-minute coalescing, 200/deal) with a
+  history drawer and undoable restore.
 - **0. Quick Screen** — back-of-napkin development feasibility: yield on
   cost vs exit cap with solve-for, an inline sensitivity grid, and a
   perm-takeout check sized by the full engine. Shareable via URL params.
@@ -27,11 +33,33 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
   handled), generate populated workbooks, optionally recalculated
   server-side via LibreOffice.
 - **3. Deal Inputs** — the schema-driven form. **Compute (native)** produces
-  all 30 return metrics with the built-in pro-forma engine — no template
+  all 30+ return metrics with the built-in pro-forma engine — no template
   required — including constraint-based debt sizing (LTV / DSCR / debt
-  yield), the governing constraint, and a rate/NOI stress grid. Address
-  benchmarks flag assumptions against Census ACS, HUD FMR, FHFA HPA, BLS
-  employment, and FEMA flood zones, with per-input hover indicators.
+  yield), the governing constraint, a rate/NOI stress grid, and an
+  insurance +25%/+50% stress when opex detail is on. Income models:
+  multifamily unit mix, **commercial lease-level rent rolls** (escalations,
+  NNN / base-year-stop / fixed recoveries, free rent, probability-weighted
+  rollover with TI/LC below NOI, WALT and expiration schedule), or **both
+  (mixed-use)** with component NOI splits, a component statement filter,
+  and optional per-component exit caps. Opex can be a flat set of fields or
+  per-line detail (basis: annual / per-unit / PSF / % of EGI, per-line
+  growth, recoverable flags feeding the lease recoveries). A property-tax
+  assessor lookup (Miami-Dade adapter) shows current vs reassessed-at-sale
+  taxes with an opt-in reassessment model. **Assumption presets** capture/
+  apply rate-and-term bundles through a preview diff. Address benchmarks
+  flag assumptions against Census ACS, HUD FMR, FHFA HPA, BLS employment,
+  FEMA flood zones — plus the comps database (rent and exit-cap flags) —
+  with per-input hover indicators and an expandable demographics trend
+  panel (population, income, employment, HPI charts).
+- **7. Comps** — a workspace-level sale/rent comps database with market
+  filtering, inline add, and a two-step Yardi-Matrix-aware CSV importer
+  (header auto-mapping, sample preview, per-row skip warnings). Comps feed
+  the benchmark flags once ≥3 exist in the deal's market.
+- **Export Excel model** — a formula-live workbook generated straight from
+  the deal (no template): growth chains, NOI build, amortization schedule,
+  IRR/multiple formulas. Unsupported shapes refuse with a blocker list
+  rather than exporting wrong formulas; parity with the engine is enforced
+  three-way in CI.
 - **4. Cash Flow** — the engine's period-level pro forma: annual table
   expandable to months, phase band, CSV export, plus a hold-period sweep
   (returns by exit year, modeled hold marked) and a refi-vs-sale-at-
@@ -64,14 +92,18 @@ higher one.
 
 | Area | Endpoints |
 |---|---|
-| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}`, `GET .../{id}/export`, `POST /api/deals/import` |
-| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
+| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`), `GET .../{id}/export`, `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
 | Templates & mapping | `/api/templates*`, `/api/mappings*` |
-| Generate | `POST /api/generate` (xlsx download, X-Generation-* headers) |
+| Generate | `POST /api/generate` (xlsx download, X-Generation-* headers), `POST /api/generate/model` (formula-live native Excel model) |
 | Sensitivity | `POST /api/sensitivity` (mode: native \| template) |
-| Documents & extraction | `/api/documents*`, `/api/extraction*` (results carry a reviewable `unitMixProposal`) |
+| Documents & extraction | `/api/documents*`, `/api/extraction*` (results carry reviewable `unitMixProposal` / `commercialLeaseProposal`) |
 | Scenarios | `/api/scenarios*`, `PUT .../{id}/sensitivity`, `POST .../{id}/memo[?format=pdf]` |
-| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks`, legacy `GET /api/market-context` |
+| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` |
+| Comps | `GET/POST /api/comps/{sale\|rent}`, `PUT/DELETE .../{id}`, `POST /api/comps/import` (preview without mapping; insert with) |
+| Property tax | `POST /api/property-tax/lookup`, `GET /api/property-tax/counties` |
+| Presets | `GET/POST /api/presets`, `PUT/DELETE .../{id}`, `GET /api/presets/fields` |
+| Ops | `GET /api/health`, `POST /api/client-errors` (error-boundary sink); every response carries `X-Request-ID` |
 | Schema | `GET /api/schema` |
 
 ## Development setup
@@ -115,11 +147,12 @@ npm test && npm run build && npm run lint
 npm run e2e     # Playwright smoke: boots a scratch-DB backend + Vite, one happy path
 ```
 
-The parity harness diffs the native engine against the openpyxl+LibreOffice
-path over synthetic templates whose formulas mirror the engine exactly
-(tolerances: currency ±$1, percent ±1bp, multiples ±0.001, IRR ±2bp). Drop
-real firm templates into `backend/tests/parity/corpus/dropin/` (gitignored)
-to check them ad hoc.
+The parity harness is now **three-way**: it diffs the native engine against
+(a) the openpyxl+LibreOffice template path over synthetic templates whose
+formulas mirror the engine exactly, and (b) the native formula-live Excel
+model export, recalculated by LibreOffice (tolerances: currency ±$1,
+percent ±1bp, multiples ±0.001, IRR ±2bp). Drop real firm templates into
+`backend/tests/parity/corpus/dropin/` (gitignored) to check them ad hoc.
 
 CI (`.github/workflows/ci.yml`) runs the full backend suite (with
 LibreOffice + Tesseract installed), the parity CLI, and the frontend
@@ -127,7 +160,10 @@ build/lint/test gates on every push/PR.
 
 ## Project documentation
 
-- `SUMMARY.md` — every financial formula in plain algebra, plus the decision
-  and blocked logs from the autonomous build run.
+- `SUMMARY.md` / `SUMMARY2.md` / `SUMMARY3.md` — every financial formula in
+  plain algebra per build run, plus decision/blocked deltas and manual QA
+  checklists (SUMMARY3 covers the lease engine, mixed-use, opex detail,
+  property tax, comps, pipeline, presets, history, share/deck/Excel-model
+  exports, and the hardening pass).
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).
