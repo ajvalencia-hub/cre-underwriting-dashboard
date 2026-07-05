@@ -153,6 +153,15 @@ export default function PipelinePage({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
+                    <a
+                      href={`/api/deals/${deal.id}/share.html`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Self-contained read-only HTML snapshot"
+                      className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
+                    >
+                      Share
+                    </a>
                     <button
                       onClick={() => onOpenDeal(deal.id)}
                       className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"

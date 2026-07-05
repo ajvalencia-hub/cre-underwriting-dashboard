@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -6,10 +7,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from fastapi.responses import HTMLResponse
+
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
-from app.services import deal_history
+from app.services import deal_history, share_html
+from app.services.proforma import engine
 
 router = APIRouter(prefix="/api/deals", tags=["deals"])
 
@@ -117,6 +121,33 @@ def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_d
     db.commit()
     db.refresh(deal)
     return _to_out(deal)
+
+
+@router.get("/{deal_id}/share.html", response_class=HTMLResponse)
+def share_deal(deal_id: str, db: Session = Depends(get_db)):
+    """Self-contained read-only HTML snapshot (H10): inline CSS, no scripts,
+    no external requests — computed fresh from the deal's saved inputs."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    inputs = deal.inputs or {}
+    try:
+        result = engine.compute(inputs)
+        error = None
+    except engine.InsufficientInputsError as exc:
+        result = None
+        error = f"This deal can't be computed yet — missing inputs: {', '.join(exc.missing)}."
+    except Exception as exc:  # noqa: BLE001 — a share link must never 500 into a stack trace
+        result = None
+        error = f"Compute failed: {exc}"
+    page = share_html.render_share_html(
+        deal.name, deal.status or "screening", inputs, result, error
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", deal.name).strip()[:60] or "deal"
+    return HTMLResponse(
+        content=page,
+        headers={"Content-Disposition": f'inline; filename="{safe_name}-share.html"'},
+    )
 
 
 @router.get("/{deal_id}/export")

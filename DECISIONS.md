@@ -3,6 +3,23 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H10 — Read-only HTML share (Run 3)
+
+- **The share page is computed fresh from the deal's saved inputs at
+  request time** — always current, no stale snapshot files to manage.
+  Zero financial math in the renderer (same rule as the memo): key
+  metrics pass through the engine outputs with schema formatting; the
+  annual cash-flow table sums the engine's own monthly vectors (close
+  month excluded — capital event, not an operating period).
+- **Self-contained by construction**: inline CSS only, no scripts, no
+  external URLs of any kind (tested), so the file can be emailed or
+  dropped in a data room. Deal name and every value are HTML-escaped;
+  the download filename is sanitized.
+- An incomputable deal renders a readable error page (200), never a
+  stack trace — a share link must not 500 in front of a counterparty.
+  No auth/token: the endpoint shares whatever the local instance holds,
+  matching the app's single-user posture.
+
 ## H9 — Input change history (Run 3)
 
 - **A snapshot is the deal's inputs AFTER a save** — a restorable
