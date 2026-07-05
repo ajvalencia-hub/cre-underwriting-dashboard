@@ -84,6 +84,23 @@ Actual/365), development refi/takeout rate spread and costs. Defaults
 reproduce the original behavior; the sidebar and memo footnote what was
 used.
 
+**Run-4 engine refinements — every one defaults to exact Run-3 behavior**
+(pinned by a byte-level regression baseline in `tests/regression/`):
+`adminFeePct` (CAM admin markup on NNN/base-year recoveries, default 0),
+`mgmtFeeRecoverable` + `mgmtRecoveryCapPct` (management fee joins the
+recovery pool on pre-recovery EGI, default off), `renewalRentPsfDiscountPct`
+(renewal rent × market, default 1.0), `reletCapitalAtCommencement` (split
+TI/LC timing, default off = single entry at expiry+1), `grossUpToPct`
+(base-year occupancy gross-up, default off; needs opex detail + its
+`variableWithOccupancy` column), `opexAllocationBasis` (mixed-use split:
+`revenue_share_y1` default | `sf` | `revenue_share_annual`),
+`nonAdValoremTaxes` + growth + recoverable flag (separate line, never reset
+by reassessment, default 0). Comp benchmark flags now normalize (unit-type
+weighted → $/SF → pooled tiers); the per-lease drill-down, history diff/
+restore preview, pipeline bulk actions + saved views + CSV, comps dedupe/
+staleness/map, batch screening decks, and the widened Excel export
+(developments + opex detail, still three-way parity-gated) ride on top.
+
 The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
@@ -141,6 +158,7 @@ cd backend
 .venv/Scripts/python -m pytest tests -q          # full suite incl. parity + goldens
 .venv/Scripts/python -m tests.parity.run         # native-vs-Excel divergence table
 UPDATE_GOLDEN=1 pytest tests/test_extraction_golden.py   # regenerate goldens (prints diff otherwise)
+UPDATE_BASELINE=1 pytest tests/regression        # Run-3 payload baseline (EXPANSION only, never to absorb behavior changes)
 
 cd frontend
 npm test && npm run build && npm run lint
@@ -160,10 +178,9 @@ build/lint/test gates on every push/PR.
 
 ## Project documentation
 
-- `SUMMARY.md` / `SUMMARY2.md` / `SUMMARY3.md` — every financial formula in
-  plain algebra per build run, plus decision/blocked deltas and manual QA
-  checklists (SUMMARY3 covers the lease engine, mixed-use, opex detail,
-  property tax, comps, pipeline, presets, history, share/deck/Excel-model
-  exports, and the hardening pass).
+- `SUMMARY.md` / `SUMMARY2.md` / `SUMMARY3.md` / `SUMMARY4.md` — every
+  financial formula in plain algebra per build run, plus decision/blocked
+  deltas and manual QA checklists (SUMMARY4 shows BEFORE/AFTER algebra for
+  the Run-4 recovery/rollover/gross-up/allocation/tax refinements).
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).
