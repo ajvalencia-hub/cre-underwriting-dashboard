@@ -1,0 +1,189 @@
+{
+  "leaseProposal": {
+    "rows": [
+      {
+        "baseRentPsfAnnual": 31.5,
+        "endDate": "2030-12-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 8000.0,
+        "startDate": null,
+        "suiteId": "500",
+        "tenant": "Summit Engineering"
+      },
+      {
+        "baseRentPsfAnnual": 0.0,
+        "endDate": "2028-06-30",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 8000.0,
+        "startDate": null,
+        "suiteId": "400",
+        "tenant": "Beacon Insurance"
+      },
+      {
+        "baseRentPsfAnnual": 29.0,
+        "endDate": "2029-03-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 7500.0,
+        "startDate": null,
+        "suiteId": "300",
+        "tenant": "Cedar & Field LLP"
+      },
+      {
+        "baseRentPsfAnnual": 42.0,
+        "endDate": "2027-09-30",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 4000.0,
+        "startDate": null,
+        "suiteId": "100",
+        "tenant": "Lobby Retail Partners"
+      }
+    ],
+    "warnings": [
+      "1 rent-roll row(s) were vacant or missing SF/rent and were not proposed as leases: 200",
+      "1 row(s) have SF but NO stated rent (stacking-plan style) \u2014 proposed at $0/SF; fill the rent in before applying: Beacon Insurance"
+    ]
+  },
+  "matchedFields": [
+    "floor",
+    "leaseEnd",
+    "rentPsfAnnual",
+    "sf",
+    "tenant",
+    "unit"
+  ],
+  "rows": [
+    {
+      "camRecoveries": null,
+      "floor": "5",
+      "inPlaceRentMonthly": 21000.0,
+      "leaseEnd": "2030-12-31",
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "rentPsfAnnual",
+      "rentPsfAnnual": 31.5,
+      "sf": 8000.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "stacking_plan.pdf",
+        "page": null,
+        "row": 0,
+        "sheet": "page 1"
+      },
+      "status": "occupied",
+      "tenant": "Summit Engineering",
+      "unit": "500",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "floor": "4",
+      "inPlaceRentMonthly": null,
+      "leaseEnd": "2028-06-30",
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 8000.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "stacking_plan.pdf",
+        "page": null,
+        "row": 1,
+        "sheet": "page 1"
+      },
+      "status": "occupied",
+      "tenant": "Beacon Insurance",
+      "unit": "400",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "floor": "3",
+      "inPlaceRentMonthly": 18125.0,
+      "leaseEnd": "2029-03-31",
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "monthYearEndDate": true,
+      "rentDerivedFrom": "rentPsfAnnual",
+      "rentPsfAnnual": 29.0,
+      "sf": 7500.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "stacking_plan.pdf",
+        "page": null,
+        "row": 2,
+        "sheet": "page 1"
+      },
+      "status": "occupied",
+      "tenant": "Cedar & Field LLP",
+      "unit": "300",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "floor": "2",
+      "inPlaceRentMonthly": null,
+      "leaseEnd": null,
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "sf": 7500.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "stacking_plan.pdf",
+        "page": null,
+        "row": 3,
+        "sheet": "page 1"
+      },
+      "status": "vacant",
+      "tenant": "",
+      "unit": "200",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "floor": "1",
+      "inPlaceRentMonthly": 14000.0,
+      "leaseEnd": "2027-09-30",
+      "leaseStart": null,
+      "leaseType": null,
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "rentPsfAnnual",
+      "rentPsfAnnual": 42.0,
+      "sf": 4000.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "stacking_plan.pdf",
+        "page": null,
+        "row": 4,
+        "sheet": "page 1"
+      },
+      "status": "occupied",
+      "tenant": "Lobby Retail Partners",
+      "unit": "100",
+      "unitType": null
+    }
+  ],
+  "tableWarnings": []
+}

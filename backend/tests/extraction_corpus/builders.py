@@ -127,6 +127,87 @@ def build_commercial_rent_roll(path) -> None:
     wb.save(path)
 
 
+def build_costar_rent_roll(path) -> None:
+    """CoStar-export-style commercial roll (I9): their column vocabulary —
+    Tenant Name / Suite / Floor / SF Leased / Lease Commencement / Lease
+    Expiration / Annual Rent / Rent/SF/Yr / Lease Type. No monthly rent
+    column at all: monthly derives from the annual figures."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Lease Comps Export"
+    headers = [
+        "Tenant Name", "Suite", "Floor", "SF Leased", "Lease Commencement",
+        "Lease Expiration", "Annual Rent", "Rent/SF/Yr", "Lease Type",
+    ]
+    ws.append(headers)
+    rows = [
+        ["Meridian Legal Group", "400", "4", 5200, "03/01/2024", "02/28/2031",
+         197600, 38.00, "Full Service"],
+        ["Atlas Wealth Advisors", "410", "4", 3100, "07/01/2025", "06/30/2032",
+         111600, 36.00, "Full Service"],
+        ["Pearl Diagnostics", "200", "2", 6800, "01/01/2023", "12/31/2029",
+         231200, 34.00, "NNN"],
+        ["Harbor Title Co", "210", "2", 2400, "09/01/2024", "08/31/2029",
+         None, 33.50, "Modified Gross"],  # annual absent -> derives from $/SF
+    ]
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def build_costar_rent_roll_hostile(path) -> None:
+    """The hostile CoStar variant (I9): month-year-only dates, an MTM term,
+    a combined suite range, and a rent column mixing MONTHLY and ANNUAL
+    magnitudes (the annual one detected by the magnitude heuristic)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rent Roll"
+    headers = ["Suite", "Tenant Name", "SF Leased", "Rent", "Lease Type",
+               "Lease Commencement", "Lease Expiration"]
+    ws.append(headers)
+    rows = [
+        # monthly-magnitude rent: 4,500/mo on 1,800sf -> $30/SF/yr, plausible
+        ["150", "Cobalt Coffee", 1800, 4500, "NNN", "05/01/2024", "Jun 2027"],
+        # ANNUAL-magnitude rent in the same column: 87,500 on 2,500sf read as
+        # monthly implies $420/SF/yr -> reinterpreted as annual ($35/SF)
+        ["Suites 100-102", "Vantage Media", 2500, 87500, "Full Service", "01/2024", "06/2028"],
+        # MTM tenant: no expiry proposed, warned
+        ["160", "Quick Print Kiosk", 600, 1500, "Gross", "02/01/2020", "MTM"],
+    ]
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def build_stacking_plan_pdf(path) -> None:
+    """Broker-OM stacking-plan table (I9): Floor / Suite / Tenant / SF /
+    Expiry with SPARSE rents (a Rent PSF column filled on some rows only).
+    Occupied no-rent rows must survive as $0 proposals, not vanish."""
+    styles = getSampleStyleSheet()
+    header = ["Floor", "Suite", "Tenant", "SF", "Rent PSF", "Expiration"]
+    rows = [header] + [
+        ["5", "500", "Summit Engineering", "8,000", "31.50", "12/31/2030"],
+        ["4", "400", "Beacon Insurance", "8,000", "", "06/30/2028"],
+        ["3", "300", "Cedar & Field LLP", "7,500", "29.00", "Mar 2029"],
+        ["2", "200", "", "7,500", "", ""],  # vacant floor
+        ["1", "100", "Lobby Retail Partners", "4,000", "42.00", "09/30/2027"],
+    ]
+    grid_style = TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ]
+    )
+    doc = SimpleDocTemplate(str(path), pagesize=letter)
+    doc.build(
+        [
+            Paragraph("Offering Memorandum — Meridian Tower", styles["Title"]),
+            Paragraph("Stacking plan as of June 2026.", styles["Normal"]),
+            Table(rows, style=grid_style),
+        ]
+    )
+
+
 def build_broker_om_pdf(path) -> None:
     styles = getSampleStyleSheet()
     header = ["Unit", "Tenant", "SF", "Rent"]

@@ -1,11 +1,9 @@
 {
   "matchedFields": [
     "inPlaceRentMonthly",
-    "marketRentMonthly",
     "sf",
     "tenant",
-    "unit",
-    "unitType"
+    "unit"
   ],
   "mergedSheet": "pages 1-2",
   "pageCount": 2,
@@ -16,7 +14,7 @@
       "leaseEnd": null,
       "leaseStart": null,
       "leaseType": null,
-      "marketRentMonthly": 3600.0,
+      "marketRentMonthly": null,
       "sf": 1200.0,
       "sourceRef": {
         "cell": null,
@@ -28,7 +26,7 @@
       "status": "occupied",
       "tenant": "Ivy Caf\u00e9 LLC",
       "unit": "101",
-      "unitType": "101"
+      "unitType": null
     },
     {
       "camRecoveries": null,
@@ -36,7 +34,7 @@
       "leaseEnd": null,
       "leaseStart": null,
       "leaseType": null,
-      "marketRentMonthly": 2375.0,
+      "marketRentMonthly": null,
       "sf": 950.0,
       "sourceRef": {
         "cell": null,
@@ -48,7 +46,7 @@
       "status": "occupied",
       "tenant": "Jasper Books",
       "unit": "102",
-      "unitType": "102"
+      "unitType": null
     },
     {
       "camRecoveries": null,
@@ -56,7 +54,7 @@
       "leaseEnd": null,
       "leaseStart": null,
       "leaseType": null,
-      "marketRentMonthly": 5250.0,
+      "marketRentMonthly": null,
       "sf": 2100.0,
       "sourceRef": {
         "cell": null,
@@ -68,7 +66,7 @@
       "status": "occupied",
       "tenant": "Kite Fitness",
       "unit": "103",
-      "unitType": "103"
+      "unitType": null
     },
     {
       "camRecoveries": null,
@@ -76,7 +74,7 @@
       "leaseEnd": null,
       "leaseStart": null,
       "leaseType": null,
-      "marketRentMonthly": 2200.0,
+      "marketRentMonthly": null,
       "sf": 800.0,
       "sourceRef": {
         "cell": null,
@@ -88,7 +86,7 @@
       "status": "occupied",
       "tenant": "Luna Salon",
       "unit": "104",
-      "unitType": "104"
+      "unitType": null
     },
     {
       "camRecoveries": null,
@@ -108,7 +106,7 @@
       "status": "vacant",
       "tenant": "",
       "unit": "105",
-      "unitType": "105"
+      "unitType": null
     }
   ],
   "scanned": false,

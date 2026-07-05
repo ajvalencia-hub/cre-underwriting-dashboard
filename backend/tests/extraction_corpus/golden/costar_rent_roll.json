@@ -1,0 +1,171 @@
+{
+  "leaseProposal": {
+    "rows": [
+      {
+        "baseRentPsfAnnual": 38.0,
+        "endDate": "2031-02-28",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 5200.0,
+        "startDate": "2024-03-01",
+        "suiteId": "400",
+        "tenant": "Meridian Legal Group"
+      },
+      {
+        "baseRentPsfAnnual": 36.0,
+        "endDate": "2032-06-30",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 3100.0,
+        "startDate": "2025-07-01",
+        "suiteId": "410",
+        "tenant": "Atlas Wealth Advisors"
+      },
+      {
+        "baseRentPsfAnnual": 34.0,
+        "endDate": "2029-12-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "NNN",
+        "recoveryValue": 0,
+        "sf": 6800.0,
+        "startDate": "2023-01-01",
+        "suiteId": "200",
+        "tenant": "Pearl Diagnostics"
+      },
+      {
+        "baseRentPsfAnnual": 33.5,
+        "endDate": "2029-08-31",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "base_year_stop",
+        "recoveryValue": 0,
+        "sf": 2400.0,
+        "startDate": "2024-09-01",
+        "suiteId": "210",
+        "tenant": "Harbor Title Co"
+      }
+    ],
+    "warnings": []
+  },
+  "matchedFields": [
+    "annualRent",
+    "floor",
+    "leaseEnd",
+    "leaseStart",
+    "leaseType",
+    "rentPsfAnnual",
+    "sf",
+    "tenant",
+    "unit"
+  ],
+  "rows": [
+    {
+      "annualRent": 197600.0,
+      "camRecoveries": null,
+      "floor": "4",
+      "inPlaceRentMonthly": 16466.67,
+      "leaseEnd": "2031-02-28",
+      "leaseStart": "2024-03-01",
+      "leaseType": "Full Service",
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "annualRent",
+      "rentPsfAnnual": 38.0,
+      "sf": 5200.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_rent_roll.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Meridian Legal Group",
+      "unit": "400",
+      "unitType": null
+    },
+    {
+      "annualRent": 111600.0,
+      "camRecoveries": null,
+      "floor": "4",
+      "inPlaceRentMonthly": 9300.0,
+      "leaseEnd": "2032-06-30",
+      "leaseStart": "2025-07-01",
+      "leaseType": "Full Service",
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "annualRent",
+      "rentPsfAnnual": 36.0,
+      "sf": 3100.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_rent_roll.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Atlas Wealth Advisors",
+      "unit": "410",
+      "unitType": null
+    },
+    {
+      "annualRent": 231200.0,
+      "camRecoveries": null,
+      "floor": "2",
+      "inPlaceRentMonthly": 19266.67,
+      "leaseEnd": "2029-12-31",
+      "leaseStart": "2023-01-01",
+      "leaseType": "NNN",
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "annualRent",
+      "rentPsfAnnual": 34.0,
+      "sf": 6800.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_rent_roll.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Pearl Diagnostics",
+      "unit": "200",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "floor": "2",
+      "inPlaceRentMonthly": 6700.0,
+      "leaseEnd": "2029-08-31",
+      "leaseStart": "2024-09-01",
+      "leaseType": "Modified Gross",
+      "marketRentMonthly": null,
+      "rentDerivedFrom": "rentPsfAnnual",
+      "rentPsfAnnual": 33.5,
+      "sf": 2400.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_rent_roll.xlsx",
+        "page": null,
+        "row": 3,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Harbor Title Co",
+      "unit": "210",
+      "unitType": null
+    }
+  ]
+}

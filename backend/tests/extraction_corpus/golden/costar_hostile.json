@@ -1,0 +1,128 @@
+{
+  "leaseProposal": {
+    "rows": [
+      {
+        "baseRentPsfAnnual": 30.0,
+        "endDate": "2027-06-30",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "NNN",
+        "recoveryValue": 0,
+        "sf": 1800.0,
+        "startDate": "2024-05-01",
+        "suiteId": "150",
+        "tenant": "Cobalt Coffee"
+      },
+      {
+        "baseRentPsfAnnual": 35.0,
+        "endDate": "2028-06-30",
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 2500.0,
+        "startDate": null,
+        "suiteId": "Suites 100-102",
+        "tenant": "Vantage Media"
+      },
+      {
+        "baseRentPsfAnnual": 30.0,
+        "endDate": null,
+        "escalationMonths": 12,
+        "escalationType": "none",
+        "escalationValue": 0,
+        "freeRentMonths": 0,
+        "recoveryType": "gross",
+        "recoveryValue": 0,
+        "sf": 600.0,
+        "startDate": "2020-02-01",
+        "suiteId": "160",
+        "tenant": "Quick Print Kiosk"
+      }
+    ],
+    "warnings": [
+      "Rent magnitude check: Vantage Media ($87,500 read as annual) \u2014 read as monthly these imply > $250/SF/yr. Verify against the source document.",
+      "1 month-to-month lease(s) (Quick Print Kiosk) \u2014 no expiry proposed; the engine treats them as running through the analysis. Consider setting a near-term expiry with rollover assumptions instead.",
+      "Combined suite range(s) kept as ONE lease each: Suites 100-102 \u2014 split them manually if the spaces have different terms.",
+      "1 proposed lease(s) have no expiry date \u2014 the engine treats them as running through the whole analysis until you set one."
+    ]
+  },
+  "matchedFields": [
+    "inPlaceRentMonthly",
+    "leaseEnd",
+    "leaseStart",
+    "leaseType",
+    "sf",
+    "tenant",
+    "unit"
+  ],
+  "rows": [
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 4500.0,
+      "leaseEnd": "2027-06-30",
+      "leaseStart": "2024-05-01",
+      "leaseType": "NNN",
+      "marketRentMonthly": null,
+      "monthYearEndDate": true,
+      "sf": 1800.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_hostile.xlsx",
+        "page": null,
+        "row": 0,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Cobalt Coffee",
+      "unit": "150",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 87500.0,
+      "leaseEnd": "2028-06-30",
+      "leaseStart": null,
+      "leaseType": "Full Service",
+      "marketRentMonthly": null,
+      "monthYearEndDate": true,
+      "sf": 2500.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_hostile.xlsx",
+        "page": null,
+        "row": 1,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Vantage Media",
+      "unit": "Suites 100-102",
+      "unitType": null
+    },
+    {
+      "camRecoveries": null,
+      "inPlaceRentMonthly": 1500.0,
+      "leaseEnd": null,
+      "leaseStart": "2020-02-01",
+      "leaseType": "Gross",
+      "marketRentMonthly": null,
+      "mtm": true,
+      "sf": 600.0,
+      "sourceRef": {
+        "cell": null,
+        "doc": "costar_hostile.xlsx",
+        "page": null,
+        "row": 2,
+        "sheet": "Sheet1"
+      },
+      "status": "occupied",
+      "tenant": "Quick Print Kiosk",
+      "unit": "160",
+      "unitType": null
+    }
+  ]
+}

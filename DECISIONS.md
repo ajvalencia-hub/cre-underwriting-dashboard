@@ -3,6 +3,32 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I9 — Commercial extraction breadth (Run 4)
+
+- **Header matching gained COLUMN RESERVATION**: exact alias claims beat
+  substring claims, and a claimed column can't be claimed twice. This
+  fixed two latent bugs the old goldens had blessed — unitType matching
+  the Unit/Lease-Type column, and marketRentMonthly duplicating a single
+  "Rent" column — so those two goldens were regenerated as bug fixes
+  (diffs inspected line by line first; yardi/realpage byte-identical).
+  Also: no bare "rent/sf" alias (normalizes to "rentsf" and would swallow
+  every plain SF header); the header-inside-alias direction requires
+  len ≥ 4.
+- **Rent magnitude heuristic**: a "monthly" rent whose implied annual $/SF
+  exceeds $250 is read as ANNUAL, always with a per-row warning naming
+  the value — never silently. If the $/SF column exists it wins outright.
+- **Month-year-only lease END dates read as the LAST day of the month** (a
+  lease expiring "Jun 2027" runs through June); start dates keep the
+  first-of-month read. MTM terms parse as no expiry with a named warning
+  suggesting rollover assumptions instead.
+- **Stacking-plan rows with SF but no rent propose at $0/SF with a
+  fill-in warning** rather than vanishing — losing a tenancy silently is
+  worse than an obviously-wrong zero. Combined suite ranges stay ONE
+  lease with a split-manually warning (per-suite SF is unknowable).
+- New keys on parsed rows (floor, annualRent, rentPsfAnnual,
+  rentDerivedFrom, mtm, monthYearEndDate) appear only when their source
+  column/flag exists, so pre-I9 fixtures produce byte-identical rows.
+
 ## I8 — Per-lease drill-down (Run 4)
 
 - The per-lease slices are accumulated IN the same loop that builds the

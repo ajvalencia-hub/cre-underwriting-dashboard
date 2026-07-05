@@ -21,18 +21,33 @@ _SUBTOTAL_ROW_RE = re.compile(r"^\s*(sub\s*)?totals?\b", re.IGNORECASE)
 _FIELD_ALIASES: dict[str, list[str]] = {
     "unit": ["unit", "unit no", "unit number", "suite", "suite no", "suite number", "space"],
     "tenant": ["tenant", "tenant name", "resident", "lessee", "occupant"],
-    "sf": ["sf", "square feet", "square footage", "size", "unit sf", "rsf", "sq ft"],
+    "sf": [
+        "sf", "square feet", "square footage", "size", "unit sf", "rsf", "sq ft",
+        "sf leased", "leased sf", "rba",  # CoStar vocabulary (I9)
+    ],
     "unitType": ["unit type", "type", "floor plan", "plan", "bed/bath", "beds/baths", "bd/ba"],
     "inPlaceRentMonthly": [
         "rent", "monthly rent", "in-place rent", "in place rent", "current rent", "actual rent",
     ],
     "marketRentMonthly": ["market rent", "asking rent", "pro forma rent", "proforma rent"],
+    # I9: CoStar-style annual figures — converted, never guessed. NOTE: no
+    # bare "rent/sf" alias — it normalizes to "rentsf" and would swallow
+    # every plain "SF" header through the substring fallback.
+    "annualRent": ["annual rent", "total annual rent", "annual base rent", "rent/year"],
+    "rentPsfAnnual": [
+        "rent/sf/yr", "rent per sf", "rent psf", "annual rent psf", "base rent/sf",
+    ],
+    "floor": ["floor", "level"],
     "leaseType": ["lease type", "lease structure"],
-    "leaseStart": ["lease start", "commencement", "move-in", "move in", "start date", "lease from"],
+    "leaseStart": ["lease start", "commencement", "move-in", "move in", "start date", "lease from",
+                   "lease commencement"],
     "leaseEnd": ["lease end", "lease expiration", "expiration", "expiry", "end date", "lease to"],
     "camRecoveries": ["cam", "cam recoveries", "recoveries", "nnn", "cam/nnn"],
     "status": ["status", "occupancy status", "occupied/vacant"],
 }
+
+_MTM_RE = re.compile(r"^\s*(mtm|m-t-m|month\s*-?\s*to\s*-?\s*month)\s*$", re.IGNORECASE)
+_MONTH_YEAR_FORMATS = ("%b %Y", "%B %Y", "%m/%Y", "%m-%Y")
 
 
 def _normalize(text: str) -> str:
@@ -40,22 +55,40 @@ def _normalize(text: str) -> str:
 
 
 def _match_headers(headers: list[str]) -> dict[str, int]:
-    """canonical field -> column index, best-effort, first match wins."""
+    """canonical field -> column index, best-effort.
+
+    Two passes with COLUMN RESERVATION (I9): every field tries an exact
+    alias match first — exact claims beat any substring claim, so 'Annual
+    Rent' belongs to annualRent even though the generic 'rent' alias would
+    substring-match it. The substring fallback then fills unmatched fields
+    from unclaimed columns only, and the header-inside-alias direction
+    requires len(header) >= 4 so a bare 'SF' column can't be swallowed by a
+    longer alias that happens to contain 'sf'."""
     normalized = [_normalize(h) for h in headers]
     matched: dict[str, int] = {}
+    claimed: set[int] = set()
+
     for field, aliases in _FIELD_ALIASES.items():
         norm_aliases = [_normalize(a) for a in aliases]
-        # exact match first
         for i, h in enumerate(normalized):
-            if h in norm_aliases:
+            if i not in claimed and h in norm_aliases:
                 matched[field] = i
+                claimed.add(i)
                 break
+
+    for field, aliases in _FIELD_ALIASES.items():
         if field in matched:
             continue
-        # substring match fallback
+        norm_aliases = [_normalize(a) for a in aliases]
         for i, h in enumerate(normalized):
-            if h and any(a in h or h in a for a in norm_aliases if len(a) >= 3):
+            if i in claimed or not h:
+                continue
+            if any(
+                (len(a) >= 3 and a in h) or (len(h) >= 4 and h in a)
+                for a in norm_aliases
+            ):
                 matched[field] = i
+                claimed.add(i)
                 break
     return matched
 
@@ -72,6 +105,29 @@ def _parse_date(value) -> str | None:
         except ValueError:
             continue
     return None
+
+
+def _parse_end_date(value) -> tuple[str | None, bool, bool]:
+    """Lease-END dates (I9): returns (iso, is_mtm, was_month_year).
+    Month-year-only values ('Jun 2027', '06/2028') read as the LAST day of
+    that month — a lease expiring 'Jun 2027' runs through June. MTM terms
+    parse as no end date (the engine treats them as running through the
+    analysis) and are flagged so the proposal can warn."""
+    if value is None or value == "":
+        return None, False, False
+    text = str(value).strip()
+    if _MTM_RE.match(text):
+        return None, True, False
+    for fmt in _MONTH_YEAR_FORMATS:
+        try:
+            first = datetime.strptime(text, fmt)
+            import calendar as _calendar
+
+            last_day = _calendar.monthrange(first.year, first.month)[1]
+            return first.replace(day=last_day).strftime("%Y-%m-%d"), False, True
+        except ValueError:
+            continue
+    return _parse_date(value), False, False
 
 
 def _infer_status(tenant, rent_monthly, explicit_status: str | None) -> str:
@@ -121,24 +177,51 @@ def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet
         if tenant is not None and _SUBTOTAL_ROW_RE.match(str(tenant)):
             continue
 
-        status = _infer_status(tenant, in_place, get("status"))
+        # I9: CoStar-style annual figures derive the monthly rent when no
+        # monthly column exists. The derivation is recorded, never silent.
+        annual_rent = parse_numeric(get("annualRent")) if "annualRent" in field_cols else None
+        rent_psf = parse_numeric(get("rentPsfAnnual")) if "rentPsfAnnual" in field_cols else None
+        derived_from = None
+        if in_place is None:
+            if annual_rent:
+                in_place = round(annual_rent / 12, 2)
+                derived_from = "annualRent"
+            elif rent_psf and sf:
+                in_place = round(rent_psf * sf / 12, 2)
+                derived_from = "rentPsfAnnual"
 
-        parsed_rows.append(
-            {
-                "unit": str(unit).strip() if unit is not None else None,
-                "tenant": str(tenant).strip() if tenant is not None else None,
-                "sf": sf,
-                "unitType": str(get("unitType")).strip() if get("unitType") is not None else None,
-                "status": status,
-                "leaseType": str(get("leaseType")).strip() if get("leaseType") is not None else None,
-                "inPlaceRentMonthly": in_place,
-                "marketRentMonthly": market,
-                "leaseStart": _parse_date(get("leaseStart")),
-                "leaseEnd": _parse_date(get("leaseEnd")),
-                "camRecoveries": parse_numeric(get("camRecoveries")),
-                "sourceRef": {"doc": source_doc, "sheet": sheet, "row": row_idx, "page": None, "cell": None},
-            }
-        )
+        status = _infer_status(tenant, in_place, get("status"))
+        lease_end, is_mtm, month_year_end = _parse_end_date(get("leaseEnd"))
+
+        parsed = {
+            "unit": str(unit).strip() if unit is not None else None,
+            "tenant": str(tenant).strip() if tenant is not None else None,
+            "sf": sf,
+            "unitType": str(get("unitType")).strip() if get("unitType") is not None else None,
+            "status": status,
+            "leaseType": str(get("leaseType")).strip() if get("leaseType") is not None else None,
+            "inPlaceRentMonthly": in_place,
+            "marketRentMonthly": market,
+            "leaseStart": _parse_date(get("leaseStart")),
+            "leaseEnd": lease_end,
+            "camRecoveries": parse_numeric(get("camRecoveries")),
+            "sourceRef": {"doc": source_doc, "sheet": sheet, "row": row_idx, "page": None, "cell": None},
+        }
+        # New keys appear only when their source exists, so pre-I9 fixtures
+        # produce byte-identical goldens.
+        if "floor" in field_cols and get("floor") is not None:
+            parsed["floor"] = str(get("floor")).strip()
+        if annual_rent is not None:
+            parsed["annualRent"] = annual_rent
+        if rent_psf is not None:
+            parsed["rentPsfAnnual"] = rent_psf
+        if derived_from:
+            parsed["rentDerivedFrom"] = derived_from
+        if is_mtm:
+            parsed["mtm"] = True
+        if month_year_end:
+            parsed["monthYearEndDate"] = True
+        parsed_rows.append(parsed)
 
     # confidence: how many of the load-bearing fields (unit/tenant, sf, rent)
     # we actually found columns for — a proxy for "did header matching work".
@@ -277,41 +360,79 @@ def aggregate_multifamily(rows: list[dict]) -> dict:
 _LEASE_TYPE_TO_RECOVERY = {
     # modified gross maps to a base-year stop as the nearest standard
     # structure; unknown/absent maps to gross (the income-conservative
-    # reading). See DECISIONS.md (H1).
+    # reading). See DECISIONS.md (H1). I9 adds the CoStar vocabulary.
     "nnn": "NNN",
+    "net": "NNN",
+    "triple net": "NNN",
     "gross": "gross",
+    "full service": "gross",
+    "full service gross": "gross",
+    "fs": "gross",
     "modified_gross": "base_year_stop",
     "modified gross": "base_year_stop",
+    "mg": "base_year_stop",
 }
+
+# I9: a "monthly" rent whose implied annual $/SF is beyond this is almost
+# certainly an ANNUAL figure sitting in a monthly-labeled column (the mixed-
+# magnitude column hostile case). Reinterpreted WITH a warning, never silently.
+_ANNUAL_MISREAD_PSF = 250.0
+
+_SUITE_RANGE_RE = re.compile(r"\d+\s*[-–]\s*\d+")
 
 
 def propose_commercial_leases(rows: list[dict]) -> dict:
     """Map parsed commercial rent-roll rows onto the schema's lease-level
     commercialLeases shape (H1). Escalations and free rent aren't reliably
     extractable from a rent roll — they propose as none/zero for the user to
-    edit. Vacant/no-rent rows are skipped with a warning naming them.
+    edit. Vacant/no-SF rows are skipped with a warning naming them; occupied
+    rows WITHOUT a rent (stacking plans, I9) propose at $0 with a warning so
+    the review grid can be filled in rather than losing the tenancy.
 
     Returns {"rows": [...], "warnings": [...]}."""
     warnings: list[str] = []
     proposed: list[dict] = []
     skipped: list[str] = []
+    zero_rent: list[str] = []
+    reinterpreted: list[str] = []
+    mtm_rows: list[str] = []
+    ranged: list[str] = []
 
     for r in rows:
         sf = r.get("sf")
         rent_monthly = r.get("inPlaceRentMonthly") or r.get("marketRentMonthly")
         label = r.get("tenant") or r.get("unit") or "?"
-        if not sf or not rent_monthly or r.get("status") == "vacant":
+        if not sf or r.get("status") == "vacant":
             skipped.append(str(label))
             continue
+
+        if r.get("rentPsfAnnual"):
+            base_psf = round(float(r["rentPsfAnnual"]), 2)
+        elif rent_monthly:
+            base_psf = round(rent_monthly * 12 / sf, 2)
+            if base_psf > _ANNUAL_MISREAD_PSF:
+                # Magnitude heuristic: this "monthly" number is annual.
+                base_psf = round(rent_monthly / sf, 2)
+                reinterpreted.append(f"{label} (${rent_monthly:,.0f} read as annual)")
+        else:
+            base_psf = 0.0
+            zero_rent.append(str(label))
+
+        if r.get("mtm"):
+            mtm_rows.append(str(label))
+        suite = str(r.get("unit") or "")
+        if _SUITE_RANGE_RE.search(suite):
+            ranged.append(suite)
+
         lease_type = str(r.get("leaseType") or "").strip().lower()
         proposed.append(
             {
                 "tenant": r.get("tenant") or "",
-                "suiteId": r.get("unit") or "",
+                "suiteId": suite,
                 "sf": sf,
                 "startDate": r.get("leaseStart"),
                 "endDate": r.get("leaseEnd"),
-                "baseRentPsfAnnual": round(rent_monthly * 12 / sf, 2),
+                "baseRentPsfAnnual": base_psf,
                 "escalationType": "none",
                 "escalationValue": 0,
                 "escalationMonths": 12,
@@ -326,6 +447,32 @@ def propose_commercial_leases(rows: list[dict]) -> dict:
             f"{len(skipped)} rent-roll row(s) were vacant or missing SF/rent and "
             f"were not proposed as leases: {', '.join(skipped[:5])}"
             + ("…" if len(skipped) > 5 else "")
+        )
+    if zero_rent:
+        warnings.append(
+            f"{len(zero_rent)} row(s) have SF but NO stated rent (stacking-plan "
+            f"style) — proposed at $0/SF; fill the rent in before applying: "
+            + ", ".join(zero_rent[:5]) + ("…" if len(zero_rent) > 5 else "")
+        )
+    if reinterpreted:
+        warnings.append(
+            "Rent magnitude check: "
+            + "; ".join(reinterpreted[:5])
+            + (";…" if len(reinterpreted) > 5 else "")
+            + f" — read as monthly these imply > ${_ANNUAL_MISREAD_PSF:,.0f}/SF/yr. "
+            "Verify against the source document."
+        )
+    if mtm_rows:
+        warnings.append(
+            f"{len(mtm_rows)} month-to-month lease(s) ({', '.join(mtm_rows[:5])}) — "
+            "no expiry proposed; the engine treats them as running through the "
+            "analysis. Consider setting a near-term expiry with rollover "
+            "assumptions instead."
+        )
+    if ranged:
+        warnings.append(
+            f"Combined suite range(s) kept as ONE lease each: {', '.join(ranged[:5])} "
+            "— split them manually if the spaces have different terms."
         )
     missing_dates = sum(1 for p in proposed if not p["endDate"])
     if missing_dates:
