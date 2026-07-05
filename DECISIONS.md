@@ -3,6 +3,19 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I14 — Lease-engine performance guard (Run 4)
+
+- Two budgets, both hard: a 2-second wall-clock cap on a 50-lease /
+  10-year / mixed-recovery / rollover-heavy compute (measured after a
+  warm-up run so imports don't count), and a CALL-COUNT budget —
+  build_lease_income must run ≤ 4 times per compute (currently 2: the
+  extended main build + the stabilized window), because a regression
+  that re-evaluates per lease or per month explodes the call count long
+  before a CI clock notices. Policy in the test text itself: fix the hot
+  spot, never raise the budget.
+- Measured at introduction: ~0.01–0.02s locally for the full 50-lease
+  compute — no hot spot existed, nothing was optimized.
+
 ## I13 — Batch deck export (Run 4)
 
 - One title slide (firm branding, count, date) + one H12-style slide per
