@@ -90,6 +90,40 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
     return _to_out(deal)
 
 
+class BulkStatusRequest(BaseModel):
+    dealIds: list[str]
+    status: str
+
+
+@router.post("/bulk-status")
+def bulk_status(payload: BulkStatusRequest, db: Session = Depends(get_db)):
+    """I10: one stage change across many pipeline rows. Unknown ids are
+    reported, not silently dropped; invalid stages are rejected before
+    anything is written."""
+    from app.schemas import DEAL_STATUSES
+
+    if payload.status not in DEAL_STATUSES:
+        raise HTTPException(422, f"Unknown status '{payload.status}'.")
+    if not payload.dealIds:
+        raise HTTPException(400, "dealIds is empty.")
+    updated: list[DealOut] = []
+    missing: list[str] = []
+    for deal_id in payload.dealIds:
+        deal = db.get(Deal, deal_id)
+        if deal is None:
+            missing.append(deal_id)
+            continue
+        deal.status = payload.status
+        updated.append(deal)
+    db.commit()
+    for deal in updated:
+        db.refresh(deal)
+    return {
+        "updated": [_to_out(d).model_dump() for d in updated],
+        "missing": missing,
+    }
+
+
 @router.get("/{deal_id}/history")
 def deal_history_list(deal_id: str, db: Session = Depends(get_db)):
     """Snapshot list, newest first — metadata only (full inputs stay on the

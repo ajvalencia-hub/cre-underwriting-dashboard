@@ -478,6 +478,17 @@ export function updateDeal(
   return postJson<Deal>(`/deals/${dealId}`, payload, 'PUT')
 }
 
+export function bulkUpdateDealStatus(
+  dealIds: string[],
+  status: import('../types/deal').DealStatus,
+) {
+  return postJson<{ updated: Deal[]; missing: string[] }>(
+    '/deals/bulk-status',
+    { dealIds, status },
+    'POST',
+  )
+}
+
 export async function deleteDeal(dealId: string): Promise<void> {
   return del(`/deals/${dealId}`)
 }

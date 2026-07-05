@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react'
 import { relativeAge, stalenessBadge } from '../lib/staleness'
+import {
+  applyView,
+  deleteView,
+  loadViews,
+  pipelineToCsv,
+  saveView,
+  type PipelineSortKey,
+  type PipelineView,
+} from '../lib/pipelineViews'
 import type { Deal, DealStatus } from '../types/deal'
 
 interface PipelinePageProps {
@@ -7,6 +16,7 @@ interface PipelinePageProps {
   activeDealId: string | null
   onOpenDeal: (dealId: string) => void
   onStatusChange: (dealId: string, status: DealStatus) => void
+  onBulkStatus: (dealIds: string[], status: DealStatus) => Promise<void>
   onNewDeal: () => void
 }
 
@@ -47,19 +57,22 @@ export default function PipelinePage({
   activeDealId,
   onOpenDeal,
   onStatusChange,
+  onBulkStatus,
   onNewDeal,
 }: PipelinePageProps) {
   const [showTerminal, setShowTerminal] = useState(false)
+  const [marketFilter, setMarketFilter] = useState('')
+  const [sortKey, setSortKey] = useState<PipelineSortKey>('stage')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkStatusValue, setBulkStatusValue] = useState<DealStatus>('underwriting')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [views, setViews] = useState<PipelineView[]>(() => loadViews(window.localStorage))
+  const [viewName, setViewName] = useState('')
 
-  const sorted = useMemo(() => {
-    const filtered = showTerminal
-      ? deals
-      : deals.filter((d) => d.status !== 'closed' && d.status !== 'dead')
-    return [...filtered].sort((a, b) => {
-      const stage = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
-      return stage !== 0 ? stage : Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-    })
-  }, [deals, showTerminal])
+  const sorted = useMemo(
+    () => applyView(deals, marketFilter, sortKey, showTerminal),
+    [deals, marketFilter, sortKey, showTerminal],
+  )
 
   const counts = useMemo(() => {
     const map = new Map<DealStatus, number>()
@@ -68,10 +81,62 @@ export default function PipelinePage({
   }, [deals])
 
   const hiddenCount = deals.length - sorted.length
+  const visibleSelected = sorted.filter((d) => selected.has(d.id))
+
+  function toggle(dealId: string, checked: boolean) {
+    const next = new Set(selected)
+    if (checked) next.add(dealId)
+    else next.delete(dealId)
+    setSelected(next)
+  }
+
+  async function handleBulk() {
+    setBulkBusy(true)
+    try {
+      await onBulkStatus(
+        visibleSelected.map((d) => d.id),
+        bulkStatusValue,
+      )
+      setSelected(new Set())
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  function handleExportCsv() {
+    const blob = new Blob([pipelineToCsv(sorted)], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'pipeline.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleApplyView(view: PipelineView) {
+    setMarketFilter(view.marketFilter)
+    setSortKey(view.sortKey)
+    setShowTerminal(view.showTerminal)
+  }
+
+  function handleSaveView() {
+    if (!viewName.trim()) return
+    setViews(
+      saveView(window.localStorage, {
+        name: viewName.trim(),
+        marketFilter,
+        sortKey,
+        showTerminal,
+      }),
+    )
+    setViewName('')
+  }
 
   return (
     <div className="max-w-4xl space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           {STATUS_ORDER.map((status) => (
             <span
@@ -92,10 +157,115 @@ export default function PipelinePage({
         </button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <input
+          value={marketFilter}
+          onChange={(e) => setMarketFilter(e.target.value)}
+          placeholder="Filter by market or name"
+          className="rounded border border-slate-200 px-2 py-1"
+        />
+        <label className="flex items-center gap-1 text-slate-500">
+          Sort
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as PipelineSortKey)}
+            className="rounded border border-slate-200 px-1 py-1"
+          >
+            <option value="stage">Stage</option>
+            <option value="updated">Recently touched</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+        <button
+          onClick={() => setShowTerminal(!showTerminal)}
+          className={`rounded border px-2 py-1 ${
+            showTerminal
+              ? 'border-slate-400 bg-slate-100 text-slate-600'
+              : 'border-slate-200 text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          {showTerminal ? 'Hiding nothing' : `Closed/dead hidden${hiddenCount ? ` (${hiddenCount})` : ''}`}
+        </button>
+        <button
+          onClick={handleExportCsv}
+          className="rounded border border-slate-200 px-2 py-1 text-slate-500 hover:bg-slate-50"
+        >
+          Export CSV ({sorted.length})
+        </button>
+        <span className="mx-1 h-4 border-l border-slate-200" />
+        {views.map((view) => (
+          <span key={view.name} className="flex items-center rounded bg-sky-50 text-sky-700">
+            <button onClick={() => handleApplyView(view)} className="px-2 py-1 hover:underline">
+              {view.name}
+            </button>
+            <button
+              onClick={() => setViews(deleteView(window.localStorage, view.name))}
+              aria-label={`Delete saved view ${view.name}`}
+              className="pr-1.5 text-sky-400 hover:text-red-600"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          value={viewName}
+          onChange={(e) => setViewName(e.target.value)}
+          placeholder="Save view as…"
+          className="w-28 rounded border border-slate-200 px-2 py-1"
+        />
+        <button
+          onClick={handleSaveView}
+          disabled={!viewName.trim()}
+          className="rounded border border-emerald-600 px-2 py-1 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+        >
+          Save
+        </button>
+      </div>
+
+      {visibleSelected.length > 0 && (
+        <div className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs">
+          <span className="text-sky-700">{visibleSelected.length} selected</span>
+          <select
+            value={bulkStatusValue}
+            onChange={(e) => setBulkStatusValue(e.target.value as DealStatus)}
+            className="rounded border border-slate-200 px-1 py-1"
+          >
+            {STATUS_ORDER.map((status) => (
+              <option key={status} value={status}>
+                {STATUS_LABELS[status]}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => void handleBulk()}
+            disabled={bulkBusy}
+            className="rounded bg-sky-600 px-2 py-1 text-white hover:bg-sky-700 disabled:opacity-40"
+          >
+            {bulkBusy ? 'Updating…' : 'Set status'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded border border-slate-200 bg-white">
-        <table className="w-full min-w-[560px] text-sm">
+        <table className="w-full min-w-[600px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-400">
+              <th className="w-8 px-3 py-2">
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible deals"
+                  checked={sorted.length > 0 && visibleSelected.length === sorted.length}
+                  onChange={(e) =>
+                    setSelected(e.target.checked ? new Set(sorted.map((d) => d.id)) : new Set())
+                  }
+                />
+              </th>
               <th className="px-3 py-2 font-medium">Deal</th>
               <th className="px-3 py-2 font-medium">Market</th>
               <th className="px-3 py-2 font-medium">Status</th>
@@ -113,6 +283,14 @@ export default function PipelinePage({
                     deal.id === activeDealId ? 'bg-sky-50/50' : ''
                   }`}
                 >
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${deal.name}`}
+                      checked={selected.has(deal.id)}
+                      onChange={(e) => toggle(deal.id, e.target.checked)}
+                    />
+                  </td>
                   <td className="px-3 py-2">
                     <button
                       onClick={() => onOpenDeal(deal.id)}
@@ -181,23 +359,14 @@ export default function PipelinePage({
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-400">
-                  No active deals — create one to get started.
+                <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-400">
+                  No deals match this view.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-
-      {(hiddenCount > 0 || showTerminal) && (
-        <button
-          onClick={() => setShowTerminal(!showTerminal)}
-          className="text-xs text-slate-400 hover:text-slate-600"
-        >
-          {showTerminal ? 'Hide closed & dead deals' : `Show ${hiddenCount} closed/dead deal(s)`}
-        </button>
-      )}
     </div>
   )
 }

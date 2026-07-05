@@ -158,6 +158,33 @@ def test_deal_status_lifecycle(client):
     assert client.put(f"/api/deals/{deal['id']}", json={"status": "bogus"}).status_code == 422
 
 
+def test_bulk_status_update(client):
+    """I10: one stage change across many rows; unknown ids reported, not
+    silently dropped; invalid stages rejected before any write."""
+    a = client.post("/api/deals", json={"name": "A"}).json()
+    b = client.post("/api/deals", json={"name": "B"}).json()
+
+    result = client.post(
+        "/api/deals/bulk-status",
+        json={"dealIds": [a["id"], b["id"], "ghost"], "status": "loi"},
+    ).json()
+    assert {d["id"] for d in result["updated"]} == {a["id"], b["id"]}
+    assert result["missing"] == ["ghost"]
+    assert client.get(f"/api/deals/{a['id']}").json()["status"] == "loi"
+
+    assert (
+        client.post(
+            "/api/deals/bulk-status", json={"dealIds": [a["id"]], "status": "bogus"}
+        ).status_code
+        == 422
+    )
+    assert client.get(f"/api/deals/{a['id']}").json()["status"] == "loi"  # untouched
+    assert (
+        client.post("/api/deals/bulk-status", json={"dealIds": [], "status": "loi"}).status_code
+        == 400
+    )
+
+
 def test_deals_status_migration(tmp_path):
     """A pre-H7 deals table gains the status column with 'screening'
     backfilled, idempotently."""

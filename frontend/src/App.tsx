@@ -18,6 +18,7 @@ import {
   exportDeal,
   fetchDeal,
   fetchDeals,
+  bulkUpdateDealStatus,
   fetchHealth,
   fetchInputSchema,
   fetchTemplate,
@@ -605,6 +606,11 @@ function App() {
             void updateDeal(dealId, { status }).then((updated) =>
               setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
             )
+          }}
+          onBulkStatus={async (dealIds, status) => {
+            const { updated } = await bulkUpdateDealStatus(dealIds, status)
+            const byId = new Map(updated.map((d) => [d.id, d]))
+            setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
           }}
           onNewDeal={() => void handleNewDeal()}
         />
