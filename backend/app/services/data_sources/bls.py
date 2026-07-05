@@ -83,3 +83,52 @@ def get_employment_trend(state_fips: str | None, county_fips: str | None) -> dic
         }
     except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
         return {"dataSource": "unavailable", "note": f"BLS employment lookup failed: {exc}"}
+
+
+def get_employment_series(state_fips: str | None, county_fips: str | None) -> dict:
+    """Monthly county employment level and unemployment rate for the last ~3
+    years (both LAUS series in one request), ascending."""
+    if not state_fips or not county_fips:
+        return {"dataSource": "unavailable", "note": "No county resolved for this market."}
+
+    from datetime import date
+
+    employment_id = f"LAUCN{state_fips}{county_fips}0000000005"
+    unemployment_id = f"LAUCN{state_fips}{county_fips}0000000003"
+    payload: dict = {
+        "seriesid": [employment_id, unemployment_id],
+        "startyear": str(date.today().year - 3),
+        "endyear": str(date.today().year),
+    }
+    if BLS_API_KEY:
+        payload["registrationkey"] = BLS_API_KEY
+
+    def _points(series_data: list, scale: float) -> list[dict]:
+        points = [
+            {
+                "period": f"{p['year']}-{p['period'][1:]}",  # "M03" -> "2025-03"
+                "value": float(p["value"]) * scale,
+            }
+            for p in series_data
+            if p.get("period", "").startswith("M") and p["period"] != "M13"
+        ]
+        return sorted(points, key=lambda p: p["period"])
+
+    try:
+        resp = httpx.post(BLS_URL, json=payload, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        series = {
+            s["seriesID"]: s.get("data", [])
+            for s in resp.json().get("Results", {}).get("series", [])
+        }
+        employment = _points(series.get(employment_id, []), 1.0)
+        unemployment = _points(series.get(unemployment_id, []), 0.01)
+        if not employment and not unemployment:
+            return {"dataSource": "unavailable", "note": "BLS returned no series data."}
+        return {
+            "dataSource": "bls",
+            "employmentLevel": employment,
+            "unemploymentRatePct": unemployment,
+        }
+    except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
+        return {"dataSource": "unavailable", "note": f"BLS series lookup failed: {exc}"}

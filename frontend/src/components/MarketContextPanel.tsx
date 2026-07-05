@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { fetchMarketContext, type BenchmarkResult, type BenchmarkVerdict } from '../lib/api'
+import DemographicsPanel from './DemographicsPanel'
 import type { DataSection, MarketContext } from '../types/marketContext'
 
 interface MarketContextPanelProps {
   market: string
   submarket: string
   assetClass: string
+  address?: string
   benchmarks?: BenchmarkResult | null
   benchmarksLoading?: boolean
 }
@@ -154,6 +156,7 @@ export default function MarketContextPanel({
   market,
   submarket,
   assetClass,
+  address = '',
   benchmarks = null,
   benchmarksLoading = false,
 }: MarketContextPanelProps) {
@@ -289,6 +292,8 @@ export default function MarketContextPanel({
               <DataSectionCard title="Site Risk" section={context.siteRisk} />
             </div>
           </div>
+
+          <DemographicsPanel market={market} submarket={submarket} address={address} />
         </div>
       )}
     </div>

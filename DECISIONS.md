@@ -3,6 +3,21 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H6 — Demographics panel (Run 3)
+
+- Trends come from the SAME four sources the benchmarks already use (ACS,
+  BLS LAUS, FHFA HPI, BEA CAINC1) — no new keys, no new vendors; series
+  variants added beside the existing point lookups. Series convention:
+  `[{period, value}]` ascending; rates as fractions; BLS M13 annual-average
+  rows dropped; a failed ACS vintage skips silently (>= 2 points required).
+- **Charts load lazily** — the panel fires four upstream APIs only when the
+  user expands it, not on every form keystroke. Same 24h source cache and
+  graceful-unavailable contract as benchmarks. Context only: nothing ever
+  writes to inputs.
+- Charts are dependency-free inline SVG; the path/bar geometry lives in a
+  pure lib (chartGeometry.ts) so scaling and degenerate cases (flat series,
+  single point, empty) are unit-tested.
+
 ## H5 — Comps database (Run 3)
 
 - **Comps are global, not deal-scoped** — a sale comp is evidence about a

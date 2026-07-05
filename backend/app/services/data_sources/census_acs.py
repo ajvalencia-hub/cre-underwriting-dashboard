@@ -46,3 +46,45 @@ def get_demographics(state_fips: str | None, county_fips: str | None) -> dict:
         }
     except (httpx.HTTPError, ValueError, KeyError, IndexError) as exc:
         return {"dataSource": "unavailable", "note": f"Census ACS lookup failed: {exc}"}
+
+
+def get_population_trend(state_fips: str | None, county_fips: str | None) -> dict:
+    """Population + median household income across the last 5 ACS 5-year
+    vintages (one request per year; failed vintages are skipped)."""
+    if not CENSUS_API_KEY:
+        return {
+            "dataSource": "unavailable",
+            "note": "Set CENSUS_API_KEY in backend/.env (free signup: "
+            "https://api.census.gov/data/key_signup.html).",
+        }
+    if not state_fips or not county_fips:
+        return {"dataSource": "unavailable", "note": "No county resolved for this market."}
+
+    population: list[dict] = []
+    income: list[dict] = []
+    last_year = int(ACS_YEAR)
+    for year in range(last_year - 4, last_year + 1):
+        try:
+            resp = httpx.get(
+                f"https://api.census.gov/data/{year}/acs/acs5",
+                params={
+                    "get": "B01003_001E,B19013_001E",
+                    "for": f"county:{county_fips}",
+                    "in": f"state:{state_fips}",
+                    "key": CENSUS_API_KEY,
+                },
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+            pop, med_income, *_rest = resp.json()[1]
+            population.append({"period": str(year), "value": int(pop)})
+            income.append({"period": str(year), "value": float(med_income)})
+        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+            continue  # a missing vintage shouldn't kill the trend
+    if len(population) < 2:
+        return {"dataSource": "unavailable", "note": "Fewer than 2 ACS vintages available."}
+    return {
+        "dataSource": "census_acs",
+        "population": population,
+        "medianHouseholdIncome": income,
+    }

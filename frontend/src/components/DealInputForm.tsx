@@ -116,6 +116,7 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
         market={market}
         submarket={submarket}
         assetClass={assetClass}
+        address={address}
         benchmarks={benchmarks}
         benchmarksLoading={benchmarksLoading}
       />

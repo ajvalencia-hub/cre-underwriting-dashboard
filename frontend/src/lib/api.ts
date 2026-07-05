@@ -294,6 +294,36 @@ export function lookupPropertyTax(payload: {
   return postJson<PropertyTaxLookupResult>('/property-tax/lookup', payload, 'POST')
 }
 
+export interface TrendPoint {
+  period: string
+  value: number
+}
+
+export interface TrendSection {
+  dataSource: string
+  note?: string
+  metroName?: string
+  population?: TrendPoint[]
+  medianHouseholdIncome?: TrendPoint[]
+  employmentLevel?: TrendPoint[]
+  unemploymentRatePct?: TrendPoint[]
+  hpiIndex?: TrendPoint[]
+  perCapitaPersonalIncome?: TrendPoint[]
+}
+
+export interface DemographicTrends {
+  location: Record<string, unknown>
+  population: TrendSection
+  employment: TrendSection
+  homePrices: TrendSection
+  income: TrendSection
+}
+
+export function fetchDemographics(market: string, submarket = '', address = '') {
+  const params = new URLSearchParams({ market, submarket, address })
+  return getJson<DemographicTrends>(`/demographics?${params}`)
+}
+
 export type CompKind = 'sale' | 'rent'
 
 export interface Comp {

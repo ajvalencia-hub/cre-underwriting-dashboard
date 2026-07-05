@@ -56,3 +56,26 @@ def get_home_price_appreciation(cbsa_code: str | None) -> dict:
         "hpiYoYAppreciation": round(latest_index / year_ago_index - 1, 4),
         "asOf": f"{latest[2]} Q{latest[3]}",
     }
+
+
+def get_hpi_series(cbsa_code: str | None, quarters: int = 24) -> dict:
+    """Quarterly HPI index history for the metro (last `quarters`), ascending."""
+    if not cbsa_code:
+        return {"dataSource": "unavailable", "note": "No metro (CBSA) resolved for this market."}
+    try:
+        rows = _load_rows()
+    except httpx.HTTPError as exc:
+        return {"dataSource": "unavailable", "note": f"FHFA HPI download failed: {exc}"}
+
+    metro_rows = [r for r in rows if len(r) >= 5 and r[1] == str(cbsa_code) and r[4] not in ("-", "")]
+    if len(metro_rows) < 2:
+        return {"dataSource": "unavailable", "note": f"No FHFA HPI series for CBSA {cbsa_code}."}
+    metro_rows.sort(key=lambda r: (int(r[2]), int(r[3])))
+    recent = metro_rows[-quarters:]
+    return {
+        "dataSource": "fhfa",
+        "metroName": recent[-1][0],
+        "hpiIndex": [
+            {"period": f"{r[2]} Q{r[3]}", "value": float(r[4])} for r in recent
+        ],
+    }

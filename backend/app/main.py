@@ -8,6 +8,7 @@ from app.routers import (
     comps,
     compute,
     deals,
+    demographics,
     documents,
     extraction,
     generate,
@@ -55,6 +56,7 @@ app.include_router(extraction.router)
 app.include_router(sensitivity.router)
 app.include_router(property_tax.router)
 app.include_router(comps.router)
+app.include_router(demographics.router)
 
 
 @app.get("/api/health")
