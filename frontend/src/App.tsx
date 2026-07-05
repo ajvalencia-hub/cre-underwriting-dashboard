@@ -3,6 +3,7 @@ import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
 import CashFlowTab from './pages/CashFlowTab'
+import CompsPage from './pages/CompsPage'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
@@ -59,6 +60,7 @@ type Tab =
   | 'cashflow'
   | 'sensitivity'
   | 'scenarios'
+  | 'comps'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -564,6 +566,7 @@ function App() {
             ['cashflow', '4. Cash Flow'],
             ['sensitivity', '5. Sensitivity'],
             ['scenarios', '6. Scenarios'],
+            ['comps', '7. Comps'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -669,6 +672,10 @@ function App() {
           }}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
+      </div>
+
+      <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
+        <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
       </div>
     </Layout>
   )

@@ -5,6 +5,7 @@ from app.config import CORS_ORIGINS
 from app.database import Base, engine, run_migrations
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
+    comps,
     compute,
     deals,
     documents,
@@ -53,6 +54,7 @@ app.include_router(documents.router)
 app.include_router(extraction.router)
 app.include_router(sensitivity.router)
 app.include_router(property_tax.router)
+app.include_router(comps.router)
 
 
 @app.get("/api/health")

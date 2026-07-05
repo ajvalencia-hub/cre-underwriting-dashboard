@@ -294,6 +294,68 @@ export function lookupPropertyTax(payload: {
   return postJson<PropertyTaxLookupResult>('/property-tax/lookup', payload, 'POST')
 }
 
+export type CompKind = 'sale' | 'rent'
+
+export interface Comp {
+  id: string
+  kind: CompKind
+  name: string
+  address: string
+  market: string
+  submarket: string
+  propertyType: string
+  source: string
+  notes: string
+  // sale
+  saleDate?: string
+  price?: number | null
+  units?: number | null
+  sf?: number | null
+  capRatePct?: number | null
+  pricePerUnit?: number | null
+  pricePerSf?: number | null
+  // rent
+  asOf?: string
+  unitType?: string
+  avgRent?: number | null
+  avgSf?: number | null
+  occupancyPct?: number | null
+  yearBuilt?: number | null
+  createdAt: string
+}
+
+export interface CompsImportResult {
+  phase: 'preview' | 'imported'
+  columns?: string[]
+  suggestedMapping?: Record<string, string>
+  rowCount?: number
+  sampleRows?: Record<string, string>[]
+  imported: number
+  warnings: string[]
+}
+
+export function fetchComps(kind: CompKind, market = '') {
+  const params = market ? `?market=${encodeURIComponent(market)}` : ''
+  return getJson<Comp[]>(`/comps/${kind}${params}`)
+}
+
+export function createComp(kind: CompKind, payload: Record<string, unknown>) {
+  return postJson<Comp>(`/comps/${kind}`, payload, 'POST')
+}
+
+export function deleteComp(kind: CompKind, compId: string) {
+  return del(`/comps/${kind}/${compId}`)
+}
+
+export function importCompsCsv(payload: {
+  kind: CompKind
+  csvText: string
+  mapping?: Record<string, string>
+  defaultMarket?: string
+}) {
+  return postJson<CompsImportResult>('/comps/import', payload, 'POST')
+}
+
 export function fetchDeals() {
   return getJson<Deal[]>('/deals')
 }

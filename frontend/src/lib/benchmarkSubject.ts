@@ -7,6 +7,7 @@ export interface BenchmarkSubject {
   bedroomMix?: { bedrooms: number; count: number }[]
   rentGrowthPct?: number
   expenseRatioPct?: number
+  exitCapRatePct?: number
 }
 
 const EXPENSE_DOLLAR_FIELDS = [
@@ -85,6 +86,9 @@ export function deriveBenchmarkSubject(values: Record<string, unknown>): Benchma
       if (total > 0) subject.expenseRatioPct = total / egi
     }
   }
+
+  const exitCap = num(values, 'exitCapRatePct')
+  if (exitCap && exitCap > 0) subject.exitCapRatePct = exitCap
 
   return subject
 }

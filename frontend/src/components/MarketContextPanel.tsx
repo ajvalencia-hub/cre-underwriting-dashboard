@@ -22,6 +22,8 @@ const METRIC_LABELS: Record<string, string> = {
   expense_ratio: 'Expense ratio',
   flood_zone: 'Flood zone',
   employment_trend: 'Employment trend',
+  rent_vs_comps: 'Subject rent vs comps DB',
+  exit_cap_vs_comps: 'Exit cap vs sale comps',
 }
 
 function BenchmarkChecklist({ result }: { result: BenchmarkResult }) {

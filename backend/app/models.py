@@ -75,6 +75,50 @@ class Scenario(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class SaleComp(Base):
+    """Sale comparable (H5) — global, not deal-scoped, filtered by market at
+    query time. Dollar/date fields nullable: comps arrive incomplete from
+    CSV imports and a partial comp is still useful context."""
+
+    __tablename__ = "sale_comps"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String)
+    address: Mapped[str] = mapped_column(String, default="")
+    market: Mapped[str] = mapped_column(String, default="", index=True)
+    submarket: Mapped[str] = mapped_column(String, default="")
+    property_type: Mapped[str] = mapped_column(String, default="")
+    sale_date: Mapped[str] = mapped_column(String, default="")  # ISO yyyy-mm-dd or ""
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    units: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sf: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cap_rate_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    year_built: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String, default="manual")  # manual | yardi_csv
+    notes: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class RentComp(Base):
+    __tablename__ = "rent_comps"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String)
+    address: Mapped[str] = mapped_column(String, default="")
+    market: Mapped[str] = mapped_column(String, default="", index=True)
+    submarket: Mapped[str] = mapped_column(String, default="")
+    property_type: Mapped[str] = mapped_column(String, default="")
+    as_of: Mapped[str] = mapped_column(String, default="")  # ISO yyyy-mm-dd or ""
+    unit_type: Mapped[str] = mapped_column(String, default="")
+    avg_rent: Mapped[float | None] = mapped_column(Float, nullable=True)  # $/mo
+    avg_sf: Mapped[float | None] = mapped_column(Float, nullable=True)
+    occupancy_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    year_built: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String, default="manual")
+    notes: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class Document(Base):
     __tablename__ = "documents"
 

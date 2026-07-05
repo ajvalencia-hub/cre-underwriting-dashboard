@@ -3,6 +3,30 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H5 — Comps database (Run 3)
+
+- **Comps are global, not deal-scoped** — a sale comp is evidence about a
+  market, not about one deal; deals see them through the market filter.
+  Rejected: per-deal comp lists (forces re-entering the same comps on every
+  deal in a market).
+- **CSV import is two-phase with a human gate** (same philosophy as the
+  extraction review): no mapping submitted → preview only (detected
+  columns, suggested Yardi-Matrix-style header mapping, sample rows),
+  nothing written; rows insert only when the user submits a mapping.
+  Unparseable rows are skipped with a warning, never guessed.
+- Import coercion: $/commas stripped; cap rate and occupancy values > 1 are
+  treated as percents and divided by 100; dates normalized to ISO from
+  mm/dd/yyyy, yyyy-mm-dd, or mm/yyyy. A sale row needs a name plus price or
+  cap rate; a rent row needs a name plus rent.
+- **[FIN] Comps benchmark flags need >= 3 comps in the deal's market** —
+  two comps are an anecdote, not a benchmark. Thresholds: subject rent
+  above the rent-comps median by >10% caution / >20% warning; exit cap
+  BELOW the sale-comps median (assumed compression) by >50bps caution /
+  >100bps warning. Exit cap above the comps median is conservative and
+  never flagged. Property type filters softly (untyped comps always
+  count). Flags ride the existing benchmarks panel; context only, never
+  applied to inputs.
+
 ## H4 — Property tax module (Run 3)
 
 - **[FIN] Reassessment projection: taxes = price x assessmentRatio x

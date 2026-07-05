@@ -150,6 +150,10 @@ def derive_subject_from_inputs(inputs: dict) -> dict:
             if fixed + fee > 0:
                 subject["expenseRatioPct"] = (fixed + fee) / egi
 
+    exit_cap = inputs.get("exitCapRatePct")
+    if isinstance(exit_cap, (int, float)) and exit_cap > 0:
+        subject["exitCapRatePct"] = float(exit_cap)
+
     return subject
 
 
