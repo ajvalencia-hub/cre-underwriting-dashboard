@@ -341,6 +341,37 @@ def _build_lease_noi_vector(
     expenses = _fixed_expense_vectors(inputs, timeline)
     warnings.extend(expenses["warnings"])
     recoverable = [v * recoverable_scale for v in expenses["recoverable"]]
+
+    credit_loss_pct = _num(inputs, "creditLossPct")
+    management_fee_pct = expenses["egiPctTotal"]
+    rent_growth = (
+        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
+    )
+    other_annual = _num(inputs, "otherIncome")
+
+    # Management-fee recoverability (I1, default OFF). The fee is EGI-based
+    # and EGI includes recoveries, so a naive pool contribution is circular.
+    # Chosen convention [FIN]: the dollars that JOIN THE POOL are the fee on
+    # PRE-RECOVERY EGI (collected base rent net of credit loss + other
+    # income) — deterministic, one pass; the fee EXPENSE itself stays on
+    # full EGI as before. The optional cap is % of the same pre-recovery
+    # EGI. The augmented pool feeds base-year stops identically, so a lease
+    # signed under the flag sees no spurious step.
+    if inputs.get("mgmtFeeRecoverable") and management_fee_pct > 0:
+        pre = leases.build_lease_income(inputs, total, [0.0] * total, expenses["expenseGrowth"])
+        cap_pct = inputs.get("mgmtRecoveryCapPct")
+        cap_pct = float(cap_pct) if isinstance(cap_pct, (int, float)) else None
+        for m in range(1, total + 1):
+            operating_month = m - timeline.construction_months
+            if operating_month < 1:
+                continue
+            other_inc = (other_annual / 12) * _growth_multiplier(rent_growth, operating_month)
+            pre_egi = pre["collectedBaseRent"][m - 1] * (1 - credit_loss_pct) + other_inc
+            contribution = management_fee_pct * pre_egi
+            if cap_pct is not None:
+                contribution = min(contribution, cap_pct * pre_egi)
+            recoverable[m - 1] += max(0.0, contribution)
+
     income = leases.build_lease_income(
         inputs, total, recoverable, expenses["expenseGrowth"]
     )
@@ -351,13 +382,6 @@ def _build_lease_noi_vector(
             "Commercial leases are modeled from the analysis start — lease income "
             "during the construction period is zeroed."
         )
-
-    credit_loss_pct = _num(inputs, "creditLossPct")
-    management_fee_pct = expenses["egiPctTotal"]
-    rent_growth = (
-        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
-    )
-    other_annual = _num(inputs, "otherIncome")
 
     gpr_vec, vacancy_vec, credit_vec, other_vec = [], [], [], []
     egi_vec, mgmt_vec, opex_vec, noi_vec, occupancy_vec = [], [], [], [], []

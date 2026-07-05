@@ -3,6 +3,30 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I1 — CAM admin fee + management recoverability (Run 4)
+
+- **[FIN] The admin fee is a BILLING markup on pool-based recoveries**:
+  `rec(m) ×= (1 + adminFeePct)` for NNN and base-year-stop leases only.
+  fixed_psf is a stated contract amount and gross recovers nothing, so
+  neither can carry a markup. For base-year stops the year comparison
+  happens on RAW pool amounts and the markup applies to the billed delta —
+  marking up the pool before comparison would distort the stop itself.
+- **[FIN] Management-fee pool contribution is the fee on PRE-RECOVERY EGI**
+  (collected base rent net of credit loss + other income), because the fee
+  is EGI-based and EGI includes recoveries — the naive definition is
+  circular. Rejected: fixed-point iteration (converges fast but makes the
+  engine non-deterministic in iteration count and impossible to mirror in
+  a formula workbook). The fee EXPENSE itself stays on full EGI (Run-0 M6
+  convention). The optional cap (mgmtRecoveryCapPct) is % of the same
+  pre-recovery EGI for the same reason.
+- The augmented pool feeds `_annual_recoverable_by_calendar_year`
+  directly, so base-year stops see mgmt dollars in BOTH the base and
+  comparison years — no spurious step. Accepted simplification: pre-epoch
+  base years de-grow the whole pool (incl. the mgmt component) at the
+  expense growth rate.
+- All three inputs default to Run-3 behavior exactly (adminFeePct 0,
+  mgmtFeeRecoverable false, cap null); the I0 baseline pins it.
+
 ## H13 — Hardening pass (Run 3)
 
 - **Request ids**: middleware assigns (or honors) X-Request-ID, logs

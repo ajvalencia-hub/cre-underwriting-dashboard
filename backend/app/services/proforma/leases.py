@@ -173,16 +173,24 @@ def build_lease_income(
     def calendar_year_of(month: int) -> int:
         return ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + month - 1) // 12
 
+    # CAM admin fee (I1): a billing markup on pool-based recoveries. Applies
+    # to NNN and base-year-stop only — fixed_psf is a stated contract amount
+    # and gross recovers nothing, so neither can carry a markup.
+    admin_markup = 1 + _num(inputs, "adminFeePct")
+
     def recovery_for(lease: dict, month: int, share: float, base_year: int) -> float:
         recovery_type = lease.get("recoveryType") or "gross"
         if recovery_type == "NNN":
-            return share * (recoverable_opex_monthly[month - 1] if month <= len(recoverable_opex_monthly) else 0.0)
+            pool = recoverable_opex_monthly[month - 1] if month <= len(recoverable_opex_monthly) else 0.0
+            return share * pool * admin_markup
         if recovery_type == "base_year_stop":
             current = annual_recoverable.get(calendar_year_of(month))
             if current is None:
                 current = annual_recoverable[max(annual_recoverable)]
             base_amount = annual_recoverable.get(base_year, 0.0)
-            return share * max(0.0, current - base_amount) / 12
+            # The base-year comparison happens on RAW pool amounts; the
+            # markup applies to the billed delta only.
+            return share * max(0.0, current - base_amount) / 12 * admin_markup
         if recovery_type == "fixed_psf":
             return _num(lease, "recoveryValue") * _num(lease, "sf") / 12
         return 0.0  # gross
