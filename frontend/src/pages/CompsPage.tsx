@@ -3,15 +3,74 @@ import {
   createComp,
   deleteComp,
   fetchComps,
+  fetchCompsMap,
   importCompsCsv,
   type Comp,
   type CompKind,
+  type CompMapPoint,
   type CompsImportResult,
 } from '../lib/api'
+import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
 
 const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
 const VIEWPORT_HEIGHT = 480
+const STALE_MONTHS = 12 // mirrors backend COMP_STALE_MONTHS
+
+function ageChip(dateIso: string | undefined): string | null {
+  if (!dateIso) return null
+  const days = daysSince(dateIso)
+  if (days < STALE_MONTHS * 30) return null
+  const months = Math.floor(days / 30)
+  return months >= 24 ? `${Math.floor(months / 12)}y old` : `${months}mo old`
+}
+
+/** Schematic lat/lon scatter — deliberately not a tiled map (no external
+ *  requests); positions are normalized to the point set's bounding box. */
+function CompsMap({ points, warnings }: { points: CompMapPoint[]; warnings: string[] }) {
+  const W = 560
+  const H = 360
+  const PAD = 30
+  const lats = points.map((p) => p.lat)
+  const lons = points.map((p) => p.lon)
+  const minLat = Math.min(...lats)
+  const maxLat = Math.max(...lats)
+  const minLon = Math.min(...lons)
+  const maxLon = Math.max(...lons)
+  const x = (lon: number) =>
+    maxLon === minLon ? W / 2 : PAD + ((lon - minLon) / (maxLon - minLon)) * (W - 2 * PAD)
+  const y = (lat: number) =>
+    maxLat === minLat ? H / 2 : H - PAD - ((lat - minLat) / (maxLat - minLat)) * (H - 2 * PAD)
+  return (
+    <div className="rounded border border-slate-200 bg-white p-3">
+      {points.length === 0 ? (
+        <div className="text-xs text-slate-400">No comps could be mapped.</div>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-xl" role="img" aria-label="Comp locations">
+          <rect x={0} y={0} width={W} height={H} fill="#f8fafc" rx={4} />
+          {points.map((p) => (
+            <g key={p.id}>
+              <circle cx={x(p.lon)} cy={y(p.lat)} r={5} fill="#0284c7" fillOpacity={0.75} />
+              <text x={x(p.lon) + 8} y={y(p.lat) + 3} fontSize={9} fill="#475569">
+                {p.name}
+              </text>
+            </g>
+          ))}
+        </svg>
+      )}
+      <div className="mt-1 text-[10px] text-slate-400">
+        Schematic plot (positions relative to the comp set, not map tiles).
+      </div>
+      {warnings.length > 0 && (
+        <ul className="mt-1 list-disc pl-4 text-[11px] text-amber-600">
+          {warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 interface CompsPageProps {
   /** Deal market from the input form — prefills the filter, nothing more. */
@@ -75,7 +134,32 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [importResult, setImportResult] = useState<CompsImportResult | null>(null)
   const [importing, setImporting] = useState(false)
+  const [skipRows, setSkipRows] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Map view (I11)
+  const [showMap, setShowMap] = useState(false)
+  const [mapPoints, setMapPoints] = useState<CompMapPoint[]>([])
+  const [mapWarnings, setMapWarnings] = useState<string[]>([])
+  const [mapLoading, setMapLoading] = useState(false)
+
+  async function handleToggleMap() {
+    const next = !showMap
+    setShowMap(next)
+    if (next) {
+      setMapLoading(true)
+      try {
+        const result = await fetchCompsMap(kind, marketFilter)
+        setMapPoints(result.points)
+        setMapWarnings(result.warnings)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Map failed')
+        setShowMap(false)
+      } finally {
+        setMapLoading(false)
+      }
+    }
+  }
 
   // Windowed rendering for large imported comp sets (H13).
   const { window: rowWindow, onScroll } = useVirtualRows(
@@ -159,6 +243,9 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
       const result = await importCompsCsv({ kind, csvText: content })
       setPreview(result)
       setMapping(result.suggestedMapping ?? {})
+      // Duplicates default to SKIP (keep the existing comp) — unchecking
+      // imports the row anyway.
+      setSkipRows(new Set((result.duplicates ?? []).map((d) => d.rowIndex)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'CSV preview failed')
       setPreview(null)
@@ -175,6 +262,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
         csvText,
         mapping,
         defaultMarket: marketFilter || dealMarket,
+        skipRows: [...skipRows],
       })
       setImportResult(result)
       setPreview(null)
@@ -209,10 +297,22 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
           placeholder="Filter by market"
           className="rounded border border-slate-200 px-2 py-1.5 text-sm"
         />
+        <button
+          onClick={() => void handleToggleMap()}
+          className={`rounded border px-2 py-1.5 text-xs ${
+            showMap
+              ? 'border-sky-600 bg-sky-50 text-sky-700'
+              : 'border-slate-200 text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {mapLoading ? 'Mapping…' : showMap ? 'Hide map' : 'Map view'}
+        </button>
         {loading && <span className="text-xs text-slate-400">Loading…</span>}
       </div>
 
       {error && <div className="text-sm text-red-600">{error}</div>}
+
+      {showMap && !mapLoading && <CompsMap points={mapPoints} warnings={mapWarnings} />}
 
       <div
         className="max-h-[480px] overflow-auto rounded border border-slate-200 bg-white"
@@ -248,7 +348,17 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
             )}
             {comps.slice(rowWindow.start, rowWindow.end).map((comp) => (
               <tr key={comp.id} className="border-b border-slate-50 text-slate-700">
-                <td className="px-3 py-1.5">{comp.name}</td>
+                <td className="px-3 py-1.5">
+                  {comp.name}
+                  {(() => {
+                    const chip = ageChip(kind === 'sale' ? comp.saleDate : comp.asOf)
+                    return chip ? (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+                        {chip}
+                      </span>
+                    ) : null
+                  })()}
+                </td>
                 <td className="px-3 py-1.5">{text(comp.market)}</td>
                 {kind === 'sale' ? (
                   <>
@@ -401,6 +511,29 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
             <div className="text-xs text-slate-500">
               {preview.rowCount} row(s) detected. Map the fields, then import:
             </div>
+            {(preview.duplicates ?? []).length > 0 && (
+              <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+                <div className="font-medium">
+                  {(preview.duplicates ?? []).length} likely duplicate(s) — checked rows are
+                  SKIPPED (the existing comp is kept); uncheck to import anyway:
+                </div>
+                {(preview.duplicates ?? []).map((dup) => (
+                  <label key={dup.rowIndex} className="mt-1 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={skipRows.has(dup.rowIndex)}
+                      onChange={(e) => {
+                        const next = new Set(skipRows)
+                        if (e.target.checked) next.add(dup.rowIndex)
+                        else next.delete(dup.rowIndex)
+                        setSkipRows(next)
+                      }}
+                    />
+                    Row {dup.rowIndex + 1} matches “{dup.existingName}” ({dup.daysApart}d apart)
+                  </label>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
               {IMPORT_FIELDS[kind].map((field) => (
                 <label key={field.id} className="flex items-center justify-between gap-2 text-xs">

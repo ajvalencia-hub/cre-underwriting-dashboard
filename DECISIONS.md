@@ -3,6 +3,24 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I11 — Comps hygiene + map (Run 4)
+
+- **Duplicate = same normalized address AND date within ±30 days**
+  (lowercased, punctuation stripped, street suffixes abbreviated).
+  Duplicates flag in the import PREVIEW using the suggested mapping
+  (best-effort — no confirmed mapping exists yet) and default to SKIP
+  (keep the existing comp); unchecking imports the row anyway. "Merge"
+  is deliberately skip-or-import — silently overwriting an existing
+  comp's fields from a CSV would destroy manual curation.
+- **Staleness = 12 months** (COMP_STALE_MONTHS): amber age chips on
+  comp rows, and benchmark flag explanations append "N of the comps are
+  older than 12 months" so a stale median can't masquerade as current.
+- **The map is a schematic lat/lon scatter, not tiled** — map tiles mean
+  external requests and a dependency; positions normalize to the comp
+  set's bounding box and the caption says so. Comps that fail to geocode
+  (or have no address) are SKIPPED WITH A WARNING naming them — silently
+  missing pins would misrepresent the set.
+
 ## I9 — Commercial extraction breadth (Run 4)
 
 - **Header matching gained COLUMN RESERVATION**: exact alias claims beat

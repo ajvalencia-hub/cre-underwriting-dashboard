@@ -137,6 +137,98 @@ def test_rent_import_requires_rent():
     assert comp["avgRent"] == pytest.approx(2_100)
 
 
+# --- hygiene (I11) -----------------------------------------------------------
+
+
+def test_address_normalization_and_duplicate_window(session_factory):
+    from app.services.comps import find_duplicates, normalize_address
+
+    assert normalize_address("100 Palm Avenue, Miami") == normalize_address("100 palm ave miami")
+    assert normalize_address("200 W. Ocean Street") == normalize_address("200 west ocean st")
+    assert normalize_address(None) == ""
+
+    with session_factory() as db:
+        db.add(SaleComp(name="Existing", market="Miami",
+                        address="100 Palm Avenue", sale_date="2026-03-15", price=1))
+        db.commit()
+        candidates = [
+            {"name": "InWindow", "address": "100 palm ave", "saleDate": "2026-03-30"},
+            {"name": "OutOfWindow", "address": "100 Palm Avenue", "saleDate": "2026-06-01"},
+            {"name": "OtherAddress", "address": "500 Bay Rd", "saleDate": "2026-03-15"},
+            {"name": "NoDate", "address": "100 Palm Avenue"},
+        ]
+        duplicates = find_duplicates(db, "sale", candidates)
+        assert [d["rowIndex"] for d in duplicates] == [0]
+        assert duplicates[0]["existingName"] == "Existing"
+        assert duplicates[0]["daysApart"] == 15
+
+
+def test_import_preview_flags_duplicates_and_skip_rows(client, session_factory):
+    with session_factory() as db:
+        db.add(SaleComp(name="Palm Court (existing)", market="Miami",
+                        address="100 Palm Ave", sale_date="2026-03-10", price=12_000_000))
+        db.commit()
+
+    preview = client.post(
+        "/api/comps/import", json={"kind": "sale", "csvText": YARDI_SALE_CSV}
+    ).json()
+    # Palm Court's row (index 0) sells 03/15 at the same normalized address.
+    assert preview["duplicates"] == [
+        {"rowIndex": 0, "existingId": preview["duplicates"][0]["existingId"],
+         "existingName": "Palm Court (existing)", "daysApart": 5}
+    ]
+
+    result = client.post(
+        "/api/comps/import",
+        json={"kind": "sale", "csvText": YARDI_SALE_CSV,
+              "mapping": preview["suggestedMapping"], "skipRows": [0]},
+    ).json()
+    assert result["imported"] == 1  # Bayview only; Palm skipped as duplicate
+    assert any("skipped as duplicates" in w for w in result["warnings"])
+    names = {c["name"] for c in client.get("/api/comps/sale").json()}
+    assert "Palm Court" not in names  # the CSV row never landed
+
+
+def test_staleness_count_feeds_flag_note(session_factory):
+    from app.services.comps import benchmark_flags
+
+    with session_factory() as db:
+        db.add(RentComp(name="Fresh", market="Miami", avg_rent=2_000, as_of="2026-06-01"))
+        db.add(RentComp(name="Old1", market="Miami", avg_rent=2_000, as_of="2024-01-01"))
+        db.add(RentComp(name="Old2", market="Miami", avg_rent=2_000, as_of="2023-06-01"))
+        db.commit()
+        flags = benchmark_flags(db, "Miami", "multifamily", {"avgRentMonthly": 2_000})
+        flag = next(f for f in flags if f["metric"] == "rent_vs_comps")
+        assert "2 of the comps are older than 12 months" in flag["explanation"]
+
+
+def test_comps_map_skips_failed_geocodes(client, session_factory, monkeypatch):
+    from app.routers import comps as comps_router  # noqa: F401
+    from app.services.data_sources import geocode
+
+    with session_factory() as db:
+        db.add(SaleComp(name="Mapped", market="Miami", address="100 Palm Ave", price=1))
+        db.add(SaleComp(name="Unresolvable", market="Miami", address="???", price=1))
+        db.add(SaleComp(name="NoAddress", market="Miami", price=1))
+        db.commit()
+
+    def fake_geocode(market, submarket="", address=""):
+        if address == "100 Palm Ave":
+            return {"resolved": True, "lat": 25.77, "lon": -80.19}
+        return {"resolved": False}
+
+    monkeypatch.setattr(geocode, "geocode", fake_geocode)
+    # Bypass the on-disk cache so the fake geocoder is always exercised.
+    import app.routers.comps as comps_module  # noqa: F401
+    from app.services.data_sources import source_cache
+    monkeypatch.setattr(source_cache, "cached_fetch", lambda key, fetch, ttl_seconds=0: fetch())
+
+    body = client.get("/api/comps/sale/map").json()
+    assert [p["name"] for p in body["points"]] == ["Mapped"]
+    assert body["points"][0]["lat"] == pytest.approx(25.77)
+    assert len(body["warnings"]) == 2  # unresolvable + no address
+
+
 def test_benchmark_flags_from_comps(session_factory):
     with session_factory() as db:
         for rent in (1_800, 2_000, 2_200):

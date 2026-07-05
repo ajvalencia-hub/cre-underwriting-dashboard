@@ -88,6 +88,9 @@ class ImportRequest(BaseModel):
         description="{fieldId: csvHeader}. Omit for a preview — nothing is written.",
     )
     defaultMarket: str = ""
+    # I11: row indexes (0-based over the parsed rows) the user chose to skip
+    # after seeing the duplicate flags in the preview.
+    skipRows: list[int] = []
 
 
 # NOTE: static /import routes must be declared before the /{kind} routes or
@@ -102,12 +105,20 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "Could not parse any rows from the CSV.")
 
     if payload.mapping is None:
+        # I11: duplicate detection rides the preview, coerced through the
+        # SUGGESTED mapping (best effort — the user hasn't confirmed one yet).
+        suggested = comps_service.suggest_mapping(headers, payload.kind)
+        candidates = [
+            comps_service.coerce_row(row, suggested, payload.kind)[0] or {}
+            for row in rows
+        ]
         return {
             "phase": "preview",
             "columns": headers,
-            "suggestedMapping": comps_service.suggest_mapping(headers, payload.kind),
+            "suggestedMapping": suggested,
             "rowCount": len(rows),
             "sampleRows": rows[:PREVIEW_ROWS],
+            "duplicates": comps_service.find_duplicates(db, payload.kind, candidates),
             "imported": 0,
             "warnings": [],
         }
@@ -119,7 +130,12 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
     model = _KIND_MODELS[payload.kind]
     warnings: list[str] = []
     imported = 0
-    for row in rows:
+    skip = set(payload.skipRows)
+    skipped_duplicates = 0
+    for index, row in enumerate(rows):
+        if index in skip:
+            skipped_duplicates += 1
+            continue
         comp_fields, warning = comps_service.coerce_row(row, payload.mapping, payload.kind)
         if warning:
             warnings.append(warning)
@@ -132,7 +148,50 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
         db.add(comp)
         imported += 1
     db.commit()
+    if skipped_duplicates:
+        warnings.append(f"{skipped_duplicates} row(s) skipped as duplicates (kept the existing comps).")
     return {"phase": "imported", "imported": imported, "warnings": warnings}
+
+
+@router.get("/{kind}/map")
+def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
+    """I11: geocoded points for the filtered comp set. Comps whose address
+    can't be geocoded are SKIPPED with a warning naming them — a map with
+    silently missing pins would misrepresent the set."""
+    from app.services.data_sources import geocode
+    from app.services.data_sources.source_cache import cached_fetch
+
+    model = _model_for(kind)
+    query = select(model).order_by(model.created_at.desc())
+    if market.strip():
+        query = query.where(model.market.ilike(f"%{market.strip()}%"))
+    points: list[dict] = []
+    warnings: list[str] = []
+    for comp in db.execute(query).scalars():
+        if not comp.address:
+            warnings.append(f"{comp.name}: no address — not mapped.")
+            continue
+        try:
+            location = cached_fetch(
+                f"geo_comp_{comp.address.strip().lower()}",
+                lambda c=comp: {
+                    **geocode.geocode(c.market, "", c.address),
+                    "dataSource": "geocode",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad geocode must not kill the map
+            warnings.append(f"{comp.name}: geocoding failed ({exc}).")
+            continue
+        if not location.get("resolved") or location.get("lat") is None:
+            warnings.append(f"{comp.name}: address didn't geocode — not mapped.")
+            continue
+        points.append({
+            "id": comp.id,
+            "name": comp.name,
+            "lat": location["lat"],
+            "lon": location["lon"],
+        })
+    return {"points": points, "warnings": warnings}
 
 
 @router.post("/import/file")

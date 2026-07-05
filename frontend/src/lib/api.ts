@@ -421,19 +421,39 @@ export interface Comp {
   createdAt: string
 }
 
+export interface CompDuplicate {
+  rowIndex: number
+  existingId: string
+  existingName: string
+  daysApart: number
+}
+
 export interface CompsImportResult {
   phase: 'preview' | 'imported'
   columns?: string[]
   suggestedMapping?: Record<string, string>
   rowCount?: number
   sampleRows?: Record<string, string>[]
+  duplicates?: CompDuplicate[]
   imported: number
   warnings: string[]
+}
+
+export interface CompMapPoint {
+  id: string
+  name: string
+  lat: number
+  lon: number
 }
 
 export function fetchComps(kind: CompKind, market = '') {
   const params = market ? `?market=${encodeURIComponent(market)}` : ''
   return getJson<Comp[]>(`/comps/${kind}${params}`)
+}
+
+export function fetchCompsMap(kind: CompKind, market = '') {
+  const params = market ? `?market=${encodeURIComponent(market)}` : ''
+  return getJson<{ points: CompMapPoint[]; warnings: string[] }>(`/comps/${kind}/map${params}`)
 }
 
 export function createComp(kind: CompKind, payload: Record<string, unknown>) {
@@ -449,6 +469,7 @@ export function importCompsCsv(payload: {
   csvText: string
   mapping?: Record<string, string>
   defaultMarket?: string
+  skipRows?: number[]
 }) {
   return postJson<CompsImportResult>('/comps/import', payload, 'POST')
 }

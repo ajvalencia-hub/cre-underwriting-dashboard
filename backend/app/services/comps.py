@@ -150,6 +150,101 @@ def coerce_row(row: dict, mapping: dict[str, str], kind: str) -> tuple[dict | No
     return comp, None
 
 
+# --- hygiene (I11) -----------------------------------------------------------
+
+COMP_STALE_MONTHS = 12  # comps older than this get an age chip + a flag note
+DUPLICATE_WINDOW_DAYS = 30
+
+_ADDRESS_ABBREVIATIONS = {
+    "street": "st", "avenue": "ave", "boulevard": "blvd", "drive": "dr",
+    "road": "rd", "lane": "ln", "court": "ct", "place": "pl",
+    "suite": "ste", "north": "n", "south": "s", "east": "e", "west": "w",
+}
+
+
+def normalize_address(address: str | None) -> str:
+    """Lowercase, punctuation stripped, common suffixes abbreviated, spaces
+    collapsed — so '100 Palm Avenue,' and '100 palm ave' collide."""
+    if not address:
+        return ""
+    text = re.sub(r"[^\w\s]", " ", str(address).lower())
+    words = [_ADDRESS_ABBREVIATIONS.get(w, w) for w in text.split()]
+    return " ".join(words)
+
+
+def _iso_date(value) -> "date | None":
+    from datetime import date as _date, datetime as _datetime
+
+    if isinstance(value, str) and value:
+        try:
+            return _datetime.strptime(value[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    if isinstance(value, _date):
+        return value
+    return None
+
+
+def find_duplicates(
+    db: Session,
+    kind: str,
+    candidate_rows: list[dict],
+    window_days: int = DUPLICATE_WINDOW_DAYS,
+) -> list[dict]:
+    """Import-time dedupe (I11): a candidate matches an existing comp when
+    the normalized addresses are equal AND the sale/as-of dates fall within
+    ±window_days. Returns [{rowIndex, existingId, existingName, daysApart}]."""
+    model = SaleComp if kind == "sale" else RentComp
+    date_attr = "sale_date" if kind == "sale" else "as_of"
+    existing = [
+        (c, normalize_address(c.address), _iso_date(getattr(c, date_attr)))
+        for c in db.execute(select(model)).scalars()
+    ]
+    duplicates: list[dict] = []
+    date_field = "saleDate" if kind == "sale" else "asOf"
+    for index, row in enumerate(candidate_rows):
+        addr = normalize_address(row.get("address"))
+        row_date = _iso_date(row.get(date_field))
+        if not addr or row_date is None:
+            continue
+        for comp, comp_addr, comp_date in existing:
+            if comp_addr != addr or comp_date is None:
+                continue
+            days_apart = abs((row_date - comp_date).days)
+            if days_apart <= window_days:
+                duplicates.append({
+                    "rowIndex": index,
+                    "existingId": comp.id,
+                    "existingName": comp.name,
+                    "daysApart": days_apart,
+                })
+                break
+    return duplicates
+
+
+def stale_count(comp_rows: list, date_attr: str, now=None) -> int:
+    """How many comps carry a date older than COMP_STALE_MONTHS."""
+    from datetime import date as _date, timedelta
+
+    today = now or _date.today()
+    cutoff = today - timedelta(days=COMP_STALE_MONTHS * 30)
+    count = 0
+    for comp in comp_rows:
+        comp_date = _iso_date(getattr(comp, date_attr, None))
+        if comp_date is not None and comp_date < cutoff:
+            count += 1
+    return count
+
+
+def _staleness_note(comp_rows: list, date_attr: str) -> str:
+    stale = stale_count(comp_rows, date_attr)
+    if stale:
+        return (
+            f" Note: {stale} of the comps are older than {COMP_STALE_MONTHS} months."
+        )
+    return ""
+
+
 # --- benchmark hooks (H5) ----------------------------------------------------
 
 MIN_COMPS_FOR_FLAG = 3
@@ -293,6 +388,7 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
                 " Low-confidence comparison: pooled across unit types — add typed"
                 " or $/SF comps to tighten it."
             )
+        explanation += _staleness_note(rent_rows, "as_of")
         flags.append({
             "metric": "rent_vs_comps",
             "subjectValue": subject_value,
@@ -336,6 +432,7 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
                         else "no compression assumed."
                     )
                     + _sale_basis_note(sale_rows, asset_class)
+                    + _staleness_note(sale_rows, "sale_date")
                 ),
                 "relatedFieldIds": ["exitCapRatePct"],
             })
