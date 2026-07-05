@@ -79,6 +79,10 @@ ROLLOVER_DEFAULTS = {
 
 
 def _rollover_assumptions(inputs: dict) -> dict:
+    # Renewal rent spread (I2): renewal-path rent = discount x market. A
+    # missing/zero value means 1.0 (no spread) — 0 would silently zero the
+    # renewal rent.
+    discount = _num(inputs, "renewalRentPsfDiscountPct", 1.0)
     return {
         "renewalProbability": min(1.0, max(0.0, _num(inputs, "renewalProbability", ROLLOVER_DEFAULTS["renewalProbability"]))),
         "downtimeMonths": int(_num(inputs, "downtimeMonths", ROLLOVER_DEFAULTS["downtimeMonths"])),
@@ -89,6 +93,12 @@ def _rollover_assumptions(inputs: dict) -> dict:
         "tiRenewalPsf": _num(inputs, "tiRenewalPsf"),
         "lcNewPct": _num(inputs, "lcNewPct"),
         "lcRenewalPct": _num(inputs, "lcRenewalPct"),
+        "renewalRentDiscount": discount if discount > 0 else 1.0,
+        # I2 timing refinement is OPT-IN: at defaults the re-let TI/LC stays
+        # at expiry+1 with the renewal side (Run-3 behavior), because moving
+        # it changes cash timing whenever downtime > 0 and the compatibility
+        # rule is absolute.
+        "reletCapitalAtCommencement": bool(inputs.get("reletCapitalAtCommencement")),
     }
 
 
@@ -198,8 +208,6 @@ def build_lease_income(
     p = rollover["renewalProbability"]
     downtime = rollover["downtimeMonths"]
     new_term_months = rollover["newTermYears"] * 12
-    expected_ti_psf = p * rollover["tiRenewalPsf"] + (1 - p) * rollover["tiNewPsf"]
-    expected_lc_pct = p * rollover["lcRenewalPct"] + (1 - p) * rollover["lcNewPct"]
 
     total_annual_in_place = 0.0
     expiration_by_year: dict[int, dict] = {}
@@ -262,29 +270,59 @@ def build_lease_income(
                 rollover["marketRentGrowthPct"], m
             )
 
+        discount = rollover["renewalRentDiscount"]
         while generation_start <= months:
             start_rent_psf = market_at(generation_start)
-            # Rollover capital in the month after expiry.
-            if 1 <= generation_start <= months:
-                ti = expected_ti_psf * sf
-                lc = expected_lc_pct * start_rent_psf * sf * rollover["newTermYears"]
-                leasing_capital[generation_start - 1] += ti + lc
+            # The spread applies AT EACH renewal event against that
+            # generation's market rent — it never compounds through prior
+            # generations, because every generation re-derives from the
+            # market track, not from the previous generation's realized rent.
+            renewal_start_psf = discount * start_rent_psf
+
+            # Rollover capital (I2). Renewal side: month after expiry.
+            # Re-let side: with the opt-in timing refinement it lands at
+            # commencement (expiry + downtime + 1) and is simply not
+            # incurred when commencement falls past the analysis end;
+            # legacy (default) timing charges both sides at expiry+1.
+            # LC bases: renewal uses the spread-adjusted rent, re-let the
+            # market rent.
+            renewal_capital = (
+                p * rollover["tiRenewalPsf"] * sf
+                + p * rollover["lcRenewalPct"] * renewal_start_psf * sf * rollover["newTermYears"]
+            )
+            relet_capital = (
+                (1 - p) * rollover["tiNewPsf"] * sf
+                + (1 - p) * rollover["lcNewPct"] * start_rent_psf * sf * rollover["newTermYears"]
+            )
+            if rollover["reletCapitalAtCommencement"]:
+                if 1 <= generation_start <= months:
+                    leasing_capital[generation_start - 1] += renewal_capital
+                commencement = generation_start + downtime
+                if 1 <= commencement <= months:
+                    leasing_capital[commencement - 1] += relet_capital
+            else:
+                if 1 <= generation_start <= months:
+                    leasing_capital[generation_start - 1] += renewal_capital + relet_capital
+
             gen_base_year = calendar_year_of(min(generation_start, months))
             gen_end = generation_start + new_term_months - 1
             for m in range(max(1, generation_start), min(gen_end, months) + 1):
                 # Speculative terms escalate annually at market growth from
                 # the generation start.
                 years_in = (m - generation_start) // 12
-                rent = start_rent_psf * (1 + rollover["marketRentGrowthPct"]) ** years_in * sf / 12
-                scheduled[m - 1] += rent
+                market_rent = start_rent_psf * (1 + rollover["marketRentGrowthPct"]) ** years_in * sf / 12
+                renewal_rent = discount * market_rent
+                blended_rent = p * renewal_rent + (1 - p) * market_rent
+                scheduled[m - 1] += blended_rent
                 in_downtime = (m - generation_start) < downtime
                 if in_downtime:
-                    collected[m - 1] += rent * p
-                    downtime_loss[m - 1] += rent * (1 - p)
+                    # Renewal path pays (no downtime); re-let path is vacant.
+                    collected[m - 1] += p * renewal_rent
+                    downtime_loss[m - 1] += (1 - p) * market_rent
                     recoveries[m - 1] += recovery_for(lease, m, share, gen_base_year) * p
                     occupied_sf[m - 1] += sf * p
                 else:
-                    collected[m - 1] += rent
+                    collected[m - 1] += blended_rent
                     recoveries[m - 1] += recovery_for(lease, m, share, gen_base_year)
                     occupied_sf[m - 1] += sf
             generation_start = gen_end + 1

@@ -314,6 +314,8 @@
         { "id": "tiRenewalPsf", "label": "TI — Renewal ($psf)", "type": "currency", "min": 0, "default": 0 },
         { "id": "lcNewPct", "label": "LC — New (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 },
         { "id": "lcRenewalPct", "label": "LC — Renewal (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 },
+        { "id": "renewalRentPsfDiscountPct", "label": "Renewal Rent (x market, 1.0 = at market)", "type": "percent", "min": 0.5, "max": 1.2, "default": 1.0 },
+        { "id": "reletCapitalAtCommencement", "label": "Charge Re-let TI/LC at Commencement (vs expiry+1)", "type": "boolean", "default": false },
         { "id": "adminFeePct", "label": "CAM Admin Fee (markup on NNN / base-year recoveries)", "type": "percent", "min": 0, "max": 0.25, "default": 0 },
         { "id": "mgmtFeeRecoverable", "label": "Management Fee Recoverable", "type": "boolean", "default": false },
         { "id": "mgmtRecoveryCapPct", "label": "Mgmt Recovery Cap (% of EGI, blank = uncapped)", "type": "percent", "min": 0, "max": 0.1,

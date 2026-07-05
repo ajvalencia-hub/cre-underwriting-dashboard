@@ -3,6 +3,29 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I2 — Rollover refinements (Run 4)
+
+- **[FIN] Split TI/LC timing is OPT-IN** (reletCapitalAtCommencement,
+  default false). The refinement — renewal capital at expiry+1, re-let
+  capital at commencement (expiry + downtime + 1) as two
+  probability-weighted entries — changes cash TIMING whenever downtime > 0,
+  and Run 4's compatibility rule is absolute, so the default keeps Run-3's
+  single blended entry at expiry+1. A re-let commencement past the analysis
+  end simply never incurs its capital (the model doesn't know about
+  post-horizon cash). Rejected: making the new timing the default with a
+  legacy flag — that silently moves every existing deal's cash.
+- **[FIN] Renewal spread (renewalRentPsfDiscountPct, default 1.0)**:
+  renewal-path rent = discount × that generation's market rent; the re-let
+  path always pays market. The spread applies AT EACH renewal event and
+  never compounds through generations — every generation re-derives from
+  the market track, not the prior generation's realized rent (explicit in
+  code). Downtime months collect p × discounted rent; scheduled (GPR) is
+  the probability blend so the statement identities hold; downtime loss
+  stays (1−p) × market.
+- **[FIN] LC bases follow the contract each side signs**: renewal LC = pct
+  × (discount × market) × term; re-let LC = pct × market × term. TI is
+  $psf and unaffected by the spread.
+
 ## I1 — CAM admin fee + management recoverability (Run 4)
 
 - **[FIN] The admin fee is a BILLING markup on pool-based recoveries**:
