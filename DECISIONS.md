@@ -3,6 +3,23 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H8 — Assumption presets (Run 3)
+
+- **Presets carry RATE/TERM assumptions only** — a server-side whitelist
+  (PRESET_FIELD_IDS, served at /api/presets/fields so client and server
+  can't drift) drops anything else at create/update time. Deal-specific
+  dollars (purchase price, GPR, taxes) and property facts (unit mix,
+  leases) are excluded by design so presets stay portable across deals.
+- **Apply is user-confirmed, row-by-row**: preview diff (current vs preset,
+  unchanged rows greyed and unselectable), checkboxes defaulting to the
+  changed rows, one explicit Apply click. Number equality tolerates float
+  noise (1e-12) so re-applying a preset shows "nothing to apply".
+- Seeds (Conservative / Base Case / Aggressive Growth) insert only when
+  the table is EMPTY, so user edits and deletions stick within a session;
+  deleting every preset lets the next startup reseed. Editing a seed
+  flips its source to "user". Seed numbers are generic screening
+  defaults, labeled as such — not market data.
+
 ## H7 — Pipeline view (Run 3)
 
 - Pipeline stages: screening → underwriting → loi → under_contract →

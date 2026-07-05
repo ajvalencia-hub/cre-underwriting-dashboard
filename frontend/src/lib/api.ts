@@ -324,6 +324,36 @@ export function fetchDemographics(market: string, submarket = '', address = '') 
   return getJson<DemographicTrends>(`/demographics?${params}`)
 }
 
+export interface AssumptionPreset {
+  id: string
+  name: string
+  description: string
+  values: Record<string, unknown>
+  source: 'user' | 'seed'
+  createdAt: string
+  updatedAt: string
+}
+
+export function fetchPresets() {
+  return getJson<AssumptionPreset[]>('/presets')
+}
+
+export function fetchPresetFields() {
+  return getJson<string[]>('/presets/fields')
+}
+
+export function createPreset(payload: {
+  name: string
+  description?: string
+  values: Record<string, unknown>
+}) {
+  return postJson<AssumptionPreset>('/presets', payload, 'POST')
+}
+
+export function deletePreset(presetId: string) {
+  return del(`/presets/${presetId}`)
+}
+
 export type CompKind = 'sale' | 'rent'
 
 export interface Comp {

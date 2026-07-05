@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
-from app.database import Base, engine, run_migrations
+from app.database import Base, SessionLocal, engine, run_migrations
+from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
     comps,
@@ -15,6 +16,7 @@ from app.routers import (
     mappings,
     market_context,
     market_rates,
+    presets,
     property_tax,
     schema,
     scenarios,
@@ -25,6 +27,8 @@ from app.routers import (
 Base.metadata.create_all(bind=engine)
 run_migrations()
 sweep_generated_files()
+with SessionLocal() as _db:
+    seed_presets(_db)
 
 app = FastAPI(title="CRE Underwriting Dashboard API")
 
@@ -57,6 +61,7 @@ app.include_router(sensitivity.router)
 app.include_router(property_tax.router)
 app.include_router(comps.router)
 app.include_router(demographics.router)
+app.include_router(presets.router)
 
 
 @app.get("/api/health")

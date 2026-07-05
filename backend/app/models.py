@@ -78,6 +78,22 @@ class Scenario(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class AssumptionPreset(Base):
+    """Named bundle of assumption field values (H8). `values` maps input
+    schema field ids -> values; applying is a client-side, user-confirmed
+    merge (preview diff first), never automatic."""
+
+    __tablename__ = "assumption_presets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(String, default="")
+    values: Mapped[dict] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String, default="user")  # user | seed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class SaleComp(Base):
     """Sale comparable (H5) — global, not deal-scoped, filtered by market at
     query time. Dollar/date fields nullable: comps arrive incomplete from

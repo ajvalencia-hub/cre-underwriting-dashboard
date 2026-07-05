@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import CashFlowTab from './pages/CashFlowTab'
 import CompsPage from './pages/CompsPage'
 import PipelinePage from './pages/PipelinePage'
+import PresetsPanel from './components/PresetsPanel'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
@@ -642,6 +643,11 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+        <PresetsPanel
+          schema={schema}
+          values={formValues}
+          onApply={(patch) => setFormValues((prev) => ({ ...prev, ...patch }))}
+        />
         <DealInputForm schema={schema} values={formValues} onFieldChange={handleFieldChange} />
         <GeneratePanel
           template={activeTemplate}
