@@ -8,6 +8,10 @@ import {
   type CompKind,
   type CompsImportResult,
 } from '../lib/api'
+import { useVirtualRows } from '../lib/useVirtualRows'
+
+const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
+const VIEWPORT_HEIGHT = 480
 
 interface CompsPageProps {
   /** Deal market from the input form — prefills the filter, nothing more. */
@@ -72,6 +76,13 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   const [importResult, setImportResult] = useState<CompsImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Windowed rendering for large imported comp sets (H13).
+  const { window: rowWindow, onScroll } = useVirtualRows(
+    comps.length,
+    ROW_HEIGHT,
+    VIEWPORT_HEIGHT,
+  )
 
   const load = useCallback(() => {
     setLoading(true)
@@ -203,8 +214,11 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      <div className="rounded border border-slate-200 bg-white">
-        <table className="w-full text-sm">
+      <div
+        className="max-h-[480px] overflow-auto rounded border border-slate-200 bg-white"
+        onScroll={onScroll}
+      >
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-400">
               <th className="px-3 py-2 font-medium">Name</th>
@@ -229,7 +243,10 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
             </tr>
           </thead>
           <tbody>
-            {comps.map((comp) => (
+            {rowWindow.padTop > 0 && (
+              <tr aria-hidden="true" style={{ height: rowWindow.padTop }} />
+            )}
+            {comps.slice(rowWindow.start, rowWindow.end).map((comp) => (
               <tr key={comp.id} className="border-b border-slate-50 text-slate-700">
                 <td className="px-3 py-1.5">{comp.name}</td>
                 <td className="px-3 py-1.5">{text(comp.market)}</td>
@@ -252,6 +269,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                 <td className="px-3 py-1.5 text-right">
                   <button
                     onClick={() => handleDelete(comp.id)}
+                    aria-label={`Delete comp ${comp.name}`}
                     className="text-xs text-slate-400 hover:text-red-600"
                   >
                     Delete
@@ -259,6 +277,9 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                 </td>
               </tr>
             ))}
+            {rowWindow.padBottom > 0 && (
+              <tr aria-hidden="true" style={{ height: rowWindow.padBottom }} />
+            )}
             {comps.length === 0 && !loading && (
               <tr>
                 <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-400">

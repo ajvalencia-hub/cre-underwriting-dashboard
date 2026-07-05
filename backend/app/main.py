@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import logging
+import time
+import uuid
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
@@ -6,6 +10,7 @@ from app.database import Base, SessionLocal, engine, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
+    client_errors,
     comps,
     compute,
     deals,
@@ -24,6 +29,12 @@ from app.routers import (
     templates,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+request_logger = logging.getLogger("app.request")
+
 Base.metadata.create_all(bind=engine)
 run_migrations()
 sweep_generated_files()
@@ -31,6 +42,31 @@ with SessionLocal() as _db:
     seed_presets(_db)
 
 app = FastAPI(title="CRE Underwriting Dashboard API")
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """H13: every request gets an id (client-supplied X-Request-ID honored),
+    logged with method/path/status/duration and echoed on the response so a
+    UI error report can be matched to its server-side line."""
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        request_logger.exception(
+            "rid=%s %s %s UNHANDLED", request_id, request.method, request.url.path
+        )
+        raise
+    duration_ms = (time.perf_counter() - start) * 1000
+    request_logger.info(
+        "rid=%s %s %s -> %s %.1fms",
+        request_id, request.method, request.url.path,
+        response.status_code, duration_ms,
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,6 +98,7 @@ app.include_router(property_tax.router)
 app.include_router(comps.router)
 app.include_router(demographics.router)
 app.include_router(presets.router)
+app.include_router(client_errors.router)
 
 
 @app.get("/api/health")

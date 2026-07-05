@@ -3,6 +3,28 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H13 — Hardening pass (Run 3)
+
+- **Request ids**: middleware assigns (or honors) X-Request-ID, logs
+  method/path/status/duration per request, and echoes the id on the
+  response; the React error boundary posts crashes to /api/client-errors
+  (bounded fields) so frontend and backend failures share one log stream.
+- **LRU compute cache** (128 entries) fronts POST /api/compute only — the
+  engine is pure, keys are canonical sorted JSON (dict ordering never
+  splits the cache), and HITS RETURN DEEP COPIES because downstream
+  consumers mutate results; a poisoned cache would be a correctness bug.
+  Rejected: caching inside engine.compute itself (sensitivity/tornado
+  sweeps intentionally compute thousands of distinct inputs and would
+  churn the cache for zero hits).
+- **Virtualization without a dependency**: a ~40-line window hook
+  (pure math unit-tested) applied to the comps table, active only above
+  150 rows — windowing short lists adds scroll jank for nothing.
+- Responsive/a11y: tab bar becomes a scrollable <nav> with aria-current;
+  wide tables scroll inside their cards at 768px; destructive icon-ish
+  buttons carry aria-labels.
+- Smoke extended with a second journey: pipeline status change, HTML
+  share fetch, comps inline add, presets bar, history drawer.
+
 ## H12 — One-page deck export (Run 3)
 
 - One 16:9 slide, deliberately: title bar, six metric tiles, an

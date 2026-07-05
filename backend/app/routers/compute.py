@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import tornado_service
+from app.services import compute_cache, tornado_service
 from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -46,7 +46,9 @@ def tornado(payload: TornadoRequest):
 @router.post("")
 def compute(payload: ComputeRequest, detail: bool = False):
     try:
-        result = engine.compute(payload.values)
+        # H13: LRU-cached — the engine is pure, and scenario comparisons /
+        # repeated recalcs of unchanged inputs are common.
+        result = compute_cache.cached_compute(payload.values)
     except engine.InsufficientInputsError as exc:
         return JSONResponse(
             status_code=422,

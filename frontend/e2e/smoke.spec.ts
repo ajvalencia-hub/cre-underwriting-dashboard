@@ -77,3 +77,41 @@ test('underwriting happy path', async ({ page }) => {
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/\.docx$/)
 })
+
+// H13 extension: the Run-3 surfaces — pipeline home, comps database, presets
+// bar, input history, and the read-only HTML share endpoint.
+test('pipeline, comps, presets, and share surfaces', async ({ page, request }) => {
+  await page.goto('/')
+  await expect(page.locator('select').first()).toBeVisible()
+
+  // Deals (pipeline) tab: stage chips, the auto-created deal row, staleness-free.
+  await page.getByRole('button', { name: 'Deals' }).click()
+  await expect(page.getByText(/Screening · \d/)).toBeVisible()
+  // exact: the header's own "New Deal" button is a different control
+  await expect(page.getByRole('button', { name: 'New deal', exact: true })).toBeVisible()
+  const dealRow = page.locator('tr', { hasText: 'Default Deal' }).first()
+  await expect(dealRow).toBeVisible()
+
+  // Status select persists a stage change.
+  await dealRow.locator('select').selectOption('underwriting')
+  await expect(page.getByText(/Underwriting · 1/)).toBeVisible()
+
+  // Read-only HTML share responds with a self-contained page for the deal.
+  const shareHref = await dealRow.locator('a', { hasText: 'Share' }).getAttribute('href')
+  const shareResponse = await request.get(shareHref!)
+  expect(shareResponse.status()).toBe(200)
+  expect(await shareResponse.text()).toContain('Read-only')
+
+  // Comps tab: importer present, inline add round-trip.
+  await page.getByRole('button', { name: '7. Comps' }).click()
+  await expect(page.getByText('Import CSV (Yardi Matrix export)')).toBeVisible()
+  await page.getByPlaceholder('New comp name').fill('Smoke Comp')
+  await page.getByPlaceholder('Price').fill('1000000')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.locator('td', { hasText: 'Smoke Comp' }).first()).toBeVisible()
+
+  // Deal Inputs: presets bar and history drawer are mounted.
+  await page.getByRole('button', { name: '3. Deal Inputs' }).click()
+  await expect(page.getByText('ASSUMPTION PRESETS')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Input history' })).toBeVisible()
+})
