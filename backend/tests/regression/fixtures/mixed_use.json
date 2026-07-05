@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Run-3 baseline fixture (I0): the H2 mixed-use hand fixture (10x 1BR at",
+    "$2,000 + one 10,000sf NNN lease at $30psf, $54k recoverable taxes,",
+    "commercial recovery share 5/9) with component exit caps set so the",
+    "component-cap terminal path is baselined too."
+  ],
+  "dealType": "acquisition",
+  "propertyType": "mixed_use",
+  "purchasePrice": 8000000,
+  "closingCostsPct": 0,
+  "acquisitionFeePct": 0,
+  "holdPeriodYears": 5,
+  "exitCapRatePct": 0.06,
+  "residentialExitCapPct": 0.05,
+  "commercialExitCapPct": 0.08,
+  "costOfSalePct": 0,
+  "unitMix": [
+    { "unitType": "1BR", "unitCount": 10, "inPlaceRent": 2000 }
+  ],
+  "vacancyPct": 0.05,
+  "creditLossPct": 0,
+  "commercialLeases": [
+    {
+      "tenant": "Shop",
+      "suiteId": "R1",
+      "sf": 10000,
+      "startDate": "2026-01-01",
+      "endDate": "2033-12-31",
+      "baseRentPsfAnnual": 30,
+      "escalationType": "none",
+      "recoveryType": "NNN",
+      "freeRentMonths": 0
+    }
+  ],
+  "realEstateTaxes": 54000,
+  "managementFeePct": 0,
+  "otherIncome": 0,
+  "rentGrowthMode": "flat",
+  "expenseGrowthMode": "flat",
+  "ltvOrLtc": 0,
+  "lpSplitPct": 0.9,
+  "gpSplitPct": 0.1,
+  "preferredReturnPct": 0.08,
+  "waterfallTiers": []
+}
