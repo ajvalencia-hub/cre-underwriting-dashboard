@@ -38,11 +38,17 @@ def lookup(req: PropertyTaxLookupRequest):
     millage = result.get("millageRate")
     if req.purchasePrice and req.purchasePrice > 0 and millage:
         ratio = req.assessmentRatio or DEFAULT_ASSESSMENT_RATIO
+        projected_ad_valorem = projected_reassessed_taxes(
+            req.purchasePrice, ratio, millage
+        )
+        # I5: non-ad-valorem assessments don't reprice at sale — they carry
+        # into the projection unchanged.
+        carried_nav = result.get("nonAdValorem") or 0.0
         projection = {
             "assessmentRatio": ratio,
             "projectedAssessedValue": req.purchasePrice * ratio,
-            "projectedAnnualTaxes": projected_reassessed_taxes(
-                req.purchasePrice, ratio, millage
-            ),
+            "projectedAdValorem": projected_ad_valorem,
+            "carriedNonAdValorem": carried_nav,
+            "projectedAnnualTaxes": projected_ad_valorem + carried_nav,
         }
     return {**result, "projection": projection}

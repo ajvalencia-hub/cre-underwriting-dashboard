@@ -51,10 +51,32 @@ def _unavailable(note: str) -> dict:
         "taxableValue": None,
         "millageRate": None,
         "currentTaxes": None,
+        "adValoremTaxes": None,
+        "nonAdValorem": None,
+        "totalTaxes": None,
         "jurisdiction": JURISDICTION,
         "asOf": None,
         "note": note,
     }
+
+
+def _parse_non_ad_valorem(detail: dict, taxable_info: dict) -> float | None:
+    """Non-ad-valorem assessments (I5): a line-item list where the payload
+    provides one, else a scalar field on the taxable info. None (not 0)
+    when the split simply isn't in the payload."""
+    items = detail.get("NonAdValorem")
+    if isinstance(items, dict):
+        items = items.get("NonAdValoremInfos")
+    if isinstance(items, list) and items:
+        total = sum(
+            _num(i.get("Amount")) or 0.0 for i in items if isinstance(i, dict)
+        )
+        if total > 0:
+            return total
+    scalar = _num(taxable_info.get("NonAdValoremTaxes")) or _num(
+        taxable_info.get("NonAdValorem")
+    )
+    return scalar if scalar else None
 
 
 def _resolve_folio(query: str) -> tuple[str | None, str | None]:
@@ -102,12 +124,31 @@ def _fetch(query: str) -> dict:
         taxable = _num(latest_taxable.get("CountyTaxableValue")) or _num(
             latest_taxable.get("TaxableValue")
         )
-        current_taxes = _num(latest_taxable.get("TotalTaxes")) or _num(
+        total_taxes = _num(latest_taxable.get("TotalTaxes")) or _num(
             latest_taxable.get("CountyTaxes")
         )
+        non_ad_valorem = _parse_non_ad_valorem(detail, latest_taxable)
+        ad_valorem = (
+            max(0.0, total_taxes - non_ad_valorem)
+            if total_taxes and non_ad_valorem is not None
+            else None
+        )
+
+        # Millage (I5): ad-valorem taxes / taxable value. When the payload
+        # doesn't split out non-ad-valorem, fall back to the old total-based
+        # derivation WITH a note — it overstates the true ad-valorem millage.
         millage = None
-        if current_taxes and taxable and taxable > 0:
-            millage = round(current_taxes / taxable, 6)
+        note = None
+        if taxable and taxable > 0:
+            if ad_valorem is not None:
+                millage = round(ad_valorem / taxable, 6)
+            elif total_taxes:
+                millage = round(total_taxes / taxable, 6)
+                note = (
+                    "Millage derived from TOTAL taxes — the non-ad-valorem "
+                    "split wasn't available, so this may overstate the "
+                    "ad-valorem millage."
+                )
 
         return {
             "dataSource": COUNTY,
@@ -117,10 +158,13 @@ def _fetch(query: str) -> dict:
             "assessedValue": assessed,
             "taxableValue": taxable,
             "millageRate": millage,
-            "currentTaxes": current_taxes,
+            "currentTaxes": total_taxes,
+            "adValoremTaxes": ad_valorem,
+            "nonAdValorem": non_ad_valorem,
+            "totalTaxes": total_taxes,
             "jurisdiction": JURISDICTION,
             "asOf": str(latest_assessment.get("Year") or "") or None,
-            "note": None,
+            "note": note,
         }
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         return _unavailable(f"Miami-Dade PA lookup failed: {exc}")

@@ -88,12 +88,26 @@ export default function PropertyTaxLookup({
             {result.currentTaxes !== null && (
               <span>Current taxes: {money(result.currentTaxes)}/yr</span>
             )}
+            {typeof result.adValoremTaxes === 'number' && (
+              <span>Ad valorem: {money(result.adValoremTaxes)}</span>
+            )}
+            {typeof result.nonAdValorem === 'number' && (
+              <span>Non-ad-valorem: {money(result.nonAdValorem)}</span>
+            )}
             {result.millageRate !== null && <span>Millage: {pct(result.millageRate)}</span>}
           </div>
+          {result.note && <div className="text-amber-600">△ {result.note}</div>}
           {result.projection && (
             <div>
               Reassessed at sale: {money(result.projection.projectedAssessedValue)} assessed (
               {Math.round(result.projection.assessmentRatio * 100)}% of price) →{' '}
+              {typeof result.projection.projectedAdValorem === 'number' &&
+              (result.projection.carriedNonAdValorem ?? 0) > 0 ? (
+                <>
+                  {money(result.projection.projectedAdValorem)} ad valorem +{' '}
+                  {money(result.projection.carriedNonAdValorem ?? 0)} non-ad-valorem ={' '}
+                </>
+              ) : null}
               <strong>{money(result.projection.projectedAnnualTaxes)}/yr</strong> projected taxes
             </div>
           )}

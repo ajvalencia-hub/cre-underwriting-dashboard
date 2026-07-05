@@ -244,6 +244,18 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
         else expense_growth
     )
 
+    # Non-ad-valorem assessments (I5): a separate fixed line with its own
+    # growth clock, NEVER reset by reassessment (special assessments don't
+    # reprice at sale), recoverable by default (they bill like taxes).
+    non_ad_valorem = _num(inputs, "nonAdValoremTaxes")
+    nav_growth = (
+        _num(inputs, "nonAdValoremGrowthPct")
+        if inputs.get("nonAdValoremGrowthPct") is not None
+        else expense_growth
+    )
+    nav_raw_flag = inputs.get("nonAdValoremRecoverable")
+    nav_recoverable = True if nav_raw_flag is None else bool(nav_raw_flag)
+
     if has_opex_detail(inputs):
         lines = []
         egi_pct_total = 0.0
@@ -281,6 +293,14 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
                 "recoverable": tax_lines_recoverable,
                 "variable": False,  # taxes never move with occupancy
             })
+        if non_ad_valorem > 0:
+            lines.append({
+                "key": "nonAdValorem",
+                "annual": non_ad_valorem,
+                "growth": nav_growth,
+                "recoverable": nav_recoverable,
+                "variable": False,
+            })
 
         by_category: dict[str, list[float]] = {}
         recoverable = [0.0] * total
@@ -310,6 +330,8 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
     if reassessed_taxes is not None:
         category_bases["realEstateTaxes"] = reassessed_taxes
+    if non_ad_valorem > 0:
+        category_bases["nonAdValorem"] = non_ad_valorem
     active = [f for f, v in category_bases.items() if v > 0]
     by_category = {f: [] for f in active}
     recoverable = []
@@ -321,16 +343,16 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
             recoverable.append(0.0)
             continue
         mult = _growth_multiplier(expense_growth, operating_month)
-        tax_mult = (
-            _growth_multiplier(tax_growth, operating_month)
-            if reassessed_taxes is not None
-            else mult
-        )
+        special_mults = {}
+        if reassessed_taxes is not None:
+            special_mults["realEstateTaxes"] = _growth_multiplier(tax_growth, operating_month)
+        if non_ad_valorem > 0:
+            special_mults["nonAdValorem"] = _growth_multiplier(nav_growth, operating_month)
         month_recoverable = 0.0
         for f in active:
-            amount = (category_bases[f] / 12) * (tax_mult if f == "realEstateTaxes" else mult)
+            amount = (category_bases[f] / 12) * special_mults.get(f, mult)
             by_category[f].append(amount)
-            if f in RECOVERABLE_EXPENSE_FIELDS:
+            if f in RECOVERABLE_EXPENSE_FIELDS or (f == "nonAdValorem" and nav_recoverable):
                 month_recoverable += amount
         recoverable.append(month_recoverable)
     return {
@@ -792,5 +814,9 @@ def stabilized_annual_noi(inputs: dict) -> float:
     management_fee_pct = _num(inputs, "managementFeePct")
     occupancy = max(0.0, 1 - vacancy_pct)
     egi = annual_gpr * occupancy * (1 - credit_loss_pct) + annual_other
-    expenses = sum(_num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS) + egi * management_fee_pct
+    expenses = (
+        sum(_num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS)
+        + _num(inputs, "nonAdValoremTaxes")  # I5: separate fixed line
+        + egi * management_fee_pct
+    )
     return egi - expenses

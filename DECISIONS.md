@@ -3,6 +3,25 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I5 — Non-ad-valorem assessments (Run 4)
+
+- **[FIN] Non-ad-valorem assessments are a separate fixed line** with its
+  own growth clock (default = expense growth), NEVER reset by
+  reassessment — special assessments (solid waste, drainage, CDD bonds)
+  are flat charges that don't reprice at sale. Recoverable by DEFAULT
+  (they bill like taxes and sit in every NNN pool); the flag can turn it
+  off. Statement category key: nonAdValorem.
+- **[FIN] Derived millage now uses adValoremTaxes / taxableValue** — the
+  H4 derivation divided TOTAL taxes by taxable value, silently folding
+  non-ad-valorem charges into the millage and overstating every
+  reassessment projection. When the PA payload has no split, the old
+  total-based derivation remains as the fallback WITH an explicit note.
+- The reassessment projection is now `price × ratio × millage (ad
+  valorem) + carried non-ad-valorem = projected total`, shown as the
+  split in the lookup panel.
+- nonAdValoremTaxes defaults 0 → no line, no pool change; I0 baseline
+  pins Run-3 behavior.
+
 ## I4 — Mixed-use opex allocation basis (Run 4)
 
 - **[FIN] Three bases** for the commercial share of shared opex:

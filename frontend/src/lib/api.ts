@@ -291,12 +291,17 @@ export interface PropertyTaxLookupResult {
   taxableValue: number | null
   millageRate: number | null
   currentTaxes: number | null
+  adValoremTaxes?: number | null
+  nonAdValorem?: number | null
+  totalTaxes?: number | null
   jurisdiction: string
   asOf: string | null
   note: string | null
   projection: {
     assessmentRatio: number
     projectedAssessedValue: number
+    projectedAdValorem?: number
+    carriedNonAdValorem?: number
     projectedAnnualTaxes: number
   } | null
 }
