@@ -78,6 +78,24 @@ class Scenario(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class DealSnapshot(Base):
+    """Input change history (H9). Each row is a checkpoint of the deal's full
+    inputs AFTER a save; changed_paths lists what moved since the previous
+    checkpoint (dotted one level into dict values, e.g. quickScreen.rent).
+    Saves within a 10-minute window coalesce into the newest row."""
+
+    __tablename__ = "deal_snapshots"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    inputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    changed_paths: Mapped[list] = mapped_column(JSON, default=list)
+    # baseline (pre-first-edit state) | autosave | restore
+    kind: Mapped[str] = mapped_column(String, default="autosave")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class AssumptionPreset(Base):
     """Named bundle of assumption field values (H8). `values` maps input
     schema field ids -> values; applying is a client-side, user-confirmed

@@ -324,6 +324,22 @@ export function fetchDemographics(market: string, submarket = '', address = '') 
   return getJson<DemographicTrends>(`/demographics?${params}`)
 }
 
+export interface DealSnapshotMeta {
+  id: string
+  kind: 'baseline' | 'autosave' | 'restore'
+  changedPaths: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export function fetchDealHistory(dealId: string) {
+  return getJson<DealSnapshotMeta[]>(`/deals/${dealId}/history`)
+}
+
+export function restoreDealSnapshot(dealId: string, snapshotId: string) {
+  return postJson<Deal>(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
+}
+
 export interface AssumptionPreset {
   id: string
   name: string

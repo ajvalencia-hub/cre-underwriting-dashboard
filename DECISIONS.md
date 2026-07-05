@@ -3,6 +3,27 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## H9 — Input change history (Run 3)
+
+- **A snapshot is the deal's inputs AFTER a save** — a restorable
+  checkpoint, not a diff log. changedPaths (top-level field ids, dotted
+  one level into dict values so quickScreen.rent reads naturally) exist
+  for display only; restore replays the full stored inputs.
+- **The first edit writes a BASELINE snapshot of the pre-edit state**, so
+  "before I touched anything" is always restorable. No-op saves record
+  nothing.
+- **Coalescing: autosaves merge into the newest snapshot while it is
+  younger than 10 minutes**, anchored on created_at (continuous editing
+  still checkpoints every 10 min, rather than one ever-sliding blob).
+  changedPaths accumulate as the union of per-save diffs — an A→B→A edit
+  inside one window still lists the field (acceptable noise). Restores
+  never coalesce.
+- Retention 200/deal, oldest dropped — including eventually the baseline
+  (it's history, not a pin). Snapshots cascade-delete with the deal.
+- **Restore records itself as a snapshot first**, so any restore can be
+  undone from the same drawer. The UI gates restore behind an explicit
+  confirm click.
+
 ## H8 — Assumption presets (Run 3)
 
 - **Presets carry RATE/TERM assumptions only** — a server-side whitelist

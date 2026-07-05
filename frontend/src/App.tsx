@@ -6,6 +6,7 @@ import CashFlowTab from './pages/CashFlowTab'
 import CompsPage from './pages/CompsPage'
 import PipelinePage from './pages/PipelinePage'
 import PresetsPanel from './components/PresetsPanel'
+import HistoryDrawer from './components/HistoryDrawer'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
@@ -643,6 +644,14 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+        <HistoryDrawer
+          schema={schema}
+          dealId={activeDealId}
+          onRestored={(deal) => {
+            applyDealState(schema, deal, new URLSearchParams())
+            setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
+          }}
+        />
         <PresetsPanel
           schema={schema}
           values={formValues}

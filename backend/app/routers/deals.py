@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Deal, MappingProfile, Scenario, Template
+from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
+from app.services import deal_history
 
 router = APIRouter(prefix="/api/deals", tags=["deals"])
 
@@ -69,6 +70,7 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
             raise HTTPException(400, "Deal name cannot be empty")
         deal.name = payload.name.strip()
     if "inputs" in provided and payload.inputs is not None:
+        deal_history.record_snapshot(db, deal, payload.inputs)
         deal.inputs = payload.inputs
     if "status" in provided and payload.status is not None:
         deal.status = payload.status
@@ -77,6 +79,41 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
     if "activeMappingProfileId" in provided:
         deal.active_mapping_profile_id = payload.activeMappingProfileId
 
+    db.commit()
+    db.refresh(deal)
+    return _to_out(deal)
+
+
+@router.get("/{deal_id}/history")
+def deal_history_list(deal_id: str, db: Session = Depends(get_db)):
+    """Snapshot list, newest first — metadata only (full inputs stay on the
+    server until a restore)."""
+    if db.get(Deal, deal_id) is None:
+        raise HTTPException(404, "Deal not found")
+    return [
+        {
+            "id": s.id,
+            "kind": s.kind,
+            "changedPaths": s.changed_paths or [],
+            "createdAt": s.created_at,
+            "updatedAt": s.updated_at,
+        }
+        for s in deal_history.list_snapshots(db, deal_id)
+    ]
+
+
+@router.post("/{deal_id}/history/{snapshot_id}/restore", response_model=DealOut)
+def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_db)):
+    """Sets the deal's inputs back to the snapshot's state. The restore is
+    recorded as its own snapshot, so it can itself be undone."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    snapshot = db.get(DealSnapshot, snapshot_id)
+    if snapshot is None or snapshot.deal_id != deal_id:
+        raise HTTPException(404, "Snapshot not found")
+    deal_history.record_snapshot(db, deal, snapshot.inputs, kind="restore")
+    deal.inputs = snapshot.inputs
     db.commit()
     db.refresh(deal)
     return _to_out(deal)
@@ -205,6 +242,7 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     # Scenarios are meaningless without their deal — cascade, matching how
     # template deletion already removes dependent scenarios.
     db.execute(Scenario.__table__.delete().where(Scenario.deal_id == deal_id))
+    db.execute(DealSnapshot.__table__.delete().where(DealSnapshot.deal_id == deal_id))
     db.delete(deal)
     db.commit()
     return {"deleted": True}
