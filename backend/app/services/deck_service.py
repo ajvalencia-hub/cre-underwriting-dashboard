@@ -73,16 +73,60 @@ def _text(slide, left, top, width, height, text, size, *, bold=False,
     return box
 
 
+def _new_presentation() -> Presentation:
+    prs = Presentation()
+    prs.slide_width = _SLIDE_W
+    prs.slide_height = _SLIDE_H
+    return prs
+
+
 def build_deck(deal_name: str, inputs: dict, result: dict) -> bytes:
     """One 16:9 slide: title bar, metric tiles, assumptions column, and the
     memo's cash-flow + sources & uses charts."""
+    prs = _new_presentation()
+    _render_deal_slide(prs, deal_name, inputs, result)
+    buffer = BytesIO()
+    prs.save(buffer)
+    return buffer.getvalue()
+
+
+BATCH_DECK_CAP = 20
+
+
+def build_batch_deck(entries: list[dict], skipped: list[str]) -> bytes:
+    """I13: a screening deck — one branded title slide (count, date, skip
+    list) plus one H12-style slide per computable deal, in the caller's
+    order (the client sends ids in the pipeline's current sort)."""
+    prs = _new_presentation()
+
+    title = prs.slides.add_slide(prs.slide_layouts[6])
+    _text(title, _MARGIN, Inches(2.4), _SLIDE_W - 2 * _MARGIN, Inches(0.8),
+          f"{FIRM_NAME} — Screening Deck", 34, bold=True, color=_brand(),
+          align=PP_ALIGN.CENTER)
+    _text(title, _MARGIN, Inches(3.3), _SLIDE_W - 2 * _MARGIN, Inches(0.4),
+          f"{len(entries)} deal(s) · {date.today().isoformat()}",
+          14, color=RGBColor.from_string("64748B"), align=PP_ALIGN.CENTER)
+    if skipped:
+        _text(title, _MARGIN, Inches(3.9), _SLIDE_W - 2 * _MARGIN, Inches(0.6),
+              "Skipped (no computable outputs): " + ", ".join(skipped),
+              10, color=RGBColor.from_string("B45309"), align=PP_ALIGN.CENTER)
+    _text(title, _MARGIN, _SLIDE_H - Inches(0.5), _SLIDE_W - 2 * _MARGIN,
+          Inches(0.35), _DISCLAIMER, 7, color=RGBColor.from_string("94A3B8"),
+          align=PP_ALIGN.CENTER)
+
+    for entry in entries:
+        _render_deal_slide(prs, entry["name"], entry["inputs"], entry["result"])
+
+    buffer = BytesIO()
+    prs.save(buffer)
+    return buffer.getvalue()
+
+
+def _render_deal_slide(prs: Presentation, deal_name: str, inputs: dict, result: dict) -> None:
     outputs = result.get("outputs", {})
     statement = result.get("statement")
     sources_and_uses = result.get("sourcesAndUses")
 
-    prs = Presentation()
-    prs.slide_width = _SLIDE_W
-    prs.slide_height = _SLIDE_H
     slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
 
     # Title bar
@@ -138,7 +182,3 @@ def build_deck(deal_name: str, inputs: dict, result: dict) -> bytes:
     # Footer
     _text(slide, _MARGIN, _SLIDE_H - Inches(0.45), _SLIDE_W - 2 * _MARGIN,
           Inches(0.35), _DISCLAIMER, 7, color=RGBColor.from_string("94A3B8"))
-
-    buffer = BytesIO()
-    prs.save(buffer)
-    return buffer.getvalue()

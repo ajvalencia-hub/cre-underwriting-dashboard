@@ -3,6 +3,18 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I13 — Batch deck export (Run 4)
+
+- One title slide (firm branding, count, date) + one H12-style slide per
+  computable deal, rendered by the SAME slide function the single deck
+  uses — no second layout to drift. Slide order = the id order the client
+  sends, which is the pipeline's current sort.
+- Incomputable deals SKIP with their names listed BOTH on the title slide
+  (the artifact is self-describing when forwarded) and in the
+  X-Deck-Skipped header (the UI can toast it). All-incomputable → 422,
+  never an empty deck. Hard cap 20 deals per file, rejected before any
+  compute runs.
+
 ## I12 — History diff view (Run 4)
 
 - **Tables diff BY ROW KEY** (unitMix → unitType, commercialLeases →

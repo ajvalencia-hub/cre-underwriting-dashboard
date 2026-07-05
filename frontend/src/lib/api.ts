@@ -516,6 +516,22 @@ export function bulkUpdateDealStatus(
   )
 }
 
+export async function exportBatchDeck(
+  dealIds: string[],
+): Promise<{ blob: Blob; skipped: string[] }> {
+  const res = await fetch(`${API_BASE}/deals/batch-deck`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dealIds }),
+  })
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res))
+  }
+  const skippedHeader = res.headers.get('X-Deck-Skipped')
+  const skipped: string[] = skippedHeader ? JSON.parse(skippedHeader) : []
+  return { blob: await res.blob(), skipped }
+}
+
 export async function deleteDeal(dealId: string): Promise<void> {
   return del(`/deals/${dealId}`)
 }

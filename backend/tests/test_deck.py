@@ -75,6 +75,48 @@ def test_deck_is_one_slide_with_passthrough_numbers(analytic):
     assert len(pictures) == 2
 
 
+def test_batch_deck_slides_skips_and_cap(client, analytic):
+    """I13: title slide + one slide per computable deal in the given order;
+    incomputable deals are skipped AND listed; cap at 20."""
+    a = client.post("/api/deals", json={"name": "Deck A", "inputs": analytic}).json()
+    b = client.post("/api/deals", json={"name": "Deck B", "inputs": analytic}).json()
+    empty = client.post("/api/deals", json={"name": "No Numbers", "inputs": {}}).json()
+
+    response = client.post(
+        "/api/deals/batch-deck", json={"dealIds": [b["id"], a["id"], empty["id"]]}
+    )
+    assert response.status_code == 200
+    assert json.loads(response.headers["X-Deck-Skipped"]) == ["No Numbers"]
+
+    prs = Presentation(BytesIO(response.content))
+    assert len(prs.slides) == 3  # title + 2 computable deals
+
+    def slide_text(slide) -> str:
+        return "\n".join(s.text_frame.text for s in slide.shapes if s.has_text_frame)
+
+    title = slide_text(prs.slides[0])
+    assert "Screening Deck" in title
+    assert "2 deal(s)" in title
+    assert "No Numbers" in title  # the skip list rides the title slide too
+    # Slide order follows the request (the pipeline's current sort).
+    assert "Deck B" in slide_text(prs.slides[1])
+    assert "Deck A" in slide_text(prs.slides[2])
+
+    # Cap: 21 ids -> 422 before any compute.
+    over = client.post(
+        "/api/deals/batch-deck", json={"dealIds": [a["id"]] * 21}
+    )
+    assert over.status_code == 422
+    assert "capped at 20" in over.json()["detail"]
+
+    # All-incomputable -> 422, not an empty deck.
+    assert (
+        client.post("/api/deals/batch-deck", json={"dealIds": [empty["id"]]}).status_code
+        == 422
+    )
+    assert client.post("/api/deals/batch-deck", json={"dealIds": []}).status_code == 400
+
+
 def test_deck_route_and_degradation(client, analytic):
     deal = client.post(
         "/api/deals", json={"name": "Deck <Deal>", "inputs": analytic}

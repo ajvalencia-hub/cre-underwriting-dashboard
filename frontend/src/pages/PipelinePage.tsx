@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { exportBatchDeck } from '../lib/api'
 import { relativeAge, stalenessBadge } from '../lib/staleness'
 import {
   applyView,
@@ -68,6 +69,8 @@ export default function PipelinePage({
   const [bulkBusy, setBulkBusy] = useState(false)
   const [views, setViews] = useState<PipelineView[]>(() => loadViews(window.localStorage))
   const [viewName, setViewName] = useState('')
+  const [deckBusy, setDeckBusy] = useState(false)
+  const [deckNote, setDeckNote] = useState<string | null>(null)
 
   const sorted = useMemo(
     () => applyView(deals, marketFilter, sortKey, showTerminal),
@@ -100,6 +103,30 @@ export default function PipelinePage({
       setSelected(new Set())
     } finally {
       setBulkBusy(false)
+    }
+  }
+
+  async function handleExportDeck() {
+    setDeckBusy(true)
+    setDeckNote(null)
+    try {
+      // Ids in the pipeline's CURRENT sort so slide order matches the table.
+      const { blob, skipped } = await exportBatchDeck(visibleSelected.map((d) => d.id))
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'screening-deck.pptx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      if (skipped.length > 0) {
+        setDeckNote(`Skipped (no computable outputs): ${skipped.join(', ')}`)
+      }
+    } catch (err) {
+      setDeckNote(err instanceof Error ? err.message : 'Deck export failed')
+    } finally {
+      setDeckBusy(false)
     }
   }
 
@@ -244,6 +271,13 @@ export default function PipelinePage({
             {bulkBusy ? 'Updating…' : 'Set status'}
           </button>
           <button
+            onClick={() => void handleExportDeck()}
+            disabled={deckBusy}
+            className="rounded border border-slate-400 px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+          >
+            {deckBusy ? 'Building deck…' : 'Export screening deck'}
+          </button>
+          <button
             onClick={() => setSelected(new Set())}
             className="text-slate-400 hover:text-slate-600"
           >
@@ -251,6 +285,7 @@ export default function PipelinePage({
           </button>
         </div>
       )}
+      {deckNote && <div className="text-xs text-amber-600">{deckNote}</div>}
 
       <div className="overflow-x-auto rounded border border-slate-200 bg-white">
         <table className="w-full min-w-[600px] text-sm">

@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -122,6 +123,55 @@ def bulk_status(payload: BulkStatusRequest, db: Session = Depends(get_db)):
         "updated": [_to_out(d).model_dump() for d in updated],
         "missing": missing,
     }
+
+
+class BatchDeckRequest(BaseModel):
+    dealIds: list[str]
+
+
+@router.post("/batch-deck")
+def batch_deck(payload: BatchDeckRequest, db: Session = Depends(get_db)):
+    """I13: one screening .pptx — a title slide plus one H12-style slide per
+    computable deal, in the ORDER GIVEN (the client sends the pipeline's
+    current sort). Incomputable deals are skipped and listed, both on the
+    title slide and in the X-Deck-Skipped header. Hard cap 20 deals."""
+    from app.services.deck_service import BATCH_DECK_CAP, build_batch_deck
+
+    if not payload.dealIds:
+        raise HTTPException(400, "dealIds is empty.")
+    if len(payload.dealIds) > BATCH_DECK_CAP:
+        raise HTTPException(
+            422,
+            f"Batch deck is capped at {BATCH_DECK_CAP} deals per file "
+            f"({len(payload.dealIds)} requested) — narrow the selection.",
+        )
+
+    entries: list[dict] = []
+    skipped: list[str] = []
+    for deal_id in payload.dealIds:
+        deal = db.get(Deal, deal_id)
+        if deal is None:
+            skipped.append(deal_id)
+            continue
+        try:
+            result = engine.compute(deal.inputs or {})
+        except Exception:  # noqa: BLE001 — an incomputable deal skips, never kills the deck
+            skipped.append(deal.name)
+            continue
+        entries.append({"name": deal.name, "inputs": deal.inputs or {}, "result": result})
+
+    if not entries:
+        raise HTTPException(422, "None of the selected deals are computable.")
+
+    content = build_batch_deck(entries, skipped)
+    return Response(
+        content=content,
+        media_type=PPTX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": 'attachment; filename="screening-deck.pptx"',
+            "X-Deck-Skipped": json.dumps(skipped),
+        },
+    )
 
 
 @router.get("/{deal_id}/history")
