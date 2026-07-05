@@ -138,7 +138,8 @@
             { "id": "basis", "label": "Basis", "type": "select",
               "options": ["annual_total", "per_unit", "psf", "pct_of_egi"] },
             { "id": "growthPct", "label": "Growth (blank = deal default)", "type": "percent" },
-            { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] }
+            { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] },
+            { "id": "variableWithOccupancy", "label": "Variable w/ Occupancy (blank = category default)", "type": "select", "options": ["", "no", "yes"] }
           ] },
         { "id": "useReassessedTaxes", "label": "Model Reassessed Property Taxes", "type": "boolean", "default": false },
         { "id": "millageRatePct", "label": "Millage Rate (total, e.g. 1.97%)", "type": "percent", "min": 0, "max": 0.05,
@@ -315,6 +316,8 @@
         { "id": "lcNewPct", "label": "LC — New (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 },
         { "id": "lcRenewalPct", "label": "LC — Renewal (% of term rent)", "type": "percent", "min": 0, "max": 0.15, "default": 0 },
         { "id": "renewalRentPsfDiscountPct", "label": "Renewal Rent (x market, 1.0 = at market)", "type": "percent", "min": 0.5, "max": 1.2, "default": 1.0 },
+        { "id": "grossUpToPct", "label": "Gross Up Base-Year Opex To (% occupancy, blank = off; needs opex detail)", "type": "percent", "min": 0.5, "max": 1,
+          "visibleWhen": { "all": [{ "field": "opexLineItems", "notEmpty": true }] } },
         { "id": "reletCapitalAtCommencement", "label": "Charge Re-let TI/LC at Commencement (vs expiry+1)", "type": "boolean", "default": false },
         { "id": "adminFeePct", "label": "CAM Admin Fee (markup on NNN / base-year recoveries)", "type": "percent", "min": 0, "max": 0.25, "default": 0 },
         { "id": "mgmtFeeRecoverable", "label": "Management Fee Recoverable", "type": "boolean", "default": false },

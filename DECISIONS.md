@@ -3,6 +3,31 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I3 — Base-year gross-up (Run 4)
+
+- **[FIN] Gross-up applies to base_year_stop leases only** (the
+  office-standard clause it implements): both the base year and every
+  comparison year come from the ADJUSTED pool `R_adj(m) = fixed(m) +
+  variable(m) × max(1, grossUpTo / occ(year))`. NNN keeps billing the raw
+  pool — NNN tenants pay actual expenses; grossing them up would invent
+  dollars. The ratio floors at 1 (never gross DOWN below actuals).
+- **[FIN] Occupancy basis is the COMMERCIAL occupied-SF share** (contract
+  months full, downtime months at p, speculative terms full) in both pure
+  and mixed deals. Rejected: blended mixed-use occupancy — residential
+  vacancy must not gross up commercial CAM; the clause references the
+  building's commercial occupancy. Occupancy is averaged per calendar
+  year; pre-epoch base years reuse year 1's occupancy (consistent with the
+  pool's backward extrapolation).
+- Variable/fixed split needs expense-line detail: category defaults
+  (utilities, repairs_maintenance variable; taxes, insurance, payroll,
+  G&A, management fixed) with a per-line variableWithOccupancy override;
+  reassessed taxes are never variable. Simple-expense mode has no split —
+  grossUpToPct is ignored with an explicit warning, and the input is
+  hidden unless opexLineItems exist.
+- The occupancy pre-pass is an extracted helper with a DRIFT-GUARD test
+  asserting it matches the main loop's occupancy vector exactly.
+- grossUpToPct defaults null (off); the I0 baseline pins Run-3 behavior.
+
 ## I2 — Rollover refinements (Run 4)
 
 - **[FIN] Split TI/LC timing is OPT-IN** (reletCapitalAtCommencement,

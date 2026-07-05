@@ -142,11 +142,73 @@ def _annual_recoverable_by_calendar_year(
     return annuals
 
 
+def _occupancy_projection(
+    lease_rows: list[dict], rollover: dict, months: int, total_sf: float
+) -> list[float]:
+    """Occupancy vector from lease terms only (contract months full,
+    downtime months at renewal probability, speculative terms full) — the
+    same accumulation the main loop performs, extracted for the gross-up
+    (I3), which needs occupancy BEFORE recoveries exist. A drift-guard test
+    asserts this matches build_lease_income()['occupancy'] exactly."""
+    occupied = [0.0] * months
+    p = rollover["renewalProbability"]
+    downtime = rollover["downtimeMonths"]
+    term_months = rollover["newTermYears"] * 12
+    for lease in lease_rows:
+        sf = _num(lease, "sf")
+        start_date = _parse_date(lease.get("startDate"))
+        end_date = _parse_date(lease.get("endDate"))
+        start_index = month_index_of(start_date) if start_date else 1
+        end_index = month_index_of(end_date) if end_date else months + 1
+        for m in range(max(1, start_index), min(end_index, months) + 1):
+            occupied[m - 1] += sf
+        if end_date is None:
+            continue
+        generation_start = end_index + 1
+        while generation_start <= months:
+            gen_end = generation_start + term_months - 1
+            for m in range(max(1, generation_start), min(gen_end, months) + 1):
+                in_downtime = (m - generation_start) < downtime
+                occupied[m - 1] += sf * p if in_downtime else sf
+            generation_start = gen_end + 1
+    return [o / total_sf if total_sf > 0 else 0.0 for o in occupied]
+
+
+def _grossed_up_pool(
+    pool: list[float],
+    variable: list[float],
+    occupancy: list[float],
+    gross_up_to: float,
+) -> list[float]:
+    """I3: R_adj(m) = fixed(m) + variable(m) x max(1, grossUpTo / occ(y)) —
+    occupancy averaged per calendar year, ratio floored at 1 (never gross
+    DOWN below actuals). Pre-epoch base years reuse year 1's occupancy."""
+    months = len(pool)
+    occ_by_year: dict[int, float] = {}
+    samples: dict[int, list[float]] = {}
+    for m in range(1, months + 1):
+        year = ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + m - 1) // 12
+        samples.setdefault(year, []).append(occupancy[m - 1])
+    for year, values in samples.items():
+        occ_by_year[year] = sum(values) / len(values)
+
+    adjusted = []
+    for m in range(1, months + 1):
+        year = ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + m - 1) // 12
+        occ = occ_by_year.get(year, 1.0)
+        ratio = max(1.0, gross_up_to / occ) if occ > 0 else 1.0
+        fixed_part = pool[m - 1] - variable[m - 1]
+        adjusted.append(fixed_part + variable[m - 1] * ratio)
+    return adjusted
+
+
 def build_lease_income(
     inputs: dict,
     months: int,
     recoverable_opex_monthly: list[float],
     expense_growth: float,
+    variable_recoverable_monthly: list[float] | None = None,
+    gross_up_to: float | None = None,
 ) -> dict:
     """Property-level monthly vectors for operating months 1..months.
 
@@ -179,6 +241,19 @@ def build_lease_income(
     annual_recoverable = _annual_recoverable_by_calendar_year(
         recoverable_opex_monthly, expense_growth
     )
+    # Base-year gross-up (I3, base_year_stop only): both the base year and
+    # every comparison year come from the ADJUSTED pool; NNN keeps billing
+    # the raw pool (actual expenses are what they are).
+    annual_recoverable_stop = annual_recoverable
+    if gross_up_to is not None and gross_up_to > 0 and variable_recoverable_monthly:
+        projected_occupancy = _occupancy_projection(leases, rollover, months, total_sf)
+        adjusted_pool = _grossed_up_pool(
+            recoverable_opex_monthly, variable_recoverable_monthly,
+            projected_occupancy, gross_up_to,
+        )
+        annual_recoverable_stop = _annual_recoverable_by_calendar_year(
+            adjusted_pool, expense_growth
+        )
 
     def calendar_year_of(month: int) -> int:
         return ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + month - 1) // 12
@@ -194,10 +269,10 @@ def build_lease_income(
             pool = recoverable_opex_monthly[month - 1] if month <= len(recoverable_opex_monthly) else 0.0
             return share * pool * admin_markup
         if recovery_type == "base_year_stop":
-            current = annual_recoverable.get(calendar_year_of(month))
+            current = annual_recoverable_stop.get(calendar_year_of(month))
             if current is None:
-                current = annual_recoverable[max(annual_recoverable)]
-            base_amount = annual_recoverable.get(base_year, 0.0)
+                current = annual_recoverable_stop[max(annual_recoverable_stop)]
+            base_amount = annual_recoverable_stop.get(base_year, 0.0)
             # The base-year comparison happens on RAW pool amounts; the
             # markup applies to the billed delta only.
             return share * max(0.0, current - base_amount) / 12 * admin_markup

@@ -135,6 +135,12 @@ _DETAIL_CATEGORY_KEYS = {
     "other": "otherOpex",
 }
 
+# I3: which detail categories move with occupancy by default (the gross-up
+# split). Utilities and R&M scale with tenants in the building; taxes,
+# insurance, payroll, G&A, and management do not. Per-line override via the
+# variableWithOccupancy column ("yes"/"no", blank = this default).
+_VARIABLE_CATEGORY_DEFAULTS = {"utilities", "repairs_maintenance"}
+
 
 def has_opex_detail(inputs: dict) -> bool:
     return any(
@@ -252,24 +258,33 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
             if warning:
                 warnings.append(warning)
             growth = _num(raw, "growthPct", expense_growth) if raw.get("growthPct") is not None else expense_growth
-            key = _DETAIL_CATEGORY_KEYS.get(raw.get("category") or "other", "otherOpex")
+            category = raw.get("category") or "other"
+            key = _DETAIL_CATEGORY_KEYS.get(category, "otherOpex")
             recoverable_flag = raw.get("recoverable") in (True, "yes", "true", 1)
+            variable_override = raw.get("variableWithOccupancy")
+            variable_flag = (
+                variable_override in (True, "yes", "true", 1)
+                if variable_override not in (None, "")
+                else category in _VARIABLE_CATEGORY_DEFAULTS
+            )
             if reassessed_taxes is not None and key == "realEstateTaxes":
                 # reassessment replaces every modeled tax line (H4)
                 tax_lines_recoverable = tax_lines_recoverable or recoverable_flag
                 continue
             lines.append({"key": key, "annual": annual, "growth": growth,
-                          "recoverable": recoverable_flag})
+                          "recoverable": recoverable_flag, "variable": variable_flag})
         if reassessed_taxes is not None:
             lines.append({
                 "key": "realEstateTaxes",
                 "annual": reassessed_taxes,
                 "growth": tax_growth,
                 "recoverable": tax_lines_recoverable,
+                "variable": False,  # taxes never move with occupancy
             })
 
         by_category: dict[str, list[float]] = {}
         recoverable = [0.0] * total
+        recoverable_variable = [0.0] * total
         for month in range(1, total + 1):
             operating_month = month - timeline.construction_months
             for line in lines:
@@ -280,9 +295,12 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
                 vec[month - 1] += amount
                 if line["recoverable"]:
                     recoverable[month - 1] += amount
+                    if line["variable"]:
+                        recoverable_variable[month - 1] += amount
         return {
             "byCategory": by_category,
             "recoverable": recoverable,
+            "recoverableVariable": recoverable_variable,
             "expenseGrowth": expense_growth,
             "egiPctTotal": egi_pct_total,
             "detailMode": True,
@@ -372,8 +390,29 @@ def _build_lease_noi_vector(
                 contribution = min(contribution, cap_pct * pre_egi)
             recoverable[m - 1] += max(0.0, contribution)
 
+    # Base-year gross-up (I3): needs the variable/fixed split, which only
+    # exists in expense-detail mode. Occupancy basis is the COMMERCIAL
+    # occupied-SF share in both pure and mixed deals — residential vacancy
+    # must not gross up commercial CAM (see DECISIONS.md).
+    gross_up_raw = inputs.get("grossUpToPct")
+    gross_up = float(gross_up_raw) if isinstance(gross_up_raw, (int, float)) and gross_up_raw > 0 else None
+    variable_recoverable = None
+    if gross_up is not None:
+        if expenses["detailMode"]:
+            variable_recoverable = [
+                v * recoverable_scale for v in expenses["recoverableVariable"]
+            ]
+        else:
+            warnings.append(
+                "Base-year gross-up requires expense line detail (the variable/"
+                "fixed split) — grossUpToPct is ignored in simple-expense mode."
+            )
+            gross_up = None
+
     income = leases.build_lease_income(
-        inputs, total, recoverable, expenses["expenseGrowth"]
+        inputs, total, recoverable, expenses["expenseGrowth"],
+        variable_recoverable_monthly=variable_recoverable,
+        gross_up_to=gross_up,
     )
     warnings.extend(income["warnings"])
 
