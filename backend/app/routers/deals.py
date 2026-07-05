@@ -142,6 +142,23 @@ def deal_history_list(deal_id: str, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/{deal_id}/history/{snapshot_id}")
+def get_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_db)):
+    """I12: one snapshot WITH its full inputs — fetched on demand for the
+    diff/compare views (the list endpoint stays metadata-only)."""
+    snapshot = db.get(DealSnapshot, snapshot_id)
+    if snapshot is None or snapshot.deal_id != deal_id:
+        raise HTTPException(404, "Snapshot not found")
+    return {
+        "id": snapshot.id,
+        "kind": snapshot.kind,
+        "changedPaths": snapshot.changed_paths or [],
+        "inputs": snapshot.inputs,
+        "createdAt": snapshot.created_at,
+        "updatedAt": snapshot.updated_at,
+    }
+
+
 @router.post("/{deal_id}/history/{snapshot_id}/restore", response_model=DealOut)
 def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_db)):
     """Sets the deal's inputs back to the snapshot's state. The restore is

@@ -105,6 +105,26 @@ def test_retention_caps_snapshots_per_deal(client, session_factory, monkeypatch)
         assert newest.inputs == {"n": 9}
 
 
+def test_single_snapshot_endpoint_serves_full_inputs(client):
+    """I12: the list stays metadata-only; the single-snapshot GET carries the
+    inputs for diff/compare views; cross-deal access is a 404."""
+    deal = client.post("/api/deals", json={"name": "D", "inputs": {"x": 1}}).json()
+    client.put(f"/api/deals/{deal['id']}", json={"inputs": {"x": 2}})
+
+    history = client.get(f"/api/deals/{deal['id']}/history").json()
+    assert all("inputs" not in h for h in history)
+
+    baseline = next(h for h in history if h["kind"] == "baseline")
+    full = client.get(f"/api/deals/{deal['id']}/history/{baseline['id']}").json()
+    assert full["inputs"] == {"x": 1}
+    assert full["kind"] == "baseline"
+
+    other = client.post("/api/deals", json={"name": "E", "inputs": {}}).json()
+    assert (
+        client.get(f"/api/deals/{other['id']}/history/{baseline['id']}").status_code == 404
+    )
+
+
 def test_restore_round_trip_and_undo(client):
     deal = client.post("/api/deals", json={"name": "U", "inputs": {"x": 1}}).json()
     client.put(f"/api/deals/{deal['id']}", json={"inputs": {"x": 2}})

@@ -357,6 +357,12 @@ export function fetchDealHistory(dealId: string) {
   return getJson<DealSnapshotMeta[]>(`/deals/${dealId}/history`)
 }
 
+export function fetchDealSnapshot(dealId: string, snapshotId: string) {
+  return getJson<DealSnapshotMeta & { inputs: Record<string, unknown> }>(
+    `/deals/${dealId}/history/${snapshotId}`,
+  )
+}
+
 export function restoreDealSnapshot(dealId: string, snapshotId: string) {
   return postJson<Deal>(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
 }

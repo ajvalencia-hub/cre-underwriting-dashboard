@@ -3,6 +3,22 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I12 — History diff view (Run 4)
+
+- **Tables diff BY ROW KEY** (unitMix → unitType, commercialLeases →
+  suiteId, opexLineItems → category, waterfallTiers → position), so
+  reordering rows is NOT a change; duplicate keys disambiguate with a
+  tick suffix rather than dropping rows. Scalars group by schema section
+  with per-type formatting; the quickScreen blob diffs one level in.
+- **The restore preview diffs against the LAST SAVED deal state** — that
+  is literally what restore replaces (unsaved keystrokes autosave within
+  seconds); diffing against in-memory form state would preview a
+  transaction that doesn't exist. Compare mode always orders the older
+  snapshot as the before side regardless of pick order.
+- The snapshot LIST endpoint stays metadata-only; full inputs come from
+  the new single-snapshot GET on demand (diffing is client-side over the
+  pure snapshotDiff lib).
+
 ## I11 — Comps hygiene + map (Run 4)
 
 - **Duplicate = same normalized address AND date within ±30 days**
