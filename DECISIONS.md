@@ -3,6 +3,33 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I7 — Widened native Excel export (Run 4)
+
+- **Expenses block is formula-live per line**: each row carries basis,
+  raw amount, growth, and a RESOLVING formula (`amount × units` for
+  per_unit, `× SF` for psf, falling back to ×1 exactly like the engine's
+  warning fallback); the statement's fixed-opex cell SUMPRODUCTs over the
+  block. pct_of_egi lines fold into the fee cell. Recoverable flags are
+  ANNOTATIONS — recoveries need lease-level modeling, which the export
+  still refuses. Non-ad-valorem (I5) exports as a block row with its own
+  growth column.
+- **Development mechanics mirror the engine cell-for-cell**: S-curve
+  weights as LITERAL values on the Draws sheet (the cosine ogive isn't
+  worth mirroring); costs, equity-first split (MIN/SUM prior-equity
+  recursion), first-draw fee, and capitalized interest as formulas over
+  them; carry months sweep NOI against the balance (MAX(0, bal+int−NOI),
+  levered CF pinned 0); the perm takeout is the app-sized VALUE with the
+  refi delta − costs hitting the takeout month; IO→amortizing perm
+  schedule on the perm clock. Sold-before-stabilization developments are
+  the one remaining dev refusal (no takeout exists to model).
+- **Debt tab is a presentation view tied to Model by reference** — one
+  schedule, two renderings, no second source of truth.
+- Export parity corpus doubled: opex-detail acquisition (per_unit
+  resolution + separate-growth non-ad-valorem line) and an S-curve
+  development — 14 outputs each, zero deltas at introduction. Found and
+  fixed in the process: acquisition yieldOnCost must divide by basis +
+  loan fees (the engine's total_cost_basis), not basis alone.
+
 ## I6 — Comp normalization (Run 4)
 
 - **Rent flags compare in tiers, best evidence first**: (1) unit-type

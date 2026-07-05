@@ -35,8 +35,6 @@ def _workbook(inputs) -> openpyxl.Workbook:
 def test_unsupported_features_refuse_with_the_full_list(analytic):
     hostile = {
         **analytic,
-        "dealType": "development",
-        "opexLineItems": [{"category": "taxes", "amount": 1, "basis": "annual_total"}],
         "waterfallTiers": [{"hurdlePct": 0.08}],
         "irrConvention": "xirr",
         "useReassessedTaxes": True,
@@ -48,8 +46,30 @@ def test_unsupported_features_refuse_with_the_full_list(analytic):
     with pytest.raises(UnsupportedModelFeatures) as excinfo:
         build_model_workbook(hostile)
     text = str(excinfo.value)
-    for fragment in ("development", "lease", "line-item", "waterfall", "XIRR", "reassessed"):
+    for fragment in ("lease", "waterfall", "XIRR", "reassessed"):
         assert fragment in text, fragment
+
+
+def test_development_sold_before_stabilization_refuses():
+    dev = {
+        "dealType": "development",
+        "landCost": 1_000_000, "hardCosts": 5_000_000, "softCosts": 1_000_000,
+        "constructionMonths": 20, "leaseUpMonths": 12,  # stabilizes month 33
+        "grossPotentialRent": 800_000,
+        "holdPeriodYears": 2,  # exits month 24 — before stabilization
+        "exitCapRatePct": 0.06,
+    }
+    with pytest.raises(UnsupportedModelFeatures) as excinfo:
+        build_model_workbook(dev)
+    assert "sold before stabilization" in str(excinfo.value)
+
+
+def _input_cell(wb, label_fragment: str):
+    ws = wb["Inputs"]
+    for row in ws.iter_rows(min_col=1, max_col=2):
+        if row[0].value and label_fragment in str(row[0].value):
+            return row[1].value
+    raise AssertionError(f"No Inputs row labeled like {label_fragment!r}")
 
 
 def test_workbook_is_formula_live_with_sized_loan(analytic):
@@ -58,15 +78,64 @@ def test_workbook_is_formula_live_with_sized_loan(analytic):
     out = wb["Outputs"]
     assert out[OUTPUT_CELLS["leveredIrr"]].value.startswith("=(1+IRR(")
     model = wb["Model"]
-    assert model["B2"].value.startswith("=Inputs!$B$6/12")  # GPR is a formula
-    assert model["I2"].value == "=F2-G2-H2"  # NOI identity
-    # 60 hold months + 12 forward NOI months
-    assert model.cell(row=73, column=9).value is not None
+    assert str(model["D2"].value).startswith("=IF($B2<1,0,Inputs!")  # GPR is a formula
+    assert model["K2"].value == "=H2-I2-J2"  # NOI identity
+    # 60 hold months + 12 forward NOI months (NOI = column K)
+    assert model.cell(row=73, column=11).value is not None
     assert model.cell(row=74, column=2).value is None
+    # The Debt tab ties to the Model schedule by reference.
+    assert wb["Debt"]["B2"].value == "=Model!$L$2"
 
     # Loan cell carries the engine's sized amount as a VALUE.
     loan = engine.compute(analytic)["debt"]["loanAmount"]
-    assert wb["Inputs"]["B12"].value == pytest.approx(loan)
+    assert _input_cell(wb, "Loan amount (sized by app)") == pytest.approx(loan)
+
+
+def test_expenses_block_resolves_bases_and_annotates_recoverable(analytic):
+    detail = {
+        **analytic,
+        "unitMix": [{"unitType": "1BR", "unitCount": 50, "inPlaceRent": 1_500}],
+        "grossPotentialRent": 0,
+        "opexLineItems": [
+            {"category": "taxes", "amount": 30_000, "basis": "annual_total", "recoverable": "yes"},
+            {"category": "utilities", "amount": 400, "basis": "per_unit", "recoverable": "no"},
+            {"category": "management_fee", "amount": 0.03, "basis": "pct_of_egi"},
+        ],
+        "realEstateTaxes": 0,
+    }
+    wb = _workbook(detail)
+    ws = wb["Inputs"]
+    rows = {
+        str(row[0].value): row
+        for row in ws.iter_rows(min_col=1, max_col=6)
+        if row[0].value
+    }
+    taxes = rows["Taxes (detail)"]
+    assert taxes[2].value == 30_000 and taxes[5].value == "yes"
+    utilities = rows["Utilities (detail)"]
+    assert utilities[1].value == "per_unit"
+    assert 'IF(B' in str(utilities[4].value)  # basis-resolving formula
+    assert _input_cell(wb, "Total units") == 50
+    # pct_of_egi lines fold into the fee cell, not the block.
+    assert _input_cell(wb, "Mgmt fee % of EGI") == pytest.approx(0.03)
+
+
+def test_development_workbook_has_formula_draws():
+    from tests.parity.export_case import DEVELOPMENT_SCURVE_INPUTS
+
+    content, warnings = build_model_workbook(DEVELOPMENT_SCURVE_INPUTS)
+    wb = openpyxl.load_workbook(BytesIO(content))
+    draws = wb["Draws"]
+    # Weights are literal values; costs/draws/interest are formulas.
+    assert isinstance(draws["B3"].value, float)
+    assert str(draws["C3"].value).startswith("=(")
+    assert str(draws["E3"].value).startswith("=C3-D3")
+    assert "MIN(C3" in str(draws["D3"].value)
+    assert str(draws["G3"].value).startswith("=IF(A3>=1,")
+    assert any("S-curve" in w for w in warnings)
+    # 12 construction months + month 0 row.
+    assert draws.cell(row=14, column=8).value is not None
+    assert draws.cell(row=15, column=1).value is None
 
 
 def test_unit_mix_deals_collapse_income_with_a_warning(analytic):

@@ -137,7 +137,7 @@ export default function GeneratePanel({
           <button
             onClick={handleExportModel}
             disabled={exportingModel}
-            title="Download a formula-live Excel model of this deal — no template needed. Supported for acquisition deals without lease-level or waterfall features."
+            title="Download a formula-live Excel model of this deal — no template needed. Supports acquisitions and developments (incl. opex line detail); lease-level rolls and waterfall tiers are refused with the reason."
             className="rounded border border-slate-400 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
           >
             {exportingModel ? 'Exporting…' : 'Export Excel model'}
