@@ -3,6 +3,21 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## I8 — Per-lease drill-down (Run 4)
+
+- The per-lease slices are accumulated IN the same loop that builds the
+  property vectors — never recomputed — so `Σ slices == property` is an
+  identity, and it's tested as one. Slices key by suiteId (tenant, then
+  index as fallbacks) and expose scheduled rent, free rent, downtime
+  loss, recoveries, TI/LC, and rollover events per generation.
+- The `?detail=true` payload gained `statement.leases.perLease` — a pure
+  EXPANSION of the I0 baseline (verified: the only diff on every lease
+  case was the new key, zero value changes) — so the baseline was
+  regenerated under the expansion rule.
+- Slice vectors are trimmed to the hold horizon in the engine (the
+  extended forward window is an exit-valuation internality); the annual
+  view and CSV are client-side summing only (leaseSlice.ts, unit-tested).
+
 ## I7 — Widened native Excel export (Run 4)
 
 - **Expenses block is formula-live per line**: each row carries basis,

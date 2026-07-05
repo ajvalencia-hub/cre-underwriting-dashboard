@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
+import LeaseDrilldown from '../components/LeaseDrilldown'
 import {
   cellValue,
   filterComponent,
@@ -377,6 +378,7 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
               </table>
             </div>
           )}
+          {statement.leases.perLease && <LeaseDrilldown perLease={statement.leases.perLease} />}
         </div>
       )}
 

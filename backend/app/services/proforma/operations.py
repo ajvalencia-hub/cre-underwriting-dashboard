@@ -511,6 +511,7 @@ def _build_lease_noi_vector(
             "occupancyYear1": income["occupancyYear1"],
             "occupancyStabilized": income["occupancyStabilized"],
             "expirationSchedule": income["expirationSchedule"],
+            "perLease": income["perLease"],
         },
         "gprSource": "commercialLeases",
         "warnings": warnings,

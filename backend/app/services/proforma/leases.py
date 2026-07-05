@@ -287,10 +287,17 @@ def build_lease_income(
     total_annual_in_place = 0.0
     expiration_by_year: dict[int, dict] = {}
     walt_weighted = 0.0
+    per_lease: list[dict] = []  # I8: drill-down slices, one per rent-roll row
 
-    for lease in leases:
+    for lease_index, lease in enumerate(leases):
         sf = _num(lease, "sf")
         share = sf / total_sf if total_sf > 0 else 0.0
+        slice_scheduled = [0.0] * months
+        slice_free = [0.0] * months
+        slice_downtime = [0.0] * months
+        slice_recoveries = [0.0] * months
+        slice_capital = [0.0] * months
+        rollover_events: list[dict] = []
         start_date = _parse_date(lease.get("startDate"))
         end_date = _parse_date(lease.get("endDate"))
         if end_date is None:
@@ -321,16 +328,36 @@ def build_lease_income(
         for m in range(max(1, start_index), min(end_index, months) + 1):
             rent = _escalated_rent_psf(lease, start_index, m) * sf / 12
             scheduled[m - 1] += rent
+            slice_scheduled[m - 1] += rent
             in_free_period = (m - start_index) < free_months
             if in_free_period:
                 free_rent_loss[m - 1] += rent
+                slice_free[m - 1] += rent
             else:
                 collected[m - 1] += rent
-            recoveries[m - 1] += recovery_for(lease, m, share, base_year)
+            rec = recovery_for(lease, m, share, base_year)
+            recoveries[m - 1] += rec
+            slice_recoveries[m - 1] += rec
             occupied_sf[m - 1] += sf
+
+        def _finish_lease(events: list[dict]):
+            per_lease.append({
+                "suiteId": str(lease.get("suiteId") or lease.get("tenant") or f"lease-{lease_index + 1}"),
+                "tenant": lease.get("tenant") or "",
+                "sf": sf,
+                "recoveryType": lease.get("recoveryType") or "gross",
+                "endDate": str(lease.get("endDate") or ""),
+                "scheduledRent": slice_scheduled,
+                "freeRent": slice_free,
+                "downtimeLoss": slice_downtime,
+                "recoveries": slice_recoveries,
+                "leasingCapital": slice_capital,
+                "rolloverEvents": events,
+            })
 
         # ---- speculative rollover generations -----------------------------
         if end_date is None:
+            _finish_lease([])
             continue
         generation_start = end_index + 1
         market_base = rollover["marketRentPsf"]
@@ -372,12 +399,24 @@ def build_lease_income(
             if rollover["reletCapitalAtCommencement"]:
                 if 1 <= generation_start <= months:
                     leasing_capital[generation_start - 1] += renewal_capital
+                    slice_capital[generation_start - 1] += renewal_capital
                 commencement = generation_start + downtime
                 if 1 <= commencement <= months:
                     leasing_capital[commencement - 1] += relet_capital
+                    slice_capital[commencement - 1] += relet_capital
             else:
                 if 1 <= generation_start <= months:
                     leasing_capital[generation_start - 1] += renewal_capital + relet_capital
+                    slice_capital[generation_start - 1] += renewal_capital + relet_capital
+
+            if generation_start <= months:
+                rollover_events.append({
+                    "expiryMonth": generation_start - 1,
+                    "commencementMonth": min(generation_start + downtime, months),
+                    "startRentPsf": round(start_rent_psf, 2),
+                    "renewalProbability": p,
+                    "downtimeMonths": downtime,
+                })
 
             gen_base_year = calendar_year_of(min(generation_start, months))
             gen_end = generation_start + new_term_months - 1
@@ -389,18 +428,26 @@ def build_lease_income(
                 renewal_rent = discount * market_rent
                 blended_rent = p * renewal_rent + (1 - p) * market_rent
                 scheduled[m - 1] += blended_rent
+                slice_scheduled[m - 1] += blended_rent
                 in_downtime = (m - generation_start) < downtime
                 if in_downtime:
                     # Renewal path pays (no downtime); re-let path is vacant.
                     collected[m - 1] += p * renewal_rent
                     downtime_loss[m - 1] += (1 - p) * market_rent
-                    recoveries[m - 1] += recovery_for(lease, m, share, gen_base_year) * p
+                    slice_downtime[m - 1] += (1 - p) * market_rent
+                    rec = recovery_for(lease, m, share, gen_base_year) * p
+                    recoveries[m - 1] += rec
+                    slice_recoveries[m - 1] += rec
                     occupied_sf[m - 1] += sf * p
                 else:
                     collected[m - 1] += blended_rent
-                    recoveries[m - 1] += recovery_for(lease, m, share, gen_base_year)
+                    rec = recovery_for(lease, m, share, gen_base_year)
+                    recoveries[m - 1] += rec
+                    slice_recoveries[m - 1] += rec
                     occupied_sf[m - 1] += sf
             generation_start = gen_end + 1
+
+        _finish_lease(rollover_events)
 
     walt = walt_weighted / total_sf if total_sf > 0 else 0.0
     occupancy = [
@@ -439,6 +486,7 @@ def build_lease_income(
         "occupancyYear1": round(occupancy_year1, 4),
         "occupancyStabilized": round(occupancy_stabilized, 4),
         "expirationSchedule": expiration_schedule,
+        "perLease": per_lease,
         "warnings": warnings,
     }
 

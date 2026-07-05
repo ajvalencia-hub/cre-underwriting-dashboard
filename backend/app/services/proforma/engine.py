@@ -673,7 +673,21 @@ def compute(inputs: dict) -> dict:
             debt_block["insuranceStress"] = insurance_rows
 
     if ops.get("leaseDetail"):
-        statement["leases"] = ops["leaseDetail"]
+        lease_detail = dict(ops["leaseDetail"])
+        # I8: per-lease drill-down slices — trim the extended forward window
+        # off the vectors so they align with the statement's hold horizon.
+        slice_keys = ("scheduledRent", "freeRent", "downtimeLoss", "recoveries", "leasingCapital")
+        lease_detail["perLease"] = [
+            {
+                **entry,
+                **{key: entry[key][:total] for key in slice_keys},
+                "rolloverEvents": [
+                    e for e in entry.get("rolloverEvents", []) if e["expiryMonth"] <= total
+                ],
+            }
+            for entry in lease_detail.get("perLease", [])
+        ]
+        statement["leases"] = lease_detail
     if components:
         statement["components"] = {
             name: {key: [0.0] + vec[:total] for key, vec in comp.items()}

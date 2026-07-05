@@ -51,6 +51,9 @@ export interface Statement {
       pctOfSf: number
       pctOfRent: number
     }[]
+    /** I8: per-lease drill-down slices (vectors are operating months 1..N,
+     *  no close column). */
+    perLease?: import('./leaseSlice').LeaseSlice[]
   }
 }
 
