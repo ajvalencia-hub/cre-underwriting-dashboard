@@ -454,6 +454,7 @@ function App() {
         </>
       }
     >
+      <div className="sticky top-0 z-20 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
         <select
@@ -592,6 +593,7 @@ function App() {
           </button>
         ))}
       </nav>
+      </div>
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
