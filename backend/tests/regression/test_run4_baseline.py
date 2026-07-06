@@ -1,14 +1,16 @@
-"""I0: the Run-3 regression baseline.
+"""J0: the Run-4 regression baseline (supersedes the Run-3 baseline).
 
-For five representative deals (analytic acquisition + development, the
-parity commercial NNN case, a rollover-heavy commercial roll, and the H2
-mixed-use fixture) the FULL /api/compute?detail=true payload is recorded to
-JSON. This test asserts the live payload is identical (floats to 1e-9)
-with every Run-4 input at its default — it must pass after EVERY I-series
+For six representative deals — analytic acquisition + development, the
+parity commercial NNN case, a rollover-heavy commercial roll, the H2
+mixed-use fixture, and a value-add-shaped multifamily deal (the J1/J2
+surface) — the FULL /api/compute?detail=true payload is recorded to JSON.
+This test asserts the live payload is identical (floats to 1e-9) with
+every Run-5 input at its default — it must pass after EVERY J-series
 commit. If a feature cannot keep this green at defaults, the feature stops
 and goes to BLOCKED.md; the baseline is never loosened to fit.
 
-Regenerate (Run-3 behavior changes are NOT a valid reason):
+Regenerate (Run-4 behavior changes are NOT a valid reason; payload
+EXPANSION with a verified key-only diff is):
     UPDATE_BASELINE=1 pytest tests/regression -q
 """
 
@@ -25,7 +27,7 @@ from app.services import compute_cache
 
 _HERE = Path(__file__).parent
 _FIXTURES = _HERE / "fixtures"
-_BASELINE = _HERE / "run3_baseline"
+_BASELINE = _HERE / "run4_baseline"
 _PARITY_CORPUS = _HERE.parent / "parity" / "corpus"
 _ENGINE_FIXTURES = _HERE.parent / "fixtures"
 
@@ -35,6 +37,7 @@ CASES = {
     "commercial_nnn": _PARITY_CORPUS / "commercial_nnn" / "inputs.json",
     "commercial_rollover": _FIXTURES / "commercial_rollover.json",
     "mixed_use": _FIXTURES / "mixed_use.json",
+    "value_add_multifamily": _FIXTURES / "value_add_multifamily.json",
 }
 
 FLOAT_TOL = 1e-9
@@ -73,7 +76,7 @@ def _diff(expected, actual, path: str, problems: list[str]) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-def test_run3_baseline(name: str):
+def test_run4_baseline(name: str):
     inputs = json.loads(CASES[name].read_text())
     payload = _compute_payload(inputs)
 
@@ -90,6 +93,6 @@ def test_run3_baseline(name: str):
     problems: list[str] = []
     _diff(expected, payload, name, problems)
     assert not problems, (
-        f"{len(problems)} divergence(s) from the Run-3 baseline "
+        f"{len(problems)} divergence(s) from the Run-4 baseline "
         f"(first 20):\n" + "\n".join(problems[:20])
     )
