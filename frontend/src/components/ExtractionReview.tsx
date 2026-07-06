@@ -99,12 +99,16 @@ export default function ExtractionReview({
     })
   }
 
-  async function handleApply() {
+  /** Shared apply path — takes the accepted map explicitly rather than reading
+   *  `accepted` state, so the one-click "accept high-confidence & apply" button
+   *  can act on its own just-computed set in the same tick instead of racing a
+   *  batched setState. */
+  async function applyValues(acceptedMap: Record<string, boolean>) {
     setApplying(true)
     setError(null)
     try {
       const confirmedValues: Record<string, unknown> = {}
-      for (const [fieldId, isAccepted] of Object.entries(accepted)) {
+      for (const [fieldId, isAccepted] of Object.entries(acceptedMap)) {
         if (isAccepted && !(proposal && fieldId === 'unitMix')) {
           confirmedValues[fieldId] = editedValues[fieldId]
         }
@@ -131,7 +135,27 @@ export default function ExtractionReview({
     }
   }
 
+  function handleApply() {
+    return applyValues(accepted)
+  }
+
+  /** The one-click path: mark every >=60%-confidence field accepted (on top of
+   *  whatever's already checked, including manually-accepted low-confidence
+   *  fields) and apply immediately. Low-confidence fields are never swept in
+   *  automatically — they still require an explicit checkbox. */
+  function acceptHighConfidenceAndApply() {
+    const next = { ...accepted }
+    for (const [fieldId, entry] of fieldEntries) {
+      if (entry.confidence >= LOW_CONFIDENCE_THRESHOLD) next[fieldId] = true
+    }
+    setAccepted(next)
+    return applyValues(next)
+  }
+
   const acceptedCount = Object.values(accepted).filter(Boolean).length
+  const highConfidenceCount = fieldEntries.filter(
+    ([, entry]) => entry.confidence >= LOW_CONFIDENCE_THRESHOLD,
+  ).length
 
   return (
     <div className="mt-6 space-y-4 rounded-md border border-slate-200 bg-white p-4">
@@ -514,24 +538,42 @@ export default function ExtractionReview({
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {(fieldEntries.length > 0 || proposal || leaseProposal) && (
-        <button
-          onClick={handleApply}
-          disabled={
-            applying ||
-            (acceptedCount === 0 &&
-              !(proposal && includeUnitMix && mixRows.length > 0) &&
-              !(leaseProposal && includeLeases && leaseRows.length > 0)) ||
-            applyBlockedByFailures
-          }
-          title={
-            applyBlockedByFailures
-              ? 'Acknowledge the failed cross-validation check(s) above first.'
-              : undefined
-          }
-          className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
-        >
-          {applying ? 'Applying…' : applied ? 'Applied ✓ — apply again' : `Apply ${acceptedCount} confirmed value(s) to Deal Inputs`}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {highConfidenceCount > 0 && (
+            <button
+              onClick={acceptHighConfidenceAndApply}
+              disabled={applying || applyBlockedByFailures}
+              title={
+                applyBlockedByFailures
+                  ? 'Acknowledge the failed cross-validation check(s) above first.'
+                  : `Accepts the ${highConfidenceCount} field(s) at or above ${Math.round(LOW_CONFIDENCE_THRESHOLD * 100)}% confidence (plus anything already checked) and applies immediately. Low-confidence fields are never included automatically.`
+              }
+              className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
+            >
+              {applying
+                ? 'Applying…'
+                : `Accept high-confidence (≥${Math.round(LOW_CONFIDENCE_THRESHOLD * 100)}%) & apply`}
+            </button>
+          )}
+          <button
+            onClick={handleApply}
+            disabled={
+              applying ||
+              (acceptedCount === 0 &&
+                !(proposal && includeUnitMix && mixRows.length > 0) &&
+                !(leaseProposal && includeLeases && leaseRows.length > 0)) ||
+              applyBlockedByFailures
+            }
+            title={
+              applyBlockedByFailures
+                ? 'Acknowledge the failed cross-validation check(s) above first.'
+                : undefined
+            }
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {applying ? 'Applying…' : applied ? 'Applied ✓ — apply again' : `Apply ${acceptedCount} confirmed value(s) as checked`}
+          </button>
+        </div>
       )}
     </div>
   )

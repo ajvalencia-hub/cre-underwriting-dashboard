@@ -7,22 +7,28 @@ import {
   computeQuickScreen,
   computeQuickScreenSensitivityGrid,
   deriveOpexRatioFromMargin,
+  mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
   parseQuickScreenInputs,
   serializeQuickScreenInputs,
   solveExitCapForSpread,
   solveHardCostForSpread,
+  solvePurchasePriceForSpread,
   solveRentForSpread,
   type QuickScreenInputs,
 } from './quickScreenMath'
 
 const BASE: QuickScreenInputs = {
+  dealMode: 'development',
   sizeMode: 'units',
   quantity: 100,
   landCost: 3_000_000,
   hardCostPerUnit: 180_000,
   softCostPct: 0.2,
   contingencyPct: 0.05,
+  purchasePricePerUnit: 220_000,
+  closingCostsPct: 0.02,
+  renoBudgetPerUnit: 0,
   rent: 1_800,
   noiMarginPct: 0.6,
   exitCapRatePct: 0.055,
@@ -39,7 +45,7 @@ describe('TDC composition', () => {
     expect(r.hardCosts).toBeCloseTo(100 * 180_000, 6) // 18,000,000
     expect(r.softCosts).toBeCloseTo(r.hardCosts * 0.2, 6) // 20% of hard
     expect(r.contingency).toBeCloseTo((r.hardCosts + r.softCosts) * 0.05, 6) // 5% of hard+soft
-    expect(r.totalDevelopmentCost).toBeCloseTo(
+    expect(r.totalCost).toBeCloseTo(
       BASE.landCost + r.hardCosts + r.softCosts + r.contingency,
       6,
     )
@@ -79,7 +85,7 @@ describe('spread math and tier boundaries', () => {
 describe('DSCR / debt yield / loan constant / break-even ratio', () => {
   it('computes standard leverage formulas', () => {
     const r = computeQuickScreen(BASE)
-    expect(r.loanAmount).toBeCloseTo(r.totalDevelopmentCost * 0.6, 6)
+    expect(r.loanAmount).toBeCloseTo(r.totalCost * 0.6, 6)
     expect(r.debtYield).toBeCloseTo(r.stabilizedNoi / r.loanAmount, 6)
     expect(r.loanConstant).toBeCloseTo(BASE.constructionInterestRatePct, 6) // IO: constant == rate
     expect(r.minDscr).toBeCloseTo(r.stabilizedNoi / r.annualDebtService, 6)
@@ -112,7 +118,7 @@ describe('DSCR / debt yield / loan constant / break-even ratio', () => {
       constructionInterestRatePct: 0.08,
     }
     const r = computeQuickScreen(fixture)
-    expect(r.totalDevelopmentCost).toBe(1_000_000)
+    expect(r.totalCost).toBe(1_000_000)
     expect(r.grossPotentialRent).toBe(120_000)
     expect(r.stabilizedNoi).toBe(60_000)
     expect(r.loanAmount).toBe(500_000)
@@ -131,7 +137,7 @@ describe('all-equity edge case (LTC = 0)', () => {
     expect(r.debtYield).toBeNull()
     expect(r.loanConstant).toBeNull()
     expect(r.minDscr).toBeNull()
-    expect(r.equityRequired).toBeCloseTo(r.totalDevelopmentCost, 6)
+    expect(r.equityRequired).toBeCloseTo(r.totalCost, 6)
     expect(r.cashOnCashPct).toBeCloseTo(r.yieldOnCost, 6)
   })
 
@@ -159,7 +165,7 @@ describe('per-SF vs per-unit parity', () => {
 
     expect(sfResult.hardCosts).toBeCloseTo(unitsResult.hardCosts, 6)
     expect(sfResult.grossPotentialRent).toBeCloseTo(unitsResult.grossPotentialRent, 6)
-    expect(sfResult.totalDevelopmentCost).toBeCloseTo(unitsResult.totalDevelopmentCost, 6)
+    expect(sfResult.totalCost).toBeCloseTo(unitsResult.totalCost, 6)
     expect(sfResult.stabilizedNoi).toBeCloseTo(unitsResult.stabilizedNoi, 6)
     expect(sfResult.yieldOnCost).toBeCloseTo(unitsResult.yieldOnCost, 6)
   })
@@ -270,5 +276,131 @@ describe('URL persistence', () => {
 
   it('returns null when there are no quick-screen params present', () => {
     expect(parseQuickScreenInputs(new URLSearchParams('foo=bar'))).toBeNull()
+  })
+
+  it('a pre-acquisition-mode URL (no dealMode/acquisition params) defaults to development', () => {
+    // Simulates a bookmark saved before this feature existed: only the
+    // original numeric keys are present.
+    const legacyParams = new URLSearchParams()
+    legacyParams.set('sizeMode', 'units')
+    legacyParams.set('detail', '0')
+    legacyParams.set('quantity', '100')
+    legacyParams.set('landCost', '3000000')
+    legacyParams.set('hardCostPerUnit', '180000')
+    legacyParams.set('rent', '1800')
+    legacyParams.set('exitCapRatePct', '0.055')
+    legacyParams.set('ltcPct', '0.6')
+
+    const parsed = parseQuickScreenInputs(legacyParams)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.dealMode).toBe('development')
+    expect(() => computeQuickScreen(parsed!)).not.toThrow()
+  })
+})
+
+describe('acquisition mode', () => {
+  const acquisitionBase: QuickScreenInputs = {
+    ...BASE,
+    dealMode: 'acquisition',
+    quantity: 10,
+    purchasePricePerUnit: 100_000,
+    closingCostsPct: 0,
+    renoBudgetPerUnit: 0,
+    rent: 1_000,
+    noiMarginPct: 0.5,
+    exitCapRatePct: 0.06,
+    ltcPct: 0.5,
+    constructionInterestRatePct: 0.08,
+  }
+
+  it('matches hand-calculated fixtures with clean round numbers (no closing/reno costs)', () => {
+    // 10 units, $100k/unit purchase, no closing costs or reno -> total cost = $1,000,000.
+    // $1,000/mo/unit -> GPR = $120,000. 50% margin -> NOI = $60,000.
+    // 50% LTV -> loan = $500,000. 8% IO rate -> debt service = $40,000.
+    const r = computeQuickScreen(acquisitionBase)
+    expect(r.purchasePrice).toBe(1_000_000)
+    expect(r.closingCosts).toBe(0)
+    expect(r.renoBudget).toBe(0)
+    expect(r.totalCost).toBe(1_000_000)
+    expect(r.grossPotentialRent).toBe(120_000)
+    expect(r.stabilizedNoi).toBe(60_000)
+    expect(r.loanAmount).toBe(500_000)
+    expect(r.annualDebtService).toBe(40_000)
+    expect(r.debtYield).toBeCloseTo(0.12, 9)
+    expect(r.minDscr).toBeCloseTo(1.5, 9)
+    // With no closing costs or reno budget, the purchase price IS the total
+    // cost basis, so going-in cap rate and yield on cost coincide exactly —
+    // the same collapse that happens in development mode, for the same reason.
+    expect(r.goingInCapRate).toBeCloseTo(0.06, 9)
+    expect(r.goingInCapRate).toBeCloseTo(r.yieldOnCost, 9)
+  })
+
+  it('going-in cap rate (price only) diverges from yield on cost (full basis) once closing/reno costs exist', () => {
+    const withCosts: QuickScreenInputs = {
+      ...acquisitionBase,
+      closingCostsPct: 0.02, // -> $20,000
+      renoBudgetPerUnit: 8_000, // -> $80,000 over 10 units
+    }
+    const r = computeQuickScreen(withCosts)
+    expect(r.closingCosts).toBe(20_000)
+    expect(r.renoBudget).toBe(80_000)
+    expect(r.totalCost).toBe(1_100_000)
+    expect(r.goingInCapRate).toBeCloseTo(60_000 / 1_000_000, 9) // price-only basis
+    expect(r.yieldOnCost).toBeCloseTo(60_000 / 1_100_000, 9) // full-cost basis
+    expect(r.goingInCapRate).toBeGreaterThan(r.yieldOnCost)
+  })
+
+  it('is unaffected by development-only fields (landCost/hardCostPerUnit/softCostPct/contingencyPct)', () => {
+    const withDevFieldsSet: QuickScreenInputs = {
+      ...acquisitionBase,
+      landCost: 999_999,
+      hardCostPerUnit: 999_999,
+      softCostPct: 0.5,
+      contingencyPct: 0.5,
+    }
+    const r = computeQuickScreen(withDevFieldsSet)
+    expect(r.hardCosts).toBe(0)
+    expect(r.softCosts).toBe(0)
+    expect(r.contingency).toBe(0)
+    expect(r.totalCost).toBe(1_000_000)
+  })
+
+  it('per-SF vs per-unit parity holds in acquisition mode too', () => {
+    const sfPerUnit = 900
+    const unitsResult = computeQuickScreen(acquisitionBase)
+    const sfInputs: QuickScreenInputs = {
+      ...acquisitionBase,
+      sizeMode: 'sf',
+      quantity: acquisitionBase.quantity * sfPerUnit,
+      purchasePricePerUnit: acquisitionBase.purchasePricePerUnit / sfPerUnit,
+      rent: (acquisitionBase.rent * 12) / sfPerUnit,
+    }
+    const sfResult = computeQuickScreen(sfInputs)
+    expect(sfResult.purchasePrice).toBeCloseTo(unitsResult.purchasePrice, 6)
+    expect(sfResult.totalCost).toBeCloseTo(unitsResult.totalCost, 6)
+    expect(sfResult.stabilizedNoi).toBeCloseTo(unitsResult.stabilizedNoi, 6)
+    expect(sfResult.yieldOnCost).toBeCloseTo(unitsResult.yieldOnCost, 6)
+  })
+
+  it('solvePurchasePriceForSpread round-trips to the target spread', () => {
+    const weak: QuickScreenInputs = { ...acquisitionBase, purchasePricePerUnit: 250_000, exitCapRatePct: 0.07 }
+    const targetBps = FEASIBILITY_THRESHOLDS.marginal
+    const solved = solvePurchasePriceForSpread(weak, targetBps)
+    expect(solved).not.toBeNull()
+    const r = computeQuickScreen({ ...weak, purchasePricePerUnit: solved! })
+    expect(r.capRateSpreadBps).toBeCloseTo(targetBps, 4)
+  })
+
+  it('mapQuickScreenToDealInputs maps to dealType acquisition with acquisition-specific fields, never development fields', () => {
+    const r = computeQuickScreen(acquisitionBase)
+    const mapped = mapQuickScreenToDealInputs(acquisitionBase, r)
+    expect(mapped.dealType).toBe('acquisition')
+    expect(mapped.purchasePrice).toBe(r.purchasePrice)
+    expect(mapped.closingCostsPct).toBe(acquisitionBase.closingCostsPct)
+    expect(mapped.dayOneCapex).toBe(r.renoBudget)
+    expect(mapped.stabilizedNoi).toBe(r.stabilizedNoi)
+    expect(mapped.totalCostBasis).toBe(r.totalCost)
+    expect(mapped).not.toHaveProperty('landCost')
+    expect(mapped).not.toHaveProperty('hardCosts')
   })
 })
