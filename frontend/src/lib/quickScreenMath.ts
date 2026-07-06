@@ -3,6 +3,7 @@
 // render these results, never recompute them.
 
 export type SizeMode = 'units' | 'sf'
+export type DealMode = 'development' | 'acquisition'
 export type FeasibilityTier = 'strong' | 'marginal' | 'weak'
 
 export interface FeasibilityThresholds {
@@ -35,17 +36,26 @@ export const DEFAULT_IMPLIED_VACANCY_PCT = 0.05
 export const QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION = 900
 
 export interface QuickScreenInputs {
+  dealMode: DealMode
   sizeMode: SizeMode
   quantity: number // # units, or total SF
+
+  // Development-mode cost basis (ignored when dealMode === 'acquisition')
   landCost: number
   hardCostPerUnit: number // $ per unit or per SF, depending on sizeMode
   softCostPct: number // fraction, e.g. 0.20 = 20% of hard cost
   contingencyPct: number // fraction, of (hard + soft)
+
+  // Acquisition-mode cost basis (ignored when dealMode === 'development')
+  purchasePricePerUnit: number // $ per unit or per SF, depending on sizeMode
+  closingCostsPct: number // fraction of purchase price
+  renoBudgetPerUnit: number // $ per unit or per SF — optional value-add capex, 0 = as-is
+
   rent: number // $/unit/month if sizeMode === 'units', else $/SF/year
   noiMarginPct: number // fraction of gross potential rent retained as NOI (simple mode)
   exitCapRatePct: number // fraction
   ltcPct: number // fraction, 0 disables leverage output
-  constructionInterestRatePct: number // fraction, interest-only approximation
+  constructionInterestRatePct: number // fraction, interest-only approximation (labeled "loan rate" for acquisitions)
   useDetailedNoi: boolean // when true, vacancyPct/opexRatioPct drive NOI instead of noiMarginPct
   vacancyPct: number // fraction of gross potential rent lost to vacancy (detail mode)
   opexRatioPct: number // fraction of effective gross income spent on opex (detail mode)
@@ -61,10 +71,17 @@ export function deriveOpexRatioFromMargin(noiMarginPct: number, vacancyPct: numb
 }
 
 export interface QuickScreenResults {
+  // Development-mode cost breakdown (0 in acquisition mode)
   hardCosts: number
   softCosts: number
   contingency: number
-  totalDevelopmentCost: number
+  // Acquisition-mode cost breakdown (0 in development mode)
+  purchasePrice: number
+  closingCosts: number
+  renoBudget: number
+  // Mode-agnostic total: land+hard+soft+contingency (development), or
+  // purchasePrice*(1+closingCostsPct)+renoBudget (acquisition).
+  totalCost: number
 
   grossPotentialRent: number
   vacancyLoss: number
@@ -100,10 +117,30 @@ export interface QuickScreenResults {
 }
 
 export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResults {
-  const hardCosts = inputs.quantity * inputs.hardCostPerUnit
-  const softCosts = hardCosts * inputs.softCostPct
-  const contingency = (hardCosts + softCosts) * inputs.contingencyPct
-  const totalDevelopmentCost = inputs.landCost + hardCosts + softCosts + contingency
+  // Checked against 'acquisition' specifically (not `!== 'development'`) so a
+  // scenario/URL saved before dealMode existed — where it's undefined —
+  // reproduces the original development-only behavior exactly.
+  const isAcquisition = inputs.dealMode === 'acquisition'
+
+  let hardCosts = 0
+  let softCosts = 0
+  let contingency = 0
+  let purchasePrice = 0
+  let closingCosts = 0
+  let renoBudget = 0
+  let totalCost: number
+
+  if (isAcquisition) {
+    purchasePrice = inputs.quantity * inputs.purchasePricePerUnit
+    closingCosts = purchasePrice * inputs.closingCostsPct
+    renoBudget = inputs.quantity * inputs.renoBudgetPerUnit
+    totalCost = purchasePrice + closingCosts + renoBudget
+  } else {
+    hardCosts = inputs.quantity * inputs.hardCostPerUnit
+    softCosts = hardCosts * inputs.softCostPct
+    contingency = (hardCosts + softCosts) * inputs.contingencyPct
+    totalCost = inputs.landCost + hardCosts + softCosts + contingency
+  }
 
   const grossPotentialRent =
     inputs.sizeMode === 'units' ? inputs.quantity * inputs.rent * 12 : inputs.quantity * inputs.rent
@@ -124,18 +161,26 @@ export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResult
 
   const stabilizedValue = inputs.exitCapRatePct > 0 ? stabilizedNoi / inputs.exitCapRatePct : 0
 
-  const profit = stabilizedValue - totalDevelopmentCost
-  const profitMarginPct = totalDevelopmentCost > 0 ? profit / totalDevelopmentCost : 0
+  const profit = stabilizedValue - totalCost
+  const profitMarginPct = totalCost > 0 ? profit / totalCost : 0
 
-  const yieldOnCost = totalDevelopmentCost > 0 ? stabilizedNoi / totalDevelopmentCost : 0
-  // No separate acquisition price exists for a ground-up deal — the cost basis
-  // doubles as the "going-in" basis, so going-in cap rate collapses to yield on cost.
-  const goingInCapRate = yieldOnCost
+  const yieldOnCost = totalCost > 0 ? stabilizedNoi / totalCost : 0
+  // Development: no separate acquisition price exists for a ground-up deal —
+  // the cost basis doubles as the "going-in" basis, so going-in cap rate
+  // collapses to yield on cost. Acquisition: going-in cap is priced off the
+  // purchase price alone, excluding closing costs and any renovation budget —
+  // that's what makes it meaningfully different from yield on cost (the
+  // full-cost basis) for a value-add deal.
+  const goingInCapRate = isAcquisition
+    ? purchasePrice > 0
+      ? stabilizedNoi / purchasePrice
+      : 0
+    : yieldOnCost
   const capRateSpreadBps = (yieldOnCost - inputs.exitCapRatePct) * 10000
   const feasibility = classifyFeasibility(capRateSpreadBps)
 
-  const loanAmount = totalDevelopmentCost * inputs.ltcPct
-  const equityRequired = totalDevelopmentCost - loanAmount
+  const loanAmount = totalCost * inputs.ltcPct
+  const equityRequired = totalCost - loanAmount
   const annualDebtService = loanAmount * inputs.constructionInterestRatePct
   const leveredCashFlow = stabilizedNoi - annualDebtService
   const cashOnCashPct = equityRequired > 0 ? leveredCashFlow / equityRequired : null
@@ -166,7 +211,10 @@ export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResult
     hardCosts,
     softCosts,
     contingency,
-    totalDevelopmentCost,
+    purchasePrice,
+    closingCosts,
+    renoBudget,
+    totalCost,
     grossPotentialRent,
     vacancyLoss,
     effectiveGrossIncome,
@@ -199,12 +247,16 @@ export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResult
 }
 
 export const QUICK_SCREEN_DEFAULTS: QuickScreenInputs = {
+  dealMode: 'development',
   sizeMode: 'units',
   quantity: 100,
   landCost: 3_000_000,
   hardCostPerUnit: 180_000,
   softCostPct: 0.2,
   contingencyPct: 0.05,
+  purchasePricePerUnit: 220_000,
+  closingCostsPct: 0.02,
+  renoBudgetPerUnit: 0,
   rent: 1_800,
   noiMarginPct: 0.6,
   exitCapRatePct: 0.055,
@@ -232,6 +284,9 @@ export const QUICK_SCREEN_FIELD_CONFIG: Record<string, QuickScreenFieldConfig> =
   hardCostPerUnit: { min: 0, step: 1_000 },
   softCostPct: { min: 0, max: 1, step: 0.01 },
   contingencyPct: { min: 0, max: 1, step: 0.01 },
+  purchasePricePerUnit: { min: 0, step: 5_000 },
+  closingCostsPct: { min: 0, max: 0.1, step: 0.005 },
+  renoBudgetPerUnit: { min: 0, step: 500 },
   rent: { min: 0, step: 25 },
   noiMarginPct: { min: 0, max: 1, step: 0.01 },
   vacancyPct: { min: 0, max: 1, step: 0.0025 },
@@ -260,16 +315,17 @@ export function solveRentForSpread(inputs: QuickScreenInputs, targetBps: number)
   const annualFactor = inputs.sizeMode === 'units' ? 12 : 1
   if (inputs.quantity <= 0 || annualFactor <= 0 || results.effectiveNoiMarginPct <= 0) return null
 
-  const requiredNoi = results.totalDevelopmentCost * (inputs.exitCapRatePct + targetSpreadFraction)
+  const requiredNoi = results.totalCost * (inputs.exitCapRatePct + targetSpreadFraction)
   const requiredGpr = requiredNoi / results.effectiveNoiMarginPct
   return requiredGpr / (inputs.quantity * annualFactor)
 }
 
 /**
- * Hard cost/unit: NOI doesn't depend on hard cost, so solve for the TDC that
- * produces the target yield on cost (TDC_target = NOI / (exitCap + targetSpread)),
- * then invert TDC = land + hard*(1+softCostPct)*(1+contingencyPct) for hard cost:
- *   hardCostPerUnit = (TDC_target - land) / ((1+softCostPct)*(1+contingencyPct)*quantity)
+ * Hard cost/unit (development mode): NOI doesn't depend on hard cost, so solve
+ * for the total cost that produces the target yield on cost
+ * (cost_target = NOI / (exitCap + targetSpread)), then invert
+ * cost = land + hard*(1+softCostPct)*(1+contingencyPct) for hard cost:
+ *   hardCostPerUnit = (cost_target - land) / ((1+softCostPct)*(1+contingencyPct)*quantity)
  */
 export function solveHardCostForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
   const targetSpreadFraction = targetBps / 10000
@@ -277,9 +333,27 @@ export function solveHardCostForSpread(inputs: QuickScreenInputs, targetBps: num
   const costMultiplier = (1 + inputs.softCostPct) * (1 + inputs.contingencyPct)
   if (results.stabilizedNoi <= 0 || costMultiplier <= 0 || inputs.quantity <= 0) return null
 
-  const tdcTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
-  const requiredHardCosts = (tdcTarget - inputs.landCost) / costMultiplier
+  const costTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
+  const requiredHardCosts = (costTarget - inputs.landCost) / costMultiplier
   return requiredHardCosts > 0 ? requiredHardCosts / inputs.quantity : null
+}
+
+/**
+ * Purchase price/unit (acquisition mode): mirrors solveHardCostForSpread —
+ * NOI doesn't depend on purchase price, so solve for the total cost that
+ * produces the target yield on cost, then invert
+ * cost = purchasePrice*(1+closingCostsPct) + renoBudget for purchase price:
+ *   purchasePricePerUnit = (cost_target - renoBudget) / ((1+closingCostsPct)*quantity)
+ */
+export function solvePurchasePriceForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
+  const targetSpreadFraction = targetBps / 10000
+  const results = computeQuickScreen(inputs)
+  const costMultiplier = 1 + inputs.closingCostsPct
+  if (results.stabilizedNoi <= 0 || costMultiplier <= 0 || inputs.quantity <= 0) return null
+
+  const costTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
+  const requiredPurchasePrice = (costTarget - results.renoBudget) / costMultiplier
+  return requiredPurchasePrice > 0 ? requiredPurchasePrice / inputs.quantity : null
 }
 
 /**
@@ -361,9 +435,11 @@ export function mapQuickScreenToOutputMetrics(
 /**
  * Shared mapping from quick-screen state onto the Deal Inputs field ids (see
  * backend/app/data/input_schema.json) — the single implementation behind
- * "Send to Deal Inputs" and "Save as Scenario".
+ * "Send to Deal Inputs" and "Save as Scenario". Branches on dealMode; the
+ * shared fields (rent, vacancy, exit cap, financing, equity) are identical
+ * either way — only the cost-basis section differs.
  *
- * NOT mapped, and why:
+ * NOT mapped, and why (applies to both modes unless noted):
  *  - propertyType / mixedUseComponents — sizeMode ('units' vs 'sf') doesn't
  *    reliably imply a property type (SF-denominated could be office, retail,
  *    industrial, etc.), so guessing would be worse than leaving it blank.
@@ -373,10 +449,8 @@ export function mapQuickScreenToOutputMetrics(
  *    number; dumping it into a single arbitrary line item would misrepresent
  *    the deal's actual expense structure, which conflicts with this app's
  *    "never silently mis-populate financial inputs" principle.
- *  - acquisition_specific.* (purchasePrice, closingCostsPct, dueDiligenceCosts,
- *    acquisitionFeePct, dayOneCapex, inPlaceNoi, stabilizedNoi) — that section
- *    is gated on dealType === 'acquisition'; irrelevant since this always maps
- *    to dealType === 'development'.
+ *  - dueDiligenceCosts, acquisitionFeePct, inPlaceNoi (acquisition mode) —
+ *    not modeled; no dedicated quick-screen input for either.
  *  - unit/SF count — there's no generic "quantity" field in the schema. It
  *    only exists inside property-type-specific sections (unitMix table,
  *    rentableSf, homeCount), which are gated on propertyType — which, per
@@ -395,14 +469,28 @@ export function mapQuickScreenToDealInputs(
   results: QuickScreenResults,
 ): Record<string, unknown> {
   const vacancyPct = inputs.useDetailedNoi ? inputs.vacancyPct : DEFAULT_IMPLIED_VACANCY_PCT
+  const isAcquisition = inputs.dealMode === 'acquisition'
+
+  const costBasisFields = isAcquisition
+    ? {
+        // Acquisition Details
+        purchasePrice: results.purchasePrice,
+        closingCostsPct: inputs.closingCostsPct,
+        dayOneCapex: results.renoBudget,
+        stabilizedNoi: results.stabilizedNoi, // informational cross-check in the native engine
+      }
+    : {
+        // Development Details
+        landCost: inputs.landCost,
+        hardCosts: results.hardCosts,
+        hardCostsPsf: inputs.hardCostPerUnit,
+        softCosts: results.softCosts,
+        contingencyPct: inputs.contingencyPct,
+      }
+
   return {
-    dealType: 'development',
-    // Development Details
-    landCost: inputs.landCost,
-    hardCosts: results.hardCosts,
-    hardCostsPsf: inputs.hardCostPerUnit,
-    softCosts: results.softCosts,
-    contingencyPct: inputs.contingencyPct,
+    dealType: inputs.dealMode,
+    ...costBasisFields,
     // Exit Assumptions
     exitCapRatePct: inputs.exitCapRatePct,
     // Operating Income
@@ -411,7 +499,7 @@ export function mapQuickScreenToDealInputs(
     // Financing
     ltvOrLtc: inputs.ltcPct,
     interestRate: inputs.constructionInterestRatePct,
-    totalCostBasis: results.totalDevelopmentCost,
+    totalCostBasis: results.totalCost,
     loanAmount: results.loanAmount,
     // Equity Structure
     totalEquity: results.equityRequired,
@@ -471,6 +559,9 @@ const QUICK_SCREEN_NUMERIC_KEYS = [
   'hardCostPerUnit',
   'softCostPct',
   'contingencyPct',
+  'purchasePricePerUnit',
+  'closingCostsPct',
+  'renoBudgetPerUnit',
   'rent',
   'noiMarginPct',
   'exitCapRatePct',
@@ -482,6 +573,7 @@ const QUICK_SCREEN_NUMERIC_KEYS = [
 
 export function serializeQuickScreenInputs(inputs: QuickScreenInputs): URLSearchParams {
   const params = new URLSearchParams()
+  params.set('dealMode', inputs.dealMode)
   params.set('sizeMode', inputs.sizeMode)
   params.set('detail', inputs.useDetailedNoi ? '1' : '0')
   for (const key of QUICK_SCREEN_NUMERIC_KEYS) {
@@ -494,7 +586,12 @@ export function parseQuickScreenInputs(params: URLSearchParams): QuickScreenInpu
   const hasAny = QUICK_SCREEN_NUMERIC_KEYS.some((key) => params.has(key))
   if (!hasAny) return null
 
+  // A URL saved before dealMode/acquisition fields existed has none of them —
+  // spreading QUICK_SCREEN_DEFAULTS first means it silently reproduces the
+  // original development-only behavior instead of ending up with `undefined`s.
   const result: QuickScreenInputs = { ...QUICK_SCREEN_DEFAULTS }
+  const dealMode = params.get('dealMode')
+  if (dealMode === 'development' || dealMode === 'acquisition') result.dealMode = dealMode
   const sizeMode = params.get('sizeMode')
   if (sizeMode === 'units' || sizeMode === 'sf') result.sizeMode = sizeMode
   result.useDetailedNoi = params.get('detail') === '1'

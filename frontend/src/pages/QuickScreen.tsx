@@ -10,7 +10,9 @@ import {
   mapQuickScreenToDealInputs,
   solveExitCapForSpread,
   solveHardCostForSpread,
+  solvePurchasePriceForSpread,
   solveRentForSpread,
+  type DealMode,
   type QuickScreenInputs,
   type QuickScreenResults,
   type SizeMode,
@@ -79,9 +81,15 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
       onInputsChange({ ...inputs, sizeMode: value as SizeMode })
       return
     }
+    if (key === 'dealMode') {
+      onInputsChange({ ...inputs, dealMode: value as DealMode })
+      return
+    }
     if (typeof value !== 'number' || !Number.isFinite(value)) return
     onInputsChange({ ...inputs, [key]: value })
   }
+
+  const isAcquisition = inputs.dealMode === 'acquisition'
 
   function field(key: keyof QuickScreenInputs) {
     return QUICK_SCREEN_FIELD_CONFIG[key]
@@ -116,24 +124,32 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
     }
   }
 
+  const costPerUnitField = isAcquisition ? inputs.purchasePricePerUnit : inputs.hardCostPerUnit
+  const costPerUnitLabel = isAcquisition ? 'purchase price' : 'hard cost'
   const sfPerUnitHint =
     inputs.sizeMode === 'units'
-      ? `≈ ${formatMoney(inputs.hardCostPerUnit / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION)}/SF hard cost, ${formatMoney(
+      ? `≈ ${formatMoney(costPerUnitField / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION)}/SF ${costPerUnitLabel}, ${formatMoney(
           (inputs.rent * 12) / QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
         )}/SF/yr rent — assumes ${QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION} SF/unit`
       : `≈ ${formatMoney(
-          inputs.hardCostPerUnit * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
-        )}/unit hard cost, ${formatMoney(
+          costPerUnitField * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION,
+        )}/unit ${costPerUnitLabel}, ${formatMoney(
           (inputs.rent * QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION) / 12,
         )}/mo rent — assumes ${QUICK_SCREEN_SF_PER_UNIT_ASSUMPTION} SF/unit`
 
   const showSolveFor = results.feasibility === 'weak' || results.feasibility === 'marginal'
   const solvedRent = showSolveFor ? solveRentForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
-  const solvedHardCost = showSolveFor ? solveHardCostForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
+  const solvedCostLever = showSolveFor
+    ? isAcquisition
+      ? solvePurchasePriceForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal)
+      : solveHardCostForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal)
+    : null
   const solvedExitCap = showSolveFor ? solveExitCapForSpread(inputs, FEASIBILITY_THRESHOLDS.marginal) : null
   const solveForParts = [
     solvedRent !== null ? `rent ≥ ${formatMoney(solvedRent)}${inputs.sizeMode === 'units' ? '/mo' : '/SF/yr'}` : null,
-    solvedHardCost !== null ? `hard cost ≤ ${formatMoneyCompact(solvedHardCost)}/${inputs.sizeMode === 'units' ? 'unit' : 'SF'}` : null,
+    solvedCostLever !== null
+      ? `${costPerUnitLabel} ≤ ${formatMoneyCompact(solvedCostLever)}/${inputs.sizeMode === 'units' ? 'unit' : 'SF'}`
+      : null,
     solvedExitCap !== null ? `exit cap ≤ ${formatPct(solvedExitCap)}` : null,
   ].filter((p): p is string => p !== null)
   const unitLabel = inputs.sizeMode === 'units' ? '/unit' : '/SF'
@@ -150,12 +166,28 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
     <div className="max-w-4xl">
       <h1 className="text-2xl font-semibold">Back-of-Napkin Screen</h1>
       <p className="mt-1 text-slate-500">
-        A handful of inputs to see whether a development deal is worth underwriting in full — no template
-        or mapping required.
+        A handful of inputs to see whether a development or acquisition deal is worth underwriting in
+        full — no template or mapping required.
       </p>
 
       <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
         <div className="space-y-4 rounded-md border border-slate-200 bg-white p-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-600">Deal Type</label>
+            <div className="mt-1 flex gap-3 text-sm">
+              {(['development', 'acquisition'] as DealMode[]).map((mode) => (
+                <label key={mode} className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    checked={inputs.dealMode === mode}
+                    onChange={() => set('dealMode', mode)}
+                  />
+                  {mode === 'development' ? 'Development' : 'Acquisition'}
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-600">Sized by</label>
             <div className="mt-1 flex gap-3 text-sm">
@@ -181,44 +213,86 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
             />
           </FieldRow>
 
-          <FieldRow label="Land Cost">
-            <ScalarInput
-              type="currency"
-              value={inputs.landCost}
-              onChange={(v) => set('landCost', v)}
-              {...field('landCost')}
-            />
-          </FieldRow>
+          {isAcquisition ? (
+            <>
+              <FieldRow
+                label={inputs.sizeMode === 'units' ? 'Purchase Price per Unit' : 'Purchase Price per SF'}
+                hint={sfPerUnitHint}
+              >
+                <ScalarInput
+                  type="currency"
+                  value={inputs.purchasePricePerUnit}
+                  onChange={(v) => set('purchasePricePerUnit', v)}
+                  {...field('purchasePricePerUnit')}
+                />
+              </FieldRow>
 
-          <FieldRow
-            label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}
-            hint={sfPerUnitHint}
-          >
-            <ScalarInput
-              type="currency"
-              value={inputs.hardCostPerUnit}
-              onChange={(v) => set('hardCostPerUnit', v)}
-              {...field('hardCostPerUnit')}
-            />
-          </FieldRow>
+              <FieldRow label="Closing Costs (% of purchase price)">
+                <ScalarInput
+                  type="percent"
+                  value={inputs.closingCostsPct}
+                  onChange={(v) => set('closingCostsPct', v)}
+                  {...field('closingCostsPct')}
+                />
+              </FieldRow>
 
-          <FieldRow label="Soft Costs (% of hard cost)">
-            <ScalarInput
-              type="percent"
-              value={inputs.softCostPct}
-              onChange={(v) => set('softCostPct', v)}
-              {...field('softCostPct')}
-            />
-          </FieldRow>
+              <FieldRow
+                label={
+                  inputs.sizeMode === 'units'
+                    ? 'Renovation Budget per Unit (optional)'
+                    : 'Renovation Budget per SF (optional)'
+                }
+              >
+                <ScalarInput
+                  type="currency"
+                  value={inputs.renoBudgetPerUnit}
+                  onChange={(v) => set('renoBudgetPerUnit', v)}
+                  {...field('renoBudgetPerUnit')}
+                />
+              </FieldRow>
+            </>
+          ) : (
+            <>
+              <FieldRow label="Land Cost">
+                <ScalarInput
+                  type="currency"
+                  value={inputs.landCost}
+                  onChange={(v) => set('landCost', v)}
+                  {...field('landCost')}
+                />
+              </FieldRow>
 
-          <FieldRow label="Contingency (% of hard + soft)">
-            <ScalarInput
-              type="percent"
-              value={inputs.contingencyPct}
-              onChange={(v) => set('contingencyPct', v)}
-              {...field('contingencyPct')}
-            />
-          </FieldRow>
+              <FieldRow
+                label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}
+                hint={sfPerUnitHint}
+              >
+                <ScalarInput
+                  type="currency"
+                  value={inputs.hardCostPerUnit}
+                  onChange={(v) => set('hardCostPerUnit', v)}
+                  {...field('hardCostPerUnit')}
+                />
+              </FieldRow>
+
+              <FieldRow label="Soft Costs (% of hard cost)">
+                <ScalarInput
+                  type="percent"
+                  value={inputs.softCostPct}
+                  onChange={(v) => set('softCostPct', v)}
+                  {...field('softCostPct')}
+                />
+              </FieldRow>
+
+              <FieldRow label="Contingency (% of hard + soft)">
+                <ScalarInput
+                  type="percent"
+                  value={inputs.contingencyPct}
+                  onChange={(v) => set('contingencyPct', v)}
+                  {...field('contingencyPct')}
+                />
+              </FieldRow>
+            </>
+          )}
 
           <FieldRow label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
             <ScalarInput type="currency" value={inputs.rent} onChange={(v) => set('rent', v)} {...field('rent')} />
@@ -281,7 +355,7 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
             />
           </FieldRow>
 
-          <FieldRow label="Loan-to-Cost (0 = all-equity)">
+          <FieldRow label={isAcquisition ? 'Loan-to-Value (0 = all-equity)' : 'Loan-to-Cost (0 = all-equity)'}>
             <ScalarInput
               type="percent"
               value={inputs.ltcPct}
@@ -290,7 +364,13 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
             />
           </FieldRow>
 
-          <FieldRow label="Construction Loan Rate (interest-only approx.)">
+          <FieldRow
+            label={
+              isAcquisition
+                ? 'Acquisition Loan Rate (interest-only approx.)'
+                : 'Construction Loan Rate (interest-only approx.)'
+            }
+          >
             <ScalarInput
               type="percent"
               value={inputs.constructionInterestRatePct}
@@ -312,13 +392,28 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
           </div>
 
           <div className="rounded-md border border-slate-200 bg-white p-4">
-            <div className="text-xs font-semibold tracking-wide text-slate-500">DEVELOPMENT COST</div>
+            <div className="text-xs font-semibold tracking-wide text-slate-500">
+              {isAcquisition ? 'ACQUISITION COST' : 'DEVELOPMENT COST'}
+            </div>
             <dl className="mt-2 space-y-1 text-sm">
-              <Row label="Hard Costs" value={formatMoney(results.hardCosts)} />
-              <Row label="Soft Costs" value={formatMoney(results.softCosts)} />
-              <Row label="Contingency" value={formatMoney(results.contingency)} />
-              <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
-              <Row label="Total Development Cost" value={formatMoney(results.totalDevelopmentCost)} strong />
+              {isAcquisition ? (
+                <>
+                  <Row label="Purchase Price" value={formatMoney(results.purchasePrice)} />
+                  <Row label="Closing Costs" value={formatMoney(results.closingCosts)} />
+                  {inputs.renoBudgetPerUnit > 0 && (
+                    <Row label="Renovation Budget" value={formatMoney(results.renoBudget)} />
+                  )}
+                  <Row label="Total Acquisition Cost" value={formatMoney(results.totalCost)} strong />
+                </>
+              ) : (
+                <>
+                  <Row label="Hard Costs" value={formatMoney(results.hardCosts)} />
+                  <Row label="Soft Costs" value={formatMoney(results.softCosts)} />
+                  <Row label="Contingency" value={formatMoney(results.contingency)} />
+                  <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
+                  <Row label="Total Development Cost" value={formatMoney(results.totalCost)} strong />
+                </>
+              )}
             </dl>
           </div>
 
@@ -343,6 +438,9 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
             <dl className="mt-2 space-y-1 text-sm">
               <Row label="Profit" value={formatMoney(results.profit)} />
               <Row label="Profit Margin" value={formatPct(results.profitMarginPct)} />
+              {isAcquisition && (
+                <Row label="Going-In Cap Rate (price only)" value={formatPct(results.goingInCapRate)} />
+              )}
               <Row label="Yield on Cost" value={formatPct(results.yieldOnCost)} />
               <Row label="Spread over Exit Cap" value={`${results.capRateSpreadBps.toFixed(0)} bps`} strong />
             </dl>
@@ -366,7 +464,7 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
             </div>
           )}
 
-          {inputs.ltcPct > 0 && (
+          {!isAcquisition && inputs.ltcPct > 0 && (
             <details
               className="rounded-md border border-slate-200 bg-white p-4"
               onToggle={(e) => {
