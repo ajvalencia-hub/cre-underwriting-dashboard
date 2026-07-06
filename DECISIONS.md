@@ -3,6 +3,35 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J10 — OM-to-deal wizard (Run 5)
+
+- **The wizard is a CHAIN of the existing gates, not a new pipeline**:
+  upload → per-document type confirmation (the existing PUT /type) →
+  the existing extraction endpoint → the EXISTING ExtractionReview
+  component (field acceptance, unit-mix/lease proposals, blocking
+  acknowledgment) → a new finalize endpoint. Nothing auto-applies.
+- **The acknowledgment gate is enforced SERVER-SIDE too**:
+  POST /api/deals/from-extraction returns 409 with the failure list
+  when blocking cross-validation failures are unacknowledged — the gate
+  cannot be bypassed by calling the API directly. Rejected: trusting
+  the frontend checkbox alone.
+- **Provenance lives in the deal's inputs blob** (`_provenance`:
+  {fieldId → {sourceRef, confidence, source}}), written by the finalize
+  endpoint from the extraction's own sourceRefs; proposal-shaped values
+  (unit mix, lease roll) trace as `reviewed_proposal`. The underscore
+  key is engine-inert (like _skipCategoricalStress) and rides deal
+  export/import and snapshots for free. Rejected: a separate provenance
+  table — a second store to keep consistent for display-only data.
+- **Wizard state parks on a DRAFT DEAL** (`inputs._omWizard`: {step,
+  documentIds, extractionResultId}) — resumable from the wizard's start
+  screen, deletable via ordinary deal deletion, and finalize clears it
+  in place (same deal id, history snapshot recorded). Rejected: a new
+  wizard table/column — drafts already behave like deals everywhere
+  (pipeline, autosave, delete).
+- **Type confirmations are NOT restored on resume** — re-confirming is
+  one click per document, and silently trusting a stale confirmation
+  after documents may have changed is the wrong default.
+
 ## J9 — Operating break-evens (Run 5)
 
 - **[FIN] Solved ANALYTICALLY on the statement's own annual sums** —

@@ -50,6 +50,7 @@ import {
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
 import GoalSeekModal from './components/GoalSeekModal'
+import OmWizard from './components/OmWizard'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
@@ -103,6 +104,8 @@ function App() {
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
+  // J10: OM-to-deal wizard visibility.
+  const [omWizardOpen, setOmWizardOpen] = useState(false)
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -227,6 +230,22 @@ function App() {
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
     applyDealState(state.schema, deal, new URLSearchParams())
     setActiveDealId(deal.id)
+  }
+
+  async function refreshDeals() {
+    const list = await fetchDeals()
+    setDeals(list)
+  }
+
+  // J10: the wizard finalized a deal — adopt it as the active deal.
+  function handleWizardCreated(deal: Deal) {
+    if (state.status !== 'ready') return
+    setOmWizardOpen(false)
+    setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    applyDealState(state.schema, deal, new URLSearchParams())
+    setActiveDealId(deal.id)
+    setTab('dashboard')
   }
 
   async function handleRenameDeal(name: string) {
@@ -638,8 +657,19 @@ function App() {
             setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
           }}
           onNewDeal={() => void handleNewDeal()}
+          onNewDealFromDocuments={() => setOmWizardOpen(true)}
         />
       </div>
+
+      {omWizardOpen && (
+        <OmWizard
+          schema={schema}
+          deals={deals}
+          onClose={() => setOmWizardOpen(false)}
+          onCreated={handleWizardCreated}
+          onDealsChanged={() => void refreshDeals()}
+        />
+      )}
 
       <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
         <QuickScreen

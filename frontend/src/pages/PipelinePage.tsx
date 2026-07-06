@@ -19,6 +19,8 @@ interface PipelinePageProps {
   onStatusChange: (dealId: string, status: DealStatus) => void
   onBulkStatus: (dealIds: string[], status: DealStatus) => Promise<void>
   onNewDeal: () => void
+  /** J10: opens the OM-to-deal wizard. */
+  onNewDealFromDocuments: () => void
 }
 
 const STATUS_ORDER: DealStatus[] = [
@@ -60,6 +62,7 @@ export default function PipelinePage({
   onStatusChange,
   onBulkStatus,
   onNewDeal,
+  onNewDealFromDocuments,
 }: PipelinePageProps) {
   const [showTerminal, setShowTerminal] = useState(false)
   const [marketFilter, setMarketFilter] = useState('')
@@ -181,6 +184,12 @@ export default function PipelinePage({
           className="shrink-0 rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
         >
           New deal
+        </button>
+        <button
+          onClick={onNewDealFromDocuments}
+          className="shrink-0 rounded border border-slate-400 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+        >
+          New deal from documents
         </button>
       </div>
 

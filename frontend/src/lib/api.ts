@@ -713,6 +713,22 @@ export function runExtraction(documentIds: string[]) {
   return postJson<ExtractionResult>('/extraction', { documentIds }, 'POST')
 }
 
+export function getExtraction(resultId: string) {
+  return getJson<ExtractionResult>(`/extraction/${resultId}`)
+}
+
+/** J10: the wizard's finalize step — creates (or finalizes a draft) deal
+ *  from a reviewed extraction, writing provenance rows server-side. */
+export function createDealFromExtraction(payload: {
+  name: string
+  extractionResultId: string
+  confirmedValues: Record<string, unknown>
+  acknowledgeFailures?: boolean
+  dealId?: string
+}) {
+  return postJson<Deal>('/deals/from-extraction', payload, 'POST')
+}
+
 export function confirmExtraction(resultId: string, confirmedValues: Record<string, unknown>) {
   return postJson<ExtractionResult>(`/extraction/${resultId}/confirm`, { confirmedValues }, 'POST')
 }

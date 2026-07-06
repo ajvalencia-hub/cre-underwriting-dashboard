@@ -54,6 +54,91 @@ def create_deal(payload: DealIn, db: Session = Depends(get_db)):
     return _to_out(deal)
 
 
+class FromExtractionRequest(BaseModel):
+    # J10: the wizard's finalize step. confirmedValues are the REVIEWED
+    # values from the extraction gate — nothing here was auto-applied.
+    name: str
+    extractionResultId: str
+    confirmedValues: dict[str, Any]
+    acknowledgeFailures: bool = False
+    dealId: str | None = None  # finalize an existing wizard draft in place
+
+
+@router.post("/from-extraction", response_model=DealOut)
+def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = Depends(get_db)):
+    """J10: create (or finalize a draft) deal from a reviewed extraction.
+    Blocking cross-validation failures carry the SAME acknowledgment
+    mechanics as the review gate — unacknowledged failures are a 409 here
+    too, so the gate can't be bypassed by calling the API directly.
+    Provenance rows link every populated field to its source document."""
+    from app.models import ExtractionResult
+
+    if not payload.name.strip():
+        raise HTTPException(400, "Deal name cannot be empty")
+    stored = db.get(ExtractionResult, payload.extractionResultId)
+    if stored is None:
+        raise HTTPException(404, "Extraction result not found")
+
+    failures = [
+        check for check in (stored.cross_validation or [])
+        if check.get("status") == "fail"
+    ]
+    if failures and not payload.acknowledgeFailures:
+        raise HTTPException(
+            409,
+            detail={
+                "message": "Blocking cross-validation failures must be "
+                "acknowledged before creating a deal.",
+                "failures": failures,
+            },
+        )
+
+    # Provenance: reviewed values that map to an extracted field carry its
+    # sourceRef/confidence; proposal-shaped values (unit mix, lease roll)
+    # trace to the reviewed proposal.
+    provenance: dict[str, dict] = {}
+    fields = stored.fields or {}
+    for field_id in payload.confirmedValues:
+        entry = fields.get(field_id)
+        if isinstance(entry, dict):
+            provenance[field_id] = {
+                "sourceRef": entry.get("sourceRef"),
+                "confidence": entry.get("confidence"),
+                "source": entry.get("source"),
+            }
+        else:
+            provenance[field_id] = {"source": "reviewed_proposal"}
+
+    inputs: dict[str, Any] = dict(payload.confirmedValues)
+    inputs["dealName"] = payload.name.strip()
+    inputs["_provenance"] = provenance
+
+    # The existing confirm mechanics — the extraction records what was
+    # reviewed and when, exactly as the standalone review gate does.
+    stored.confirmed_values = payload.confirmedValues
+    stored.confirmed_at = datetime.now(timezone.utc)
+
+    if payload.dealId:
+        deal = db.get(Deal, payload.dealId)
+        if deal is None:
+            raise HTTPException(404, "Draft deal not found")
+        merged = {
+            key: value
+            for key, value in (deal.inputs or {}).items()
+            if key != "_omWizard"
+        }
+        merged.update(inputs)
+        deal_history.record_snapshot(db, deal, merged)
+        deal.inputs = merged
+        deal.name = payload.name.strip()
+    else:
+        deal = Deal(name=payload.name.strip(), inputs=inputs)
+        db.add(deal)
+    db.commit()
+    db.refresh(deal)
+    return _to_out(deal)
+
+
 @router.get("/{deal_id}", response_model=DealOut)
 def get_deal(deal_id: str, db: Session = Depends(get_db)):
     deal = db.get(Deal, deal_id)
