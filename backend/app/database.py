@@ -29,8 +29,21 @@ def run_migrations(target_engine=None) -> None:
     _migrate_scenarios_deal_id(eng)
     _backfill_orphan_scenarios_onto_default_deal(eng)
     _migrate_scenarios_sensitivity(eng)
+    _migrate_scenarios_monte_carlo(eng)
     _migrate_extraction_unit_mix_proposal(eng)
     _migrate_deals_status(eng)
+
+
+def _migrate_scenarios_monte_carlo(eng) -> None:
+    """Scenarios gained a monte_carlo JSON column (J8 saved risk runs)."""
+    inspector = inspect(eng)
+    if "scenarios" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("scenarios")}
+    if "monte_carlo" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE scenarios ADD COLUMN monte_carlo JSON"))
 
 
 def _migrate_deals_status(eng) -> None:

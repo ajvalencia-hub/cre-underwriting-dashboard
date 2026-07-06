@@ -9,6 +9,7 @@ import PresetsPanel from './components/PresetsPanel'
 import HistoryDrawer from './components/HistoryDrawer'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
+import RiskPanel from './pages/RiskPanel'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
 import TemplateUpload from './pages/TemplateUpload'
@@ -65,6 +66,7 @@ type Tab =
   | 'dashboard'
   | 'cashflow'
   | 'sensitivity'
+  | 'risk'
   | 'scenarios'
   | 'comps'
 
@@ -596,6 +598,7 @@ function App() {
             ['dashboard', '3. Deal Inputs'],
             ['cashflow', '4. Cash Flow'],
             ['sensitivity', '5. Sensitivity'],
+            ['risk', '5b. Risk'],
             ['scenarios', '6. Scenarios'],
             ['comps', '7. Comps'],
           ] as const
@@ -720,6 +723,10 @@ function App() {
           baseValues={formValues}
           dealId={activeDealId}
         />
+      </div>
+
+      <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
+        <RiskPanel values={formValues} dealId={activeDealId} />
       </div>
 
       <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>

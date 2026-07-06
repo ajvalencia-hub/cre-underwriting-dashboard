@@ -303,6 +303,68 @@ export function fetchGoalSeekInputs() {
   return getJson<{ id: string; label: string; type: string }[]>('/compute/goal-seek/inputs')
 }
 
+// ---- J8: Monte Carlo ----
+
+export interface McDriver {
+  inputPath: string
+  distribution: 'normal' | 'triangular' | 'uniform'
+  params: Record<string, number>
+}
+
+export interface McStats {
+  p5: number
+  p25: number
+  p50: number
+  p75: number
+  p95: number
+  mean: number
+  min: number
+  max: number
+}
+
+export interface MonteCarloResult {
+  n: number
+  seed: number
+  successfulRuns: number
+  failedRuns: number
+  drivers: McDriver[]
+  correlations: { a: string; b: string; rho: number }[]
+  hurdleIrr: number
+  leveredIrr: McStats
+  equityMultiple: McStats
+  peakNegativeCashFlow: McStats
+  probIrrNegative: number
+  probIrrBelowHurdle: number
+  histogram: Record<string, { lo: number; hi: number; count: number }[]>
+}
+
+export interface MonteCarloJobStatus {
+  status: 'running' | 'done' | 'failed'
+  completed: number
+  n: number
+  result?: MonteCarloResult
+  error?: string
+}
+
+export function startMonteCarlo(payload: {
+  values: Record<string, unknown>
+  drivers: McDriver[]
+  correlations?: { a: string; b: string; rho: number }[]
+  n: number
+  seed?: number
+  hurdleIrr?: number
+}) {
+  return postJson<{ jobId: string; n: number }>('/compute/monte-carlo', payload, 'POST')
+}
+
+export function pollMonteCarlo(jobId: string) {
+  return getJson<MonteCarloJobStatus>(`/compute/monte-carlo/${jobId}`)
+}
+
+export function saveScenarioMonteCarlo(scenarioId: string, monteCarlo: MonteCarloResult) {
+  return postJson<Scenario>(`/scenarios/${scenarioId}/monte-carlo`, { monteCarlo }, 'PUT')
+}
+
 export interface MarketRates {
   dataSource: string
   rates: Record<string, number | null>

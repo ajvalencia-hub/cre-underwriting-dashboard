@@ -74,6 +74,9 @@ class Scenario(Base):
     # Last saved sensitivity run ({description, header, rows, run}) — feeds
     # the memo's sensitivity section and the comparison tooling.
     sensitivity: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # J8: last saved Monte Carlo run (the full result payload incl. seed) —
+    # feeds the memo's optional risk section.
+    monte_carlo: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

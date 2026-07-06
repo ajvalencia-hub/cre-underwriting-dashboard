@@ -23,6 +23,7 @@ def _to_out(scenario: Scenario) -> ScenarioOut:
         kind=scenario.kind,
         dealId=scenario.deal_id,
         sensitivity=scenario.sensitivity,
+        monteCarlo=scenario.monte_carlo,
         templateId=scenario.template_id,
         mappingProfileId=scenario.mapping_profile_id,
         inputs=scenario.inputs,
@@ -136,6 +137,24 @@ def save_sensitivity(
     return _to_out(scenario)
 
 
+class MonteCarloSaveRequest(BaseModel):
+    # J8: the full run result payload (incl. seed for reproducibility).
+    monteCarlo: dict
+
+
+@router.put("/{scenario_id}/monte-carlo", response_model=ScenarioOut)
+def save_monte_carlo(
+    scenario_id: str, payload: MonteCarloSaveRequest, db: Session = Depends(get_db)
+):
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    scenario.monte_carlo = payload.monteCarlo
+    db.commit()
+    db.refresh(scenario)
+    return _to_out(scenario)
+
+
 class MemoRequest(BaseModel):
     limitationsText: str | None = None
 
@@ -229,6 +248,7 @@ def generate_memo(
         debt=debt,
         sources_and_uses=sources_and_uses,
         sensitivity=scenario.sensitivity or stored.get("sensitivity"),
+        monte_carlo=scenario.monte_carlo,
         benchmark_flags=benchmark_flags,
         limitations_text=payload.limitationsText,
         conventions=conventions,

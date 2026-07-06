@@ -3,6 +3,41 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J8 — Monte Carlo (Run 5)
+
+- **numpy IS used for correlations (Cholesky)** — the run rules permit it
+  because numpy is already a TRANSITIVE dependency (matplotlib, from the
+  G8 memo charts, pulls it in; verified via pip freeze; it is NOT added
+  to requirements.txt). The stdlib Iman–Conover fallback was therefore
+  not needed.
+- **Correlations via a Gaussian copula**: correlated standard normals
+  from the Cholesky factor, mapped through the normal CDF to uniforms,
+  then through each marginal's inverse CDF (normal marginals use the
+  correlated normals directly — exact). A non-positive-definite
+  correlation matrix is a typed 400 — never silently repaired to the
+  nearest PSD matrix (the user's assumptions are jointly inconsistent;
+  say so).
+- **Deterministic given a seed** (numpy default_rng); a missing seed is
+  generated and RETURNED so every run is reproducible after the fact.
+- **[FIN] Peak negative cash flow = the most negative levered month
+  AFTER close** (0 when no month goes negative) — the capital-call
+  question. The close-month equity check is known, not risk. Rejected:
+  including month 0 (dominates every distribution with a known number).
+- **Each trial sets `_skipCategoricalStress`** — the H3 insurance-stress
+  recomputes would triple per-trial cost for numbers nobody reads inside
+  a simulation.
+- Failed trials (driver values pushing inputs out of domain) are counted
+  and reported (`failedRuns`), excluded from statistics; ALL trials
+  failing is a typed error naming the likely cause.
+- Progress via a polling job store (validation is synchronous so bad
+  requests fail the POST, not the poll); n ≤ 2000, drivers ≤ 6, both
+  typed errors not silent clamps. Saved runs live in a new
+  scenarios.monte_carlo JSON column (check-and-migrate) and feed an
+  optional memo risk section — omitted when absent, never fabricated.
+- UI driver suggestions mirror the tornado's driver set expressed as
+  concrete numeric fields (the tornado's composite "rent" driver has no
+  single input path to sample).
+
 ## J7 — Generalized goal-seek (Run 5)
 
 - **Bracket scan (12 points) + bisection; monotonicity is NEVER assumed.**

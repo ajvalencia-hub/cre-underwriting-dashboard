@@ -147,6 +147,7 @@ def build_memo(
     conventions: dict | None = None,
     statement: dict | None = None,
     hold_sweep: dict | None = None,
+    monte_carlo: dict | None = None,
 ) -> bytes:
     """Assemble the .docx and return its bytes. Optional sections (debt,
     sources & uses, sensitivity, benchmarks) are silently omitted when their
@@ -300,6 +301,33 @@ def build_memo(
             [[str(cell) for cell in row] for row in sensitivity["rows"]],
         )
         _add_chart(doc, memo_charts.sensitivity_heatmap(sensitivity))
+
+    # ---- Risk (J8): saved Monte Carlo run --------------------------------------
+    if monte_carlo and monte_carlo.get("leveredIrr"):
+        _heading(doc, "Risk — Monte Carlo")
+        drivers = ", ".join(d["inputPath"] for d in monte_carlo.get("drivers", []))
+        doc.add_paragraph(
+            f"{monte_carlo.get('successfulRuns', 0):,} seeded trials "
+            f"(seed {monte_carlo.get('seed')}) over: {drivers}."
+        )
+        irr = monte_carlo["leveredIrr"]
+        em = monte_carlo.get("equityMultiple", {})
+        _grid_table(
+            doc,
+            ["Metric", "P5", "P25", "P50", "P75", "P95", "Mean"],
+            [
+                ["Levered IRR"] + [f"{irr.get(k, 0) * 100:.2f}%" for k in
+                                   ("p5", "p25", "p50", "p75", "p95", "mean")],
+                ["Equity multiple"] + [f"{em.get(k, 0):.2f}x" for k in
+                                       ("p5", "p25", "p50", "p75", "p95", "mean")],
+            ],
+        )
+        hurdle = monte_carlo.get("hurdleIrr", 0)
+        doc.add_paragraph(
+            f"P(levered IRR < 0): {monte_carlo.get('probIrrNegative', 0) * 100:.1f}%.  "
+            f"P(levered IRR < {hurdle * 100:.1f}% hurdle): "
+            f"{monte_carlo.get('probIrrBelowHurdle', 0) * 100:.1f}%."
+        )
 
     # ---- Market context flags ---------------------------------------------------
     if benchmark_flags:

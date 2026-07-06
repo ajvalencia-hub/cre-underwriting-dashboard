@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -143,7 +143,7 @@ class ScenarioIn(BaseModel):
     mappingProfileId: str | None = None
     inputs: dict[str, Any]
     # Snapshot of computed results at save time, shaped
-    # {"metrics": {...}, "debt": {...}, "sensitivity": {...}} — feeds the IC
+    # {"metrics": {...}, "debt": {...}, "sensitivity": {...}} â€” feeds the IC
     # memo's stored-outputs fallback.
     outputs: dict[str, Any] | None = None
 
@@ -167,6 +167,7 @@ class ScenarioOut(BaseModel):
     kind: Literal["quickscreen", "full"]
     dealId: str | None
     sensitivity: dict[str, Any] | None = None
+    monteCarlo: dict[str, Any] | None = None
     templateId: str | None
     mappingProfileId: str | None
     inputs: dict[str, Any]
@@ -216,7 +217,7 @@ class MarketContextResponse(BaseModel):
     # Real-data sections vary by which free API keys are configured, so they're
     # loosely typed dicts (always includes at least "dataSource", plus either
     # the real fields or a "note" explaining why it's unavailable) rather than
-    # strict models — see app/services/data_sources/.
+    # strict models â€” see app/services/data_sources/.
     demographics: dict[str, Any]
     laborMarket: dict[str, Any]
     housing: dict[str, Any]
@@ -236,7 +237,7 @@ class DocumentSummary(BaseModel):
     typeRationale: str
     createdAt: datetime
     # True when an upload deduplicated onto an existing record (same content
-    # hash, possibly a different filename) — audit L2: never silent.
+    # hash, possibly a different filename) â€” audit L2: never silent.
     reused: bool = False
 
     model_config = {"from_attributes": True}

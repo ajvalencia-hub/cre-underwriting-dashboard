@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import compute_cache, goal_seek, tornado_service
+from app.services import compute_cache, goal_seek, monte_carlo, tornado_service
 from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -76,6 +76,37 @@ def goal_seek_inputs():
         {"id": field_id, "label": field.get("label", field_id), "type": field["type"]}
         for field_id, field in goal_seek.numeric_input_fields().items()
     ]
+
+
+class MonteCarloRequest(BaseModel):
+    values: dict[str, Any]
+    drivers: list[dict[str, Any]]
+    correlations: list[dict[str, Any]] | None = None
+    n: int = 500
+    seed: int | None = None
+    hurdleIrr: float = monte_carlo.DEFAULT_HURDLE
+
+
+@router.post("/monte-carlo")
+def monte_carlo_start(payload: MonteCarloRequest):
+    """J8: start a seeded Monte Carlo run on a background thread. Validation
+    is synchronous — a bad request fails HERE, not at the poll."""
+    try:
+        job_id = monte_carlo.start_job(
+            payload.values, payload.drivers, payload.correlations,
+            payload.n, payload.seed, payload.hurdleIrr,
+        )
+    except monte_carlo.MonteCarloError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"jobId": job_id, "n": payload.n}
+
+
+@router.get("/monte-carlo/{job_id}")
+def monte_carlo_poll(job_id: str):
+    status = monte_carlo.job_status(job_id)
+    if status is None:
+        raise HTTPException(404, "Unknown Monte Carlo job — it may have been evicted.")
+    return status
 
 
 @router.post("")
