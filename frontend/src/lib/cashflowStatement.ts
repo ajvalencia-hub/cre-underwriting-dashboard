@@ -57,6 +57,8 @@ export interface Statement {
   }
   /** J1: present only when a renovation program exists. */
   renovationCapex?: number[]
+  /** J2: present only when loss-to-lease burn-off is active. */
+  lossToLease?: { marketGpr: number[]; lossToLease: number[] }
   renovation?: {
     unitsComplete: number[]
     unitsInProgress: number[]
@@ -90,13 +92,32 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 export function statementRows(statement: Statement): StatementRow[] {
-  const rows: StatementRow[] = [
-    { key: 'gpr', label: 'Gross potential rent', kind: 'flow', series: (s) => s.gpr },
+  const rows: StatementRow[] = []
+  if (statement.lossToLease) {
+    // J2: the revenue build — GPR at market, less LTL, = scheduled rent.
+    rows.push(
+      {
+        key: 'marketGpr', label: 'Gross potential rent (market)', kind: 'flow',
+        series: (s) => s.lossToLease?.marketGpr ?? [],
+      },
+      {
+        key: 'lossToLease', label: 'Less: loss to lease', kind: 'flow', indent: true,
+        series: (s) => s.lossToLease?.lossToLease ?? [],
+      },
+    )
+  }
+  rows.push(
+    {
+      key: 'gpr',
+      label: statement.lossToLease ? 'Scheduled rent' : 'Gross potential rent',
+      kind: 'flow',
+      series: (s) => s.gpr,
+    },
     { key: 'vacancyLoss', label: 'Less: vacancy', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
     { key: 'creditLoss', label: 'Less: credit loss', kind: 'flow', series: (s) => s.creditLoss, indent: true },
     { key: 'otherIncome', label: 'Other income', kind: 'flow', series: (s) => s.otherIncome, indent: true },
     { key: 'egi', label: 'Effective gross income', kind: 'flow', series: (s) => s.egi },
-  ]
+  )
   for (const category of Object.keys(statement.fixedOpexByCategory)) {
     rows.push({
       key: `opex.${category}`,

@@ -816,6 +816,97 @@ def _renovation_vectors(
     }, warnings
 
 
+def _loss_to_lease_vectors(
+    inputs: dict, timeline: Timeline, rent_growth: float, reno: dict | None
+) -> dict | None:
+    """J2: loss-to-lease burn-off — analytic expected-value blend, no
+    per-unit simulation. Active per unit type only when BOTH rents are
+    present AND annualTurnoverPct is set (default null = off; Run-4
+    behavior effectively prices in-place from day one).
+
+    Per type, month om: the in-place share s = (1 − turnover/12)^(om−1)
+    (month 1 is fully in-place), turned units re-let at
+    in-place + capture × gap, and — because in-place and market grow on the
+    SAME clock — the blend is closed-form. Renovated units EXIT the pool at
+    reno start; delivered units re-base to MARKET (+ premium via J1) —
+    [FIN]: reno supersedes LTL.
+
+    Returns {upliftScheduled, marketGpr} on the operating clock, or None."""
+    capture_raw = inputs.get("lossToLeaseCapturePct")
+    capture = float(capture_raw) if isinstance(capture_raw, (int, float)) else 1.0
+    capture = min(1.0, max(0.0, capture))
+
+    active_types = []
+    for row in inputs.get("unitMix") or []:
+        if not isinstance(row, dict):
+            continue
+        turnover = _num(row, "annualTurnoverPct")
+        in_place = _num(row, "inPlaceRent")
+        market = _num(row, "marketRent")
+        if turnover > 0 and in_place > 0 and market > 0:
+            active_types.append({
+                "unitType": str(row.get("unitType") or ""),
+                "count": _num(row, "unitCount"),
+                "inPlace": in_place,
+                "market": market,
+                "monthlyTurnover": min(1.0, turnover / 12),
+            })
+    if not active_types:
+        return None
+
+    operating_months = timeline.total_months - timeline.construction_months
+    uplift = [0.0] * operating_months
+    market_gpr = [0.0] * operating_months
+    loss = [0.0] * operating_months
+
+    # Reno interaction: per-type started/delivered counts from J1 cohorts.
+    reno_by_type: dict[str, dict] = {}
+    if reno is not None:
+        for program in inputs.get("renovationProgram") or []:
+            if isinstance(program, dict) and _num(program, "unitsToReno") > 0:
+                reno_by_type[str(program.get("unitType") or "")] = program
+
+    for t in active_types:
+        gap = t["market"] - t["inPlace"]
+        program = reno_by_type.get(t["unitType"])
+        # Rebuild this type's started/delivered schedule (cheap, mirrors J1).
+        started_at: list[tuple[int, float]] = []
+        downtime = 0
+        if program is not None:
+            pace = max(1, int(_num(program, "unitsPerMonth", 1)))
+            start = max(1, int(_num(program, "startMonth", 1)))
+            downtime = max(0, int(_num(program, "downtimeMonthsPerUnit")))
+            left = min(_num(program, "unitsToReno"), t["count"])
+            month = start
+            while left > 0 and month <= operating_months:
+                n = min(pace, left)
+                started_at.append((month, n))
+                left -= n
+                month += 1
+
+        premium = _num(program, "premiumPerMonth") if program is not None else 0.0
+        f = t["monthlyTurnover"]
+        for om in range(1, operating_months + 1):
+            mult = _growth_multiplier(rent_growth, om)
+            started = sum(n for s0, n in started_at if s0 <= om)
+            delivered = sum(n for s0, n in started_at if om >= s0 + downtime)
+            offline = started - delivered
+            pool = max(0.0, t["count"] - started)
+            in_place_share = (1 - f) ** (om - 1)
+            uplift[om - 1] += (
+                pool * (1 - in_place_share) * capture * gap
+                + delivered * gap  # post-reno basis is FULL market
+            ) * mult
+            # Display build: GPR at market (delivered premiums are potential
+            # above market) less loss-to-lease = scheduled rent.
+            market_gpr[om - 1] += (t["count"] * t["market"] + delivered * premium) * mult
+            loss[om - 1] += gap * (
+                pool * (1 - (1 - in_place_share) * capture) + offline
+            ) * mult
+
+    return {"upliftScheduled": uplift, "marketGpr": market_gpr, "lossToLease": loss}
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
@@ -847,6 +938,8 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     # J1: renovation program (None at defaults — the loop math is untouched).
     reno, reno_warnings = _renovation_vectors(inputs, timeline, rent_growth)
     warnings.extend(reno_warnings)
+    # J2: loss-to-lease burn-off (None at defaults).
+    ltl = _loss_to_lease_vectors(inputs, timeline, rent_growth, reno)
 
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
@@ -882,6 +975,11 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 
         gpr_month = (annual_gpr / 12) * rent_mult
         other_month = (annual_other / 12) * rent_mult
+        if ltl is not None:
+            # J2: turned units' captured gap joins scheduled rent.
+            om_ltl = operating_month - 1
+            if om_ltl < len(ltl["upliftScheduled"]):
+                gpr_month += ltl["upliftScheduled"][om_ltl]
         if reno is not None:
             # J1: delivered premiums join GPR; offline units lose 100% of
             # their rent IN ADDITION to the general vacancy on the rest of
@@ -946,6 +1044,13 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
             "budget": reno["budget"],
             "fundingSource": reno["fundingSource"],
             "postRenoAvgRent": reno["postRenoAvgRent"],
+        }
+    if ltl is not None:
+        cm2 = timeline.construction_months
+        pad2 = [0.0] * cm2
+        result["lossToLease"] = {
+            "marketGpr": (pad2 + list(ltl["marketGpr"]))[: timeline.total_months],
+            "lossToLease": (pad2 + list(ltl["lossToLease"]))[: timeline.total_months],
         }
     return result
 

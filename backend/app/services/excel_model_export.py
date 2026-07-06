@@ -103,6 +103,12 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("reassessed property taxes (separate tax growth clock)")
     if operations.has_renovation_program(inputs):
         features.append("renovation program (value-add unit sequencing)")
+    if any(
+        isinstance(r, dict) and (r.get("annualTurnoverPct") or 0) > 0
+        and (r.get("inPlaceRent") or 0) > 0 and (r.get("marketRent") or 0) > 0
+        for r in (inputs.get("unitMix") or [])
+    ):
+        features.append("loss-to-lease burn-off (turnover blend)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

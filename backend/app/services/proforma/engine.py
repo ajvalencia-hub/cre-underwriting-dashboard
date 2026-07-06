@@ -691,6 +691,16 @@ def compute(inputs: dict) -> dict:
             "fundingSource": reno["fundingSource"],
         }
         put("postRenoAvgRent", reno["postRenoAvgRent"])
+    ltl = ops.get("lossToLease")
+    if ltl is not None:
+        # J2: conditional display block — GPR at market, less loss-to-lease,
+        # = scheduled rent (the statement identity stays on scheduled GPR).
+        statement["lossToLease"] = {
+            "marketGpr": [0.0] + ltl["marketGpr"][:total],
+            "lossToLease": [0.0] + ltl["lossToLease"][:total],
+        }
+        year1 = sum(ltl["lossToLease"][: min(12, total)])
+        put("year1LossToLease", year1)
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.

@@ -3,6 +3,25 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J2 — Loss-to-lease burn-off (Run 5)
+
+- **[FIN] Analytic expected-value blend, no per-unit simulation**: because
+  in-place and market rents grow on the SAME clock, a unit turned in any
+  month earns `inPlace + capture × gap` (× growth) thereafter, so the
+  blend is closed-form: in-place share `s(om) = (1 − turnover/12)^(om−1)`.
+  Month 1 is fully in-place — the month-1 GPR equals the no-LTL baseline
+  by construction. Rejected: per-unit simulation (noise for zero extra
+  information under identical growth clocks).
+- **[FIN] Reno supersedes LTL**: renovated units EXIT the pool at reno
+  START; delivered units re-base to FULL market (+ the J1 premium) —
+  capture doesn't apply to a renovated unit.
+- LTL activates per type only when BOTH rents and a turnover are present
+  (Run 4 effectively prices in-place from day one — documented
+  interaction). The statement identity stays on SCHEDULED GPR; the
+  market-GPR / less-LTL build is a conditional DISPLAY block (baseline
+  safe), with market GPR covering active types only so the line never
+  shows un-modeled gap. LTL joins the Excel-export refusal list.
+
 ## J1 — Renovation program (Run 5)
 
 - **[FIN] Reno downtime is IN ADDITION to natural vacancy, no overlap
