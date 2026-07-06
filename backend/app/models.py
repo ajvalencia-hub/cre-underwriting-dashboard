@@ -172,7 +172,23 @@ class Document(Base):
     type_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     type_source: Mapped[str] = mapped_column(String, default="heuristic")  # heuristic | llm | manual
     type_rationale: Mapped[str] = mapped_column(String, default="")
+    # J12: deal-scoped attachments carry a deal id; extraction documents
+    # stay global (NULL) and surface in a deal's cabinet via provenance.
+    deal_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class DealNote(Base):
+    """J12: timestamped note on a deal (markdown-lite plain text, rendered
+    client-side without a markdown dependency)."""
+
+    __tablename__ = "deal_notes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    body: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
 class ExtractionResult(Base):

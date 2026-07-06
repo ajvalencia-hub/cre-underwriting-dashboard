@@ -3,6 +3,30 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J12 — Deal file cabinet + notes (Run 5)
+
+- **Attachments generalize the Document model** (nullable deal_id +
+  index via check-and-migrate) rather than adding a parallel table —
+  one storage location, one dedupe-by-hash rule, one size cap
+  (MAX_UPLOAD_BYTES, already env-configurable from M9). Attachments
+  accept ANY extension — the cabinet is storage, not a parser input
+  (extraction uploads keep their allow-list).
+- **Extraction documents surface in the cabinet by provenance match**
+  (the deal's `_provenance` sourceRefs name their files) with an
+  "extraction source" badge — global documents are never duplicated
+  into the deal.
+- **PDF preview is first-page TEXT via pdfplumber**; a thumbnail image
+  would require a rasterizer dependency for a cosmetic feature —
+  rejected. Images preview inline via the download route.
+- **Export bundles list attachments by name/hash but never embed
+  them**: bundles stay small, diffable JSON, and the hash lets the
+  receiver verify a manually-transferred file. Import surfaces the
+  listing as a warning. Notes DO travel in the bundle (plain text).
+- **Notes are markdown-lite plain text** rendered client-side
+  (**bold**, *italic*, line breaks) — no frontend markdown dependency.
+- Deal deletion cascades notes and attachments; files unlink only when
+  no other document row shares the hash (uploads dedupe by content).
+
 ## J11 — Critical dates (Run 5)
 
 - **Dates live in the deal's inputs blob** (`inputs.criticalDates`:

@@ -389,6 +389,19 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
             "profileName": profile.profile_name if profile else None,
         }
 
+    # J12: notes travel in the bundle; attachments are listed by name/hash
+    # but NOT embedded — bundles stay small, diffable JSON, and the hash
+    # lets the receiving side verify a manually-transferred file. (Embedding
+    # base64 blobs was rejected: a 20MB OM would dwarf the deal data.)
+    from app.models import DealNote, Document
+
+    notes = db.execute(
+        select(DealNote).where(DealNote.deal_id == deal_id).order_by(DealNote.created_at)
+    ).scalars().all()
+    attachments = db.execute(
+        select(Document).where(Document.deal_id == deal_id).order_by(Document.created_at)
+    ).scalars().all()
+
     return {
         "exportKind": EXPORT_KIND,
         "schemaVersion": EXPORT_SCHEMA_VERSION,
@@ -396,6 +409,13 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
         "deal": {"name": deal.name, "inputs": deal.inputs},
         "activeTemplate": template_ref,
         "activeMappingProfile": mapping_ref,
+        "notes": [
+            {"body": n.body, "createdAt": n.created_at.isoformat()} for n in notes
+        ],
+        "attachments": [
+            {"filename": a.filename, "fileHash": a.file_hash, "fileExt": a.file_ext}
+            for a in attachments
+        ],
         "scenarios": [
             {
                 "scenarioName": s.scenario_name,
@@ -469,12 +489,39 @@ def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
         )
         scenario_count += 1
 
+    # J12: notes import (they're plain text); attachments are name/hash
+    # listings only — surface what the exporter had so the user can move
+    # the files by hand.
+    from app.models import DealNote
+
+    note_count = 0
+    for n in bundle.get("notes") or []:
+        if isinstance(n, dict) and str(n.get("body") or "").strip():
+            db.add(DealNote(deal_id=deal.id, body=str(n["body"])))
+            note_count += 1
+    listed_attachments = [
+        a for a in (bundle.get("attachments") or [])
+        if isinstance(a, dict) and a.get("filename")
+    ]
+    if listed_attachments:
+        names = ", ".join(str(a["filename"]) for a in listed_attachments[:5])
+        warnings.append(
+            f"The bundle lists {len(listed_attachments)} attachment(s) by "
+            f"name/hash ({names}{'…' if len(listed_attachments) > 5 else ''}) — "
+            "files are not embedded; transfer and re-upload them to this deal."
+        )
+
     db.commit()
     db.refresh(deal)
     out = _to_out(deal)
     # Ride the warnings/counts on the response without a new schema: the
     # client shows them once and they aren't deal state.
-    return {**out.model_dump(), "importWarnings": warnings, "importedScenarios": scenario_count}
+    return {
+        **out.model_dump(),
+        "importWarnings": warnings,
+        "importedScenarios": scenario_count,
+        "importedNotes": note_count,
+    }
 
 
 @router.delete("/{deal_id}")
@@ -483,9 +530,28 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     if deal is None:
         raise HTTPException(404, "Deal not found")
     # Scenarios are meaningless without their deal — cascade, matching how
-    # template deletion already removes dependent scenarios.
+    # template deletion already removes dependent scenarios. J12: notes and
+    # deal-scoped attachments cascade too (files unlink only when no other
+    # document row shares the hash — uploads dedupe by content).
+    from pathlib import Path as _Path
+
+    from app.models import DealNote, Document
+
     db.execute(Scenario.__table__.delete().where(Scenario.deal_id == deal_id))
     db.execute(DealSnapshot.__table__.delete().where(DealSnapshot.deal_id == deal_id))
+    db.execute(DealNote.__table__.delete().where(DealNote.deal_id == deal_id))
+    attachments = db.execute(
+        select(Document).where(Document.deal_id == deal_id)
+    ).scalars().all()
+    for doc in attachments:
+        others = db.execute(
+            select(Document).where(
+                Document.file_hash == doc.file_hash, Document.id != doc.id
+            )
+        ).scalars().first()
+        if others is None:
+            _Path(doc.stored_path).unlink(missing_ok=True)
+        db.delete(doc)
     db.delete(deal)
     db.commit()
     return {"deleted": True}

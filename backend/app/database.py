@@ -32,6 +32,22 @@ def run_migrations(target_engine=None) -> None:
     _migrate_scenarios_monte_carlo(eng)
     _migrate_extraction_unit_mix_proposal(eng)
     _migrate_deals_status(eng)
+    _migrate_documents_deal_id(eng)
+
+
+def _migrate_documents_deal_id(eng) -> None:
+    """Documents gained a nullable deal_id (J12 deal-scoped attachments)."""
+    inspector = inspect(eng)
+    if "documents" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("documents")}
+    if "deal_id" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE documents ADD COLUMN deal_id VARCHAR"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_documents_deal_id ON documents (deal_id)")
+        )
 
 
 def _migrate_scenarios_monte_carlo(eng) -> None:

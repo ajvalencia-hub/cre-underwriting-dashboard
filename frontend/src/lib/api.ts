@@ -717,6 +717,64 @@ export function getExtraction(resultId: string) {
   return getJson<ExtractionResult>(`/extraction/${resultId}`)
 }
 
+// ---- J12: deal file cabinet + notes ----
+
+export interface DealAttachment {
+  id: string
+  filename: string
+  fileHash: string
+  fileExt: string
+  sizeBytes: number | null
+  source: 'attachment' | 'extraction'
+  documentType: string
+  createdAt: string
+}
+
+export interface DealNote {
+  id: string
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
+export function fetchAttachments(dealId: string) {
+  return getJson<DealAttachment[]>(`/deals/${dealId}/attachments`)
+}
+
+export async function uploadAttachment(dealId: string, file: File): Promise<DealAttachment> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/deals/${dealId}/attachments`, { method: 'POST', body: form })
+  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  return res.json() as Promise<DealAttachment>
+}
+
+export function attachmentDownloadUrl(dealId: string, documentId: string, inline = false) {
+  return `${API_BASE}/deals/${dealId}/attachments/${documentId}/download${inline ? '?inline=true' : ''}`
+}
+
+export function fetchAttachmentPreview(dealId: string, documentId: string) {
+  return getJson<{ kind: 'text' | 'none'; text?: string; note?: string }>(
+    `/deals/${dealId}/attachments/${documentId}/preview`,
+  )
+}
+
+export function fetchNotes(dealId: string) {
+  return getJson<DealNote[]>(`/deals/${dealId}/notes`)
+}
+
+export function createNote(dealId: string, body: string) {
+  return postJson<DealNote>(`/deals/${dealId}/notes`, { body }, 'POST')
+}
+
+export function updateNote(dealId: string, noteId: string, body: string) {
+  return postJson<DealNote>(`/deals/${dealId}/notes/${noteId}`, { body }, 'PUT')
+}
+
+export function deleteNote(dealId: string, noteId: string) {
+  return del(`/deals/${dealId}/notes/${noteId}`)
+}
+
 /** J10: the wizard's finalize step — creates (or finalizes a draft) deal
  *  from a reviewed extraction, writing provenance rows server-side. */
 export function createDealFromExtraction(payload: {

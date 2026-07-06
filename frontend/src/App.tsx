@@ -50,6 +50,7 @@ import {
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
+import FileCabinet from './components/FileCabinet'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
@@ -746,6 +747,7 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+        <FileCabinet dealId={activeDealId} />
         <HistoryDrawer
           schema={schema}
           dealId={activeDealId}
