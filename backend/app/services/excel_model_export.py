@@ -101,6 +101,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("XIRR date-based IRR convention")
     if inputs.get("useReassessedTaxes"):
         features.append("reassessed property taxes (separate tax growth clock)")
+    if operations.has_renovation_program(inputs):
+        features.append("renovation program (value-add unit sequencing)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

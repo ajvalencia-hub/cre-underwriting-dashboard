@@ -315,6 +315,59 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
         </table>
       </div>
 
+      {statement.renovation && (
+        <div className="mt-4 rounded border border-slate-200 bg-white p-3">
+          <div className="text-sm font-semibold text-slate-600">Renovation program</div>
+          <div className="mt-1 text-xs text-slate-500">
+            Budget ${Math.round(statement.renovation.budget).toLocaleString()} ·{' '}
+            {statement.renovation.fundingSource === 'equity_at_close'
+              ? 'funded by equity at close'
+              : 'drawn from operating cash'}{' '}
+            · {Math.round(statement.renovation.unitsComplete[statement.renovation.unitsComplete.length - 1])}{' '}
+            unit(s) complete by exit
+          </div>
+          {(() => {
+            const complete = statement.renovation.unitsComplete
+            const inProgress = statement.renovation.unitsInProgress
+            const remaining = statement.renovation.unitsRemaining
+            const months = complete.length - 1 // index 0 = close
+            const totalUnits = Math.max(
+              1,
+              complete[months] + inProgress[months] + remaining[months],
+              complete[1] + inProgress[1] + remaining[1],
+            )
+            const W = Math.max(240, months * 8)
+            const H = 46
+            return (
+              <svg
+                viewBox={`0 0 ${W} ${H}`}
+                className="mt-2 w-full max-w-2xl"
+                role="img"
+                aria-label="Renovation progress by month"
+              >
+                {Array.from({ length: months }, (_, i) => {
+                  const m = i + 1
+                  const x = (i / months) * W
+                  const barW = Math.max(1, W / months - 1)
+                  const done = (complete[m] / totalUnits) * H
+                  const wip = (inProgress[m] / totalUnits) * H
+                  return (
+                    <g key={m}>
+                      <rect x={x} y={H - done} width={barW} height={done} fill="#059669" />
+                      <rect x={x} y={H - done - wip} width={barW} height={wip} fill="#fbbf24" />
+                    </g>
+                  )
+                })}
+              </svg>
+            )
+          })()}
+          <div className="mt-1 flex gap-3 text-[10px] text-slate-400">
+            <span><span className="mr-1 inline-block h-2 w-2 bg-emerald-600" />complete</span>
+            <span><span className="mr-1 inline-block h-2 w-2 bg-amber-400" />in progress</span>
+          </div>
+        </div>
+      )}
+
       {statement.leases && (
         <div className="mt-4 rounded border border-slate-200 bg-white p-3">
           <div className="text-sm font-semibold text-slate-600">Lease expirations</div>

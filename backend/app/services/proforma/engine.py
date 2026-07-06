@@ -381,6 +381,52 @@ def compute(inputs: dict) -> dict:
             unlevered[m] -= leasing_capital[m - 1]
             levered[m] -= leasing_capital[m - 1]
 
+    # ------------------------------------------------------------------
+    # J1: renovation program cash flows. The budget always joins the cost
+    # basis (yield-on-cost denominator). equity_at_close: the full budget
+    # is a USE at close funded by equity (escrow view — spend timing is
+    # reported, cash leaves at close). operating_cash: capex hits both
+    # vectors as incurred, like TI/LC, with a funding warning if cumulative
+    # operating cash ever goes negative (never silently re-sequenced).
+    # ------------------------------------------------------------------
+    reno = ops.get("renovation")
+    reno_capex_stmt = [0.0] * (total + 1)
+    if reno is not None:
+        reno_budget = reno["budget"]
+        total_cost_basis += reno_budget
+        if reno["fundingSource"] == "equity_at_close":
+            unlevered[0] -= reno_budget
+            levered[0] -= reno_budget
+            initial_equity += reno_budget
+            stmt_costs[0] += reno_budget
+            stmt_equity_funded[0] += reno_budget
+            reno_capex_stmt[0] = reno_budget
+            sources_and_uses["uses"].append(("Renovation budget (equity escrow)", reno_budget))
+            sources_and_uses["sources"] = [
+                (label, amount + reno_budget if label == "Equity" else amount)
+                for label, amount in sources_and_uses["sources"]
+            ]
+        else:  # operating_cash
+            running = 0.0
+            shortfall_month = None
+            for m in range(1, total + 1):
+                draw = reno["capex"][m - 1] if m - 1 < len(reno["capex"]) else 0.0
+                if draw:
+                    unlevered[m] -= draw
+                    levered[m] -= draw
+                    reno_capex_stmt[m] = draw
+                # Exit settlement hasn't been applied yet — levered[1..total]
+                # here is pure operating cash after debt service and capital.
+                running += levered[m]
+                if running < -1e-6 and shortfall_month is None:
+                    shortfall_month = m
+            if shortfall_month is not None:
+                warnings.append(
+                    f"Renovation draws exceed cumulative operating cash from month "
+                    f"{shortfall_month} — operating_cash funding needs a reserve or "
+                    "a slower pace (the program was NOT re-sequenced)."
+                )
+
     unlevered[total] += gross_sale_net_of_costs
     net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
     levered[total] += net_sale_proceeds
@@ -633,6 +679,18 @@ def compute(inputs: dict) -> dict:
         "lpDistributions": waterfall["lpFlows"],
         "gpDistributions": waterfall["gpFlows"],
     }
+    if reno is not None:
+        # J1: conditional keys (baseline-safe — absent without a program).
+        statement["renovationCapex"] = reno_capex_stmt
+        statement["renovation"] = {
+            "unitsComplete": [0.0] + reno["unitsComplete"][:total],
+            "unitsInProgress": [0.0] + reno["unitsInProgress"][:total],
+            "unitsRemaining": [0.0] + reno["unitsRemaining"][:total],
+            "spendSchedule": [0.0] + reno["capex"][:total],
+            "budget": reno["budget"],
+            "fundingSource": reno["fundingSource"],
+        }
+        put("postRenoAvgRent", reno["postRenoAvgRent"])
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.

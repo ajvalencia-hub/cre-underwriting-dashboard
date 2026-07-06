@@ -22,6 +22,7 @@
 
     { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
     { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
+    { "id": "postRenoAvgRent", "label": "Post-Reno Avg Rent (unit/mo)", "type": "currency", "group": "Yield & Value" },
     { "id": "developmentSpreadBps", "label": "Development Spread (over exit cap)", "type": "percent", "group": "Yield & Value" },
     { "id": "residentialYieldOnCost", "label": "Residential Yield on Cost", "type": "percent", "group": "Yield & Value" },
     { "id": "commercialYieldOnCost", "label": "Commercial Yield on Cost", "type": "percent", "group": "Yield & Value" },
@@ -156,6 +157,29 @@
           "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } },
         { "id": "reassessedTaxGrowthPct", "label": "Reassessed Tax Growth (blank = expense growth)", "type": "percent", "min": -0.1, "max": 0.2,
           "visibleWhen": { "all": [{ "field": "useReassessedTaxes", "equals": true }] } }
+      ]
+    },
+    {
+      "id": "renovation_program",
+      "label": "Renovation Program (Value-Add)",
+      "visibleWhen": { "any": [
+        { "field": "propertyType", "equals": "multifamily" },
+        { "field": "propertyType", "equals": "mixed_use" }
+      ] },
+      "fields": [
+        { "id": "renovationProgram", "label": "Program (per unit type; blank = no program)", "type": "table",
+          "columns": [
+            { "id": "unitType", "label": "Unit Type (must match the mix)", "type": "text" },
+            { "id": "unitsToReno", "label": "# Units", "type": "number" },
+            { "id": "costPerUnit", "label": "Cost / Unit", "type": "currency" },
+            { "id": "premiumPerMonth", "label": "Premium ($/mo)", "type": "currency" },
+            { "id": "downtimeMonthsPerUnit", "label": "Downtime (mo/unit)", "type": "number" },
+            { "id": "unitsPerMonth", "label": "Pace (units/mo)", "type": "number" },
+            { "id": "startMonth", "label": "Start (operating month)", "type": "number" }
+          ] },
+        { "id": "renoFundingSource", "label": "Funding", "type": "select",
+          "options": ["equity_at_close", "operating_cash"], "default": "equity_at_close",
+          "visibleWhen": { "all": [{ "field": "renovationProgram", "notEmpty": true }] } }
       ]
     },
     {

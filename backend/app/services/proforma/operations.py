@@ -692,6 +692,130 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     }
 
 
+def has_renovation_program(inputs: dict) -> bool:
+    return any(
+        isinstance(r, dict) and _num(r, "unitsToReno") > 0
+        for r in (inputs.get("renovationProgram") or [])
+    )
+
+
+def _renovation_vectors(
+    inputs: dict, timeline: Timeline, rent_growth: float
+) -> tuple[dict | None, list[str]]:
+    """J1: value-add renovation program. Sequences units through the program
+    at the stated pace; returns monthly vectors on the OPERATING clock
+    (index 0 = operating month 1):
+
+    {offlineRent, premiumRent, capex, unitsComplete, unitsInProgress,
+     unitsRemaining, budget, fundingSource, postRenoAvgRent, warnings}
+
+    Conventions ([FIN], DECISIONS.md): a unit in reno earns ZERO rent for
+    its downtime months, IN ADDITION to the general vacancy on the rest of
+    the pool (no overlap credit); the premium joins the rent basis and
+    grows on the SAME deal anniversary clock as rent; capex lands per unit
+    in its start month."""
+    if not has_renovation_program(inputs):
+        return None, []
+    warnings: list[str] = []
+    total = timeline.total_months
+    operating_months = total - timeline.construction_months
+    units_by_type = {
+        str(r.get("unitType") or ""): (_num(r, "unitCount"), _num(r, "inPlaceRent") or _num(r, "marketRent"))
+        for r in (inputs.get("unitMix") or [])
+        if isinstance(r, dict)
+    }
+
+    offline_rent = [0.0] * operating_months
+    premium_rent = [0.0] * operating_months
+    capex = [0.0] * operating_months
+    complete = [0.0] * operating_months
+    in_progress = [0.0] * operating_months
+    remaining_vec = [0.0] * operating_months
+    budget = 0.0
+    total_program_units = 0.0
+    post_reno_rent_total = 0.0
+    post_reno_units = 0.0
+
+    for program in inputs.get("renovationProgram") or []:
+        if not (isinstance(program, dict) and _num(program, "unitsToReno") > 0):
+            continue
+        unit_type = str(program.get("unitType") or "")
+        unit_count, base_rent = units_by_type.get(unit_type, (0.0, 0.0))
+        units = _num(program, "unitsToReno")
+        if unit_count and units > unit_count:
+            warnings.append(
+                f"Renovation program for '{unit_type}': {units:.0f} units exceeds "
+                f"the {unit_count:.0f} in the mix — capped."
+            )
+            units = unit_count
+        if base_rent <= 0:
+            warnings.append(
+                f"Renovation program for '{unit_type}' matches no unit-mix row "
+                "with a rent — skipped."
+            )
+            continue
+        cost = _num(program, "costPerUnit")
+        premium = _num(program, "premiumPerMonth")
+        downtime = max(0, int(_num(program, "downtimeMonthsPerUnit")))
+        pace = max(1, int(_num(program, "unitsPerMonth", 1)))
+        start = max(1, int(_num(program, "startMonth", 1)))
+        if start > operating_months:
+            warnings.append(
+                f"Renovation program for '{unit_type}' starts in operating month "
+                f"{start}, after the exit — it never runs."
+            )
+            continue
+
+        budget += units * cost
+        total_program_units += units
+        post_reno_rent_total += units * (base_rent + premium)
+        post_reno_units += units
+
+        cohorts: list[tuple[int, float]] = []  # (start operating month, units)
+        left = units
+        month = start
+        while left > 0 and month <= operating_months:
+            n = min(pace, left)
+            cohorts.append((month, n))
+            capex[month - 1] += n * cost
+            left -= n
+            month += 1
+        if left > 0:
+            warnings.append(
+                f"Renovation program for '{unit_type}': {left:.0f} unit(s) never "
+                "start before the exit at this pace."
+            )
+
+        for om in range(1, operating_months + 1):
+            mult = _growth_multiplier(rent_growth, om)
+            offline = sum(n for s, n in cohorts if s <= om < s + downtime)
+            delivered = sum(n for s, n in cohorts if om >= s + downtime)
+            started = sum(n for s, n in cohorts if s <= om)
+            offline_rent[om - 1] += offline * base_rent * mult
+            premium_rent[om - 1] += delivered * premium * mult
+            complete[om - 1] += delivered
+            in_progress[om - 1] += started - delivered
+            remaining_vec[om - 1] += units - started
+
+    if budget <= 0 and total_program_units <= 0:
+        return None, warnings  # nothing runs, but the reasons still surface
+    funding = inputs.get("renoFundingSource") or "equity_at_close"
+    if funding not in ("equity_at_close", "operating_cash"):
+        warnings.append(f"Unknown renoFundingSource '{funding}' — using equity_at_close.")
+        funding = "equity_at_close"
+    return {
+        "offlineRent": offline_rent,
+        "premiumRent": premium_rent,
+        "capex": capex,
+        "unitsComplete": complete,
+        "unitsInProgress": in_progress,
+        "unitsRemaining": remaining_vec,
+        "budget": budget,
+        "fundingSource": funding,
+        "postRenoAvgRent": (post_reno_rent_total / post_reno_units) if post_reno_units else 0.0,
+    }, warnings
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
@@ -719,6 +843,10 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     warnings.extend(expenses["warnings"])
     management_fee_pct = expenses["egiPctTotal"]
     fixed_by_category = expenses["byCategory"]
+
+    # J1: renovation program (None at defaults — the loop math is untouched).
+    reno, reno_warnings = _renovation_vectors(inputs, timeline, rent_growth)
+    warnings.extend(reno_warnings)
 
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
@@ -754,9 +882,19 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 
         gpr_month = (annual_gpr / 12) * rent_mult
         other_month = (annual_other / 12) * rent_mult
+        if reno is not None:
+            # J1: delivered premiums join GPR; offline units lose 100% of
+            # their rent IN ADDITION to the general vacancy on the rest of
+            # the pool (no overlap credit — [FIN], DECISIONS.md).
+            om_index = operating_month - 1
+            premium = reno["premiumRent"][om_index] if om_index < len(reno["premiumRent"]) else 0.0
+            offline = reno["offlineRent"][om_index] if om_index < len(reno["offlineRent"]) else 0.0
+            gpr_month += premium
+            vacancy_loss_month = (gpr_month - offline) * (1 - occupancy) + offline
+        else:
+            vacancy_loss_month = gpr_month * (1 - occupancy)
         # Credit loss applies to collected (occupied) revenue.
-        vacancy_loss_month = gpr_month * (1 - occupancy)
-        credit_loss_month = gpr_month * occupancy * credit_loss_pct
+        credit_loss_month = (gpr_month - vacancy_loss_month) * credit_loss_pct
         collected_rent = gpr_month - vacancy_loss_month - credit_loss_month
         # Ancillary income scales with occupancy too — an empty building
         # collects no parking/RUBS.
@@ -778,7 +916,7 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         other_vec.append(other_income_month)
         mgmt_fee_vec.append(management_fee_month)
 
-    return {
+    result = {
         "noi": noi_vec,
         "egi": egi_vec,
         "gpr": gpr_vec,
@@ -792,6 +930,24 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "gprSource": source,
         "warnings": warnings,
     }
+
+    if reno is not None:
+        cm = timeline.construction_months
+        pad = [0.0] * cm
+
+        def _month_indexed(vec: list[float]) -> list[float]:
+            return (pad + list(vec))[: timeline.total_months]
+
+        result["renovation"] = {
+            "capex": _month_indexed(reno["capex"]),
+            "unitsComplete": _month_indexed(reno["unitsComplete"]),
+            "unitsInProgress": _month_indexed(reno["unitsInProgress"]),
+            "unitsRemaining": _month_indexed(reno["unitsRemaining"]),
+            "budget": reno["budget"],
+            "fundingSource": reno["fundingSource"],
+            "postRenoAvgRent": reno["postRenoAvgRent"],
+        }
+    return result
 
 
 def stabilized_annual_noi(inputs: dict) -> float:

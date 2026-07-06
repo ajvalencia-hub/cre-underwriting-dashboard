@@ -55,6 +55,16 @@ export interface Statement {
      *  no close column). */
     perLease?: import('./leaseSlice').LeaseSlice[]
   }
+  /** J1: present only when a renovation program exists. */
+  renovationCapex?: number[]
+  renovation?: {
+    unitsComplete: number[]
+    unitsInProgress: number[]
+    unitsRemaining: number[]
+    spendSchedule: number[]
+    budget: number
+    fundingSource: 'equity_at_close' | 'operating_cash'
+  }
 }
 
 export interface StatementRow {
@@ -107,6 +117,17 @@ export function statementRows(statement: Statement): StatementRow[] {
     { key: 'debtService', label: 'Debt service', kind: 'flow', series: (s) => s.debtService },
     { key: 'loanBalance', label: 'Loan balance (end)', kind: 'balance', series: (s) => s.loanBalance },
     { key: 'leasingCapital', label: 'Leasing capital (TI/LC)', kind: 'flow', series: (s) => s.leasingCapital ?? [] },
+  )
+  if (statement.renovationCapex) {
+    // J1: present only for deals with a renovation program.
+    rows.push({
+      key: 'renovationCapex',
+      label: 'Renovation capex',
+      kind: 'flow',
+      series: (s) => s.renovationCapex ?? [],
+    })
+  }
+  rows.push(
     { key: 'saleProceedsNet', label: 'Net sale proceeds', kind: 'flow', series: (s) => s.saleProceedsNet },
     { key: 'unlevered', label: 'Unlevered cash flow', kind: 'flow', series: (s) => s.unlevered },
     { key: 'levered', label: 'Levered cash flow', kind: 'flow', series: (s) => s.levered },

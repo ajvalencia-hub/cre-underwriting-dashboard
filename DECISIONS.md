@@ -3,6 +3,34 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J1 — Renovation program (Run 5)
+
+- **[FIN] Reno downtime is IN ADDITION to natural vacancy, no overlap
+  credit**: offline units lose 100% of their rent while the REST of the
+  pool still bears the full vacancyPct —
+  `vacancy(m) = (GPR − offlineRent)·vacancyPct + offlineRent`. Rejected:
+  absorbing downtime inside the vacancy allowance (less conservative, and
+  makes small programs invisible). Credit loss was re-expressed as
+  `(GPR − vacancy)·clp`, algebraically identical to Run 4 at defaults.
+- **[FIN] The premium joins the rent basis and grows on the SAME deal
+  anniversary clock as rent.** Rejected: growing each premium from its
+  unit's delivery date — a second clock per cohort that nothing else in
+  the engine uses, for pennies of precision.
+- **[FIN] Capex lands per unit in its START month, below NOI** (like
+  TI/LC), and the FULL budget joins total_cost_basis (the yield-on-cost
+  denominator) under both funding modes — the value-add convention.
+- **Funding modes are pure cash TIMING**: equity_at_close puts the whole
+  budget in uses at close (escrow view — equity up, levered[0] down);
+  operating_cash draws both vectors as incurred with a warning when
+  cumulative operating cash goes negative (never silently re-sequenced).
+  Total levered dollars are identical across modes.
+- Statement keys (renovationCapex row, renovation progress block) are
+  CONDITIONAL — absent without a program, so the J0 baseline is
+  untouched. The program joins the Excel-export refusal list.
+- stabilized_annual_noi (debt sizing) stays IN-PLACE (pre-reno) — lenders
+  size on in-place; the exit already values delivered premiums through
+  the forward-12 NOI window.
+
 ## I14 — Lease-engine performance guard (Run 4)
 
 - Two budgets, both hard: a 2-second wall-clock cap on a 50-lease /
