@@ -144,6 +144,7 @@ def compute(inputs: dict) -> dict:
     interest_rate_for_perm = interest_rate
 
     sources_and_uses: dict = {"uses": [], "sources": []}
+    gp_developer_fee = 0.0  # J3: captured in the development branch
 
     # Statement vectors (index 0 = close), assembled alongside the cash-flow
     # build so the period detail is the SAME numbers, never a recomputation.
@@ -245,6 +246,7 @@ def compute(inputs: dict) -> dict:
         cost_schedule = development.monthly_cost_schedule(
             budget, timeline.construction_months
         )
+        gp_developer_fee = budget.developer_fee  # J3: a GP fee stream
         # LTC applies to the hard basis (ex financing); interest and fees are
         # loan-funded on top (interest-reserve convention). See DECISIONS.md.
         equity_target = budget.total_ex_financing * (1 - ltc_or_ltv)
@@ -436,6 +438,27 @@ def compute(inputs: dict) -> dict:
         )
 
     # ------------------------------------------------------------------
+    # J3: asset management fee — a PARTNERSHIP expense below property NOI.
+    # It reduces LEVERED cash flow (and therefore every levered metric and
+    # the waterfall), but never NOI, DSCR, unlevered flows, or lender
+    # metrics ([FIN], DECISIONS.md — treating it as opex was rejected).
+    # ------------------------------------------------------------------
+    am_fee_pct = _num(inputs, "assetMgmtFeePct")
+    am_fee_vec = [0.0] * (total + 1)
+    if am_fee_pct > 0:
+        am_basis = inputs.get("assetMgmtFeeBasis") or "egi"
+        if am_basis not in ("egi", "committed_equity"):
+            warnings.append(f"Unknown assetMgmtFeeBasis '{am_basis}' — using egi.")
+            am_basis = "egi"
+        for m in range(1, total + 1):
+            if am_basis == "egi":
+                fee = am_fee_pct * ops["egi"][m - 1]
+            else:  # committed_equity: annual pct on the equity at close
+                fee = am_fee_pct / 12 * initial_equity
+            am_fee_vec[m] = fee
+            levered[m] -= fee
+
+    # ------------------------------------------------------------------
     # Metrics
     # ------------------------------------------------------------------
     outputs: dict[str, float] = {}
@@ -597,6 +620,37 @@ def compute(inputs: dict) -> dict:
     put("gpIrr", irr_of(waterfall["gpFlows"]))
     put("lpEquityMultiple", waterfall["lpMultiple"])
 
+    # J3: GP total compensation — fees + promote + pro-rata. All three fee
+    # streams are paid TO the GP; the waterfall stays on contributed-capital
+    # promote math. Conditional block: only when a fee stream exists, so
+    # fee-free deals keep their Run-4 payload exactly.
+    gp_acquisition_fee = (
+        _num(inputs, "purchasePrice") * _num(inputs, "acquisitionFeePct")
+        if deal_type == "acquisition" else 0.0
+    )
+    gp_developer_fee_total = gp_developer_fee if deal_type == "development" else 0.0
+    am_fees_total = sum(am_fee_vec)
+    gp_economics = None
+    # Gate: the AM fee (new input) or an acquisition fee activates the block.
+    # The developer fee alone does NOT — its pre-J3 engine default (0.04)
+    # would put this block on every Run-4 development deal, breaking the
+    # baseline; it reports inside the block once another stream fires.
+    if gp_acquisition_fee > 0 or am_fees_total > 0:
+        gp_distributions_net = sum(waterfall["gpFlows"])
+        fees_total = gp_acquisition_fee + gp_developer_fee_total + am_fees_total
+        gp_economics = {
+            "acquisitionFee": gp_acquisition_fee,
+            "developerFee": gp_developer_fee_total,
+            "assetMgmtFees": am_fees_total,
+            "feesTotal": fees_total,
+            "promote": waterfall["promotePaid"],
+            "gpDistributionsNet": gp_distributions_net,
+            "proRataNet": gp_distributions_net - waterfall["promotePaid"],
+            "totalCompensation": fees_total + gp_distributions_net,
+        }
+        put("gpFeesTotal", fees_total)
+        put("gpTotalCompensation", gp_economics["totalCompensation"])
+
     # ------------------------------------------------------------------
     # Debt sizing detail: governing constraint + rate/NOI stress grid.
     # ------------------------------------------------------------------
@@ -691,6 +745,9 @@ def compute(inputs: dict) -> dict:
             "fundingSource": reno["fundingSource"],
         }
         put("postRenoAvgRent", reno["postRenoAvgRent"])
+    if am_fees_total > 0:
+        # J3: conditional partnership-expense row (below NOI, levered only).
+        statement["assetMgmtFee"] = am_fee_vec
     ltl = ops.get("lossToLease")
     if ltl is not None:
         # J2: conditional display block — GPR at market, less loss-to-lease,
@@ -770,5 +827,6 @@ def compute(inputs: dict) -> dict:
         "sourcesAndUses": sources_and_uses,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
+        "gpEconomics": gp_economics,
         "statement": statement,
     }

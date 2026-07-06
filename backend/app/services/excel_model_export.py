@@ -109,6 +109,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         for r in (inputs.get("unitMix") or [])
     ):
         features.append("loss-to-lease burn-off (turnover blend)")
+    if _num(inputs, "assetMgmtFeePct") > 0:
+        features.append("asset management fee (partnership expense below NOI)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

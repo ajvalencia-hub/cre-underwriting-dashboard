@@ -3,6 +3,32 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J3 — GP fee economics (Run 5)
+
+- **[FIN, pinned] The asset management fee is a PARTNERSHIP expense BELOW
+  property NOI**: it reduces levered cash flow (and therefore levered/LP
+  IRRs and the waterfall) but never NOI, DSCR, unlevered flows, or lender
+  metrics. Rejected: treating it as opex — lenders don't underwrite a
+  sponsor's AM fee, and folding it into NOI would corrupt DSCR, debt
+  yield, cap-rate math, and every comp. Basis options: % of EGI
+  (monthly, on the engine's own EGI vector) or % of committed equity
+  (annual pct / 12 on the equity at close).
+- **[FIN] Acquisition and developer fees are USES capitalized into basis**
+  (they already were — F2/H-run behavior); J3 adds the REPORTING that all
+  three streams are paid TO the GP. Waterfall distributions stay on
+  contributed-capital promote math (fees never run through the
+  waterfall); GP total compensation = fees + promote + pro-rata net.
+- **The gpEconomics block activates on the AM fee (new input) or an
+  acquisition fee — never on the developer fee alone**: the pre-J3
+  engine default (developerFeePct 0.04) would otherwise put the block on
+  every Run-4 development deal, breaking the baseline. The developer fee
+  reports inside the block once another stream fires. Similarly, the
+  spec's "developerFeePct default 0" is NOT adopted — the Run-1 default
+  (0.04) is load-bearing for existing outputs, and compatibility is
+  absolute.
+- The AM fee joins the Excel-export refusal list (levered-only
+  partnership flows have no cell in the property model).
+
 ## J2 — Loss-to-lease burn-off (Run 5)
 
 - **[FIN] Analytic expected-value blend, no per-unit simulation**: because

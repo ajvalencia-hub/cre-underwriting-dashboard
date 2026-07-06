@@ -61,6 +61,9 @@ def compute(payload: ComputeRequest, detail: bool = False):
         "irrConvention": result["irrConvention"],
         "waterfallStyle": result["waterfallStyle"],
     }
+    if result.get("gpEconomics"):
+        # J3: conditional — only fee-carrying deals gain the block.
+        response["gpEconomics"] = result["gpEconomics"]
     if detail:
         # The period-level statement: the engine's own vectors, no recompute.
         response["statement"] = result["statement"]

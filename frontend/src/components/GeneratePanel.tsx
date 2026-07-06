@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { computeNative, exportNativeModel, generateWorkbook, type DebtBlock } from '../lib/api'
+import {
+  computeNative,
+  exportNativeModel,
+  generateWorkbook,
+  type DebtBlock,
+  type GpEconomics,
+} from '../lib/api'
 import type { Statement } from '../lib/cashflowStatement'
 import type { TemplateSummary } from '../types/template'
 
@@ -33,6 +39,7 @@ export default function GeneratePanel({
   const [computeWarnings, setComputeWarnings] = useState<string[]>([])
   const [computeError, setComputeError] = useState<string | null>(null)
   const [debtBlock, setDebtBlock] = useState<DebtBlock | null>(null)
+  const [gpEconomics, setGpEconomics] = useState<GpEconomics | null>(null)
   const [exportingModel, setExportingModel] = useState(false)
 
   const ready = Boolean(template && mappingProfileId)
@@ -63,15 +70,16 @@ export default function GeneratePanel({
     setComputeError(null)
     setComputeWarnings([])
     try {
-      const { outputs, warnings, debt, irrConvention, statement } = await computeNative(values, {
-        detail: true,
-      })
+      const response = await computeNative(values, { detail: true })
+      const { outputs, warnings, debt, irrConvention, statement } = response
       setComputeWarnings(warnings)
       setDebtBlock(debt)
+      setGpEconomics(response.gpEconomics ?? null)
       onComputedNative?.(outputs, debt, irrConvention, statement ?? null)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Native compute failed')
       setDebtBlock(null)
+      setGpEconomics(null)
     } finally {
       setComputing(false)
     }
@@ -237,6 +245,26 @@ export default function GeneratePanel({
               </tbody>
             </table>
           )}
+        </div>
+      )}
+      {gpEconomics && (
+        <div className="mt-3 max-w-3xl text-xs">
+          <div className="font-semibold tracking-wide text-slate-500">
+            GP COMPENSATION — {fmtMoney(gpEconomics.totalCompensation)} total
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-slate-600">
+            {gpEconomics.acquisitionFee > 0 && (
+              <span>Acquisition fee {fmtMoney(gpEconomics.acquisitionFee)}</span>
+            )}
+            {gpEconomics.developerFee > 0 && (
+              <span>Developer fee {fmtMoney(gpEconomics.developerFee)}</span>
+            )}
+            {gpEconomics.assetMgmtFees > 0 && (
+              <span>AM fees {fmtMoney(gpEconomics.assetMgmtFees)}</span>
+            )}
+            <span>Promote {fmtMoney(gpEconomics.promote)}</span>
+            <span>Pro-rata (net) {fmtMoney(gpEconomics.proRataNet)}</span>
+          </div>
         </div>
       )}
       {result && (

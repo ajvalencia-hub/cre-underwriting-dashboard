@@ -223,6 +223,17 @@ export interface DebtBlock {
   insuranceStress?: { bumpPct: number; minDscr: number | null; leveredCfDeltaAnnual: number }[]
 }
 
+export interface GpEconomics {
+  acquisitionFee: number
+  developerFee: number
+  assetMgmtFees: number
+  feesTotal: number
+  promote: number
+  gpDistributionsNet: number
+  proRataNet: number
+  totalCompensation: number
+}
+
 export interface ComputeResponse {
   outputs: Record<string, number | string>
   warnings: string[]
@@ -230,6 +241,8 @@ export interface ComputeResponse {
   irrConvention: 'periodic_monthly' | 'xirr'
   waterfallStyle: 'european' | 'american'
   statement?: Statement
+  /** J3: present only for deals with GP fee streams. */
+  gpEconomics?: GpEconomics
 }
 
 export function computeNative(

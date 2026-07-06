@@ -40,6 +40,7 @@ _RETURNS_MEMO_IDS = [
     "lpEquityMultiple", "cashOnCashYear1", "stabilizedCashOnCash",
     "paybackPeriodYears", "npv", "yieldOnCost", "goingInCapRate",
     "developmentSpreadBps", "terminalValue", "netSaleProceeds", "totalProfit",
+    "gpFeesTotal", "gpTotalCompensation",  # J3: only present on fee deals
 ]
 _KEY_ASSUMPTION_FIELDS = [
     ("dealType", "Deal type", "text"),
