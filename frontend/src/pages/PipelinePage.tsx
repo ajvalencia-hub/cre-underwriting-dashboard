@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { exportBatchDeck } from '../lib/api'
+import { upcomingDeadlines } from '../lib/criticalDates'
 import { relativeAge, stalenessBadge } from '../lib/staleness'
 import {
   applyView,
@@ -192,6 +193,40 @@ export default function PipelinePage({
           New deal from documents
         </button>
       </div>
+
+      {/* J11: upcoming deadlines — overdue first (red), then the next 14 days. */}
+      {(() => {
+        const deadlines = upcomingDeadlines(deals, new Date())
+        if (deadlines.length === 0) return null
+        return (
+          <div className="rounded border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-semibold tracking-wide text-slate-400">
+              UPCOMING DEADLINES (14 DAYS)
+            </div>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {deadlines.map((entry) => (
+                <button
+                  key={`${entry.dealId}-${entry.row.id}`}
+                  onClick={() => onOpenDeal(entry.dealId)}
+                  title={entry.row.notes || undefined}
+                  className={`rounded px-2 py-1 text-xs ${
+                    entry.status === 'overdue'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-amber-50 text-amber-700'
+                  }`}
+                >
+                  {entry.dealName}: {entry.row.label} {entry.row.date}
+                  {entry.status === 'overdue'
+                    ? ` (${-entry.days}d overdue)`
+                    : entry.days === 0
+                      ? ' (today)'
+                      : ` (in ${entry.days}d)`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <input

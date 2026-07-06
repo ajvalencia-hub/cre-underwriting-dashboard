@@ -3,6 +3,22 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J11 — Critical dates (Run 5)
+
+- **Dates live in the deal's inputs blob** (`inputs.criticalDates`:
+  [{id, label, date YYYY-MM-DD, notes}]) — CRUD is the ordinary deal
+  PUT, and autosave, history snapshots, export/import bundles, and the
+  HTML share all carry them with zero new plumbing. The engine ignores
+  unknown input keys, so the baseline is untouched. Rejected: a
+  critical_dates table + router — a second store and four endpoints
+  for data that is deal state.
+- **Date math is calendar-day, local time** (deadlines are days, not
+  instants); "upcoming" = within 14 days INCLUSIVE of today and day 14;
+  the pipeline strip orders overdue first (most overdue first), then
+  ascending. Unparsable dates classify as 'later' — junk never alarms.
+- Preset labels (LOI expiry, DD end, Financing contingency, Closing)
+  are UI seeds only; the stored label is free text.
+
 ## J10 — OM-to-deal wizard (Run 5)
 
 - **The wizard is a CHAIN of the existing gates, not a new pipeline**:

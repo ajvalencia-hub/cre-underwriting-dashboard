@@ -49,8 +49,10 @@ import {
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
+import CriticalDatesEditor from './components/CriticalDatesEditor'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
+import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
@@ -106,6 +108,8 @@ function App() {
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
   const [omWizardOpen, setOmWizardOpen] = useState(false)
+  // J11: critical-dates editor visibility.
+  const [datesEditorOpen, setDatesEditorOpen] = useState(false)
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -565,6 +569,31 @@ function App() {
             e.target.value = ''
           }}
         />
+        {/* J11: date chips for the active deal + editor. */}
+        {sortByDate(readCriticalDates(formValues)).slice(0, 3).map((row) => {
+          const status = dateStatus(row.date, new Date())
+          return (
+            <span
+              key={row.id}
+              title={row.notes || row.label}
+              className={`rounded px-1.5 py-0.5 text-[11px] ${
+                status === 'overdue'
+                  ? 'bg-red-100 text-red-700'
+                  : status === 'upcoming'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {row.label} {row.date}
+            </span>
+          )
+        })}
+        <button
+          onClick={() => setDatesEditorOpen(true)}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          Dates
+        </button>
         <span
           className={`ml-auto text-xs ${
             autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
@@ -660,6 +689,14 @@ function App() {
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
         />
       </div>
+
+      {datesEditorOpen && (
+        <CriticalDatesEditor
+          values={formValues}
+          onChange={(rows) => handleFieldChange('criticalDates', rows)}
+          onClose={() => setDatesEditorOpen(false)}
+        />
+      )}
 
       {omWizardOpen && (
         <OmWizard

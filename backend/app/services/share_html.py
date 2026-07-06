@@ -177,10 +177,26 @@ def render_share_html(deal_name: str, status: str, inputs: dict, result: dict | 
         items = "".join(f"<div class='warn'>{_esc(w)}</div>" for w in warnings)
         warnings_html = f"<h2>MODEL NOTES</h2>{items}"
 
+    # J11: critical dates ride the share (they live in the inputs blob).
+    dates_html = ""
+    date_rows = ""
+    for row in sorted(
+        (r for r in (inputs.get("criticalDates") or []) if isinstance(r, dict) and r.get("date")),
+        key=lambda r: str(r.get("date")),
+    ):
+        date_rows += (
+            f"<tr><td>{_esc(str(row.get('label') or ''))}</td>"
+            f"<td>{_esc(str(row.get('date') or ''))}</td>"
+            f"<td>{_esc(str(row.get('notes') or ''))}</td></tr>"
+        )
+    if date_rows:
+        dates_html = f"<h2>CRITICAL DATES</h2><table>{date_rows}</table>"
+
     body = (
         head
         + metrics_html
         + assumptions_html
+        + dates_html
         + annual_html
         + warnings_html
         + f"<div class='disclaimer'>{_esc(_DISCLAIMER)}</div>"
