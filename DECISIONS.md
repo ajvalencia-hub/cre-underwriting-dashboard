@@ -3,6 +3,41 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J6 — Replacement reserves + escrows (Run 5)
+
+- **[FIN, pinned] One reserves dollar vector; the convention changes only
+  WHERE the line sits.** $/unit/yr × the unit-mix count plus $/SF/yr ×
+  commercial SF (lease-roll SF, else rentableSf), growing on the
+  expense-growth clock in BOTH conventions — so toggling the convention
+  never changes the dollars, only the placement. A set input whose basis
+  is missing (per-unit with no unit mix; PSF with no SF) contributes
+  nothing and warns — never a silent guess.
+- **[FIN] below_noi (default): reserves are a capital cost after NOI**,
+  like TI/LC — both cash-flow vectors, never DSCR / sizing / the exit
+  cap basis. The lender-underwriting view is surfaced as the
+  `underwrittenDscr` detail output (min DSCR on NOI − reserves), not by
+  changing the deal's own DSCR.
+- **[FIN] above_noi_underwritten: reserves sit inside opex for ALL
+  NOI-derived metrics** — exit value, DSCR, sizing NOI, debt yield,
+  break-evens. Category key `reservesUnderwritten` (the flat legacy
+  `replacementReserves` opex field already owns that key and is
+  untouched). Note: mixed-use component-level exit caps use component
+  NOIs, which exclude this whole-property line.
+- **[FIN] Escrows are pure cash timing, levered only**: funded at close
+  (a use; the Equity source absorbs it), released at exit; never in the
+  cost basis (it comes back), never in P&L, and never unlevered — an
+  all-cash buyer posts no lender escrow. Sized on the FIRST OPERATING
+  month's modeled taxes + insurance (× monthsOfTaxesAndInsurance) so
+  every tax source — flat field, line items, reassessment — is honored
+  from one place. Rejected: sizing on the raw input fields, which
+  reassessment (H4) can replace.
+- New reserves inputs and escrows join the Excel-export refusal list —
+  the exported workbook has no below-NOI reserve or escrow rows, and a
+  silently-diverging export is worse than a refusal.
+- Housekeeping: vitest was collecting Playwright's e2e/smoke.spec.ts as
+  a unit-test file (a failed suite with 0 failed tests, easy to misread
+  as green); vitest.config.ts now excludes e2e/**.
+
 ## J5 — Floating-rate debt + rate cap (Run 5)
 
 - **[FIN, pinned] Monthly rate = max(index(m), floor) + spread, capped at

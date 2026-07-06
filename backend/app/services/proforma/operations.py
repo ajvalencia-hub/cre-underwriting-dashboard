@@ -1055,6 +1055,67 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     return result
 
 
+def reserves_vector(
+    inputs: dict, timeline: Timeline
+) -> tuple[list[float] | None, float, list[str]]:
+    """J6: replacement reserves as ONE monthly dollar vector on the
+    expense-growth clock (operating months only). Returns (vector indexed
+    0..total_months-1, year-1 annual base, warnings), or (None, 0.0,
+    warnings) when the inputs are absent or inert. The reservesConvention
+    toggle changes only WHERE the engine places these dollars ([FIN],
+    DECISIONS.md), never how many there are.
+
+    Bases: $/unit/yr x the unit-mix count; $/SF/yr x commercial SF (lease
+    roll SF, else rentableSf). Both may coexist on a mixed-use deal. The
+    pre-existing flat `replacementReserves` opex field is untouched."""
+    per_unit = _num(inputs, "replacementReservesPerUnit")
+    per_sf = _num(inputs, "replacementReservesPsf")
+    warnings: list[str] = []
+    if per_unit <= 0 and per_sf <= 0:
+        return None, 0.0, warnings
+
+    units = sum(
+        _num(r, "unitCount") for r in (inputs.get("unitMix") or []) if isinstance(r, dict)
+    )
+    commercial_sf = sum(
+        _num(r, "sf") for r in (inputs.get("commercialLeases") or []) if isinstance(r, dict)
+    )
+    if commercial_sf <= 0:
+        commercial_sf = _num(inputs, "rentableSf")
+
+    annual = 0.0
+    if per_unit > 0:
+        if units > 0:
+            annual += per_unit * units
+        else:
+            warnings.append(
+                "replacementReservesPerUnit is set but the deal has no unit mix — "
+                "the per-unit reserve contributes nothing."
+            )
+    if per_sf > 0:
+        if commercial_sf > 0:
+            annual += per_sf * commercial_sf
+        else:
+            warnings.append(
+                "replacementReservesPsf is set but the deal has no commercial SF "
+                "(lease roll or rentableSf) — the PSF reserve contributes nothing."
+            )
+    if annual <= 0:
+        return None, 0.0, warnings
+
+    expense_growth = (
+        _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
+    )
+    vec: list[float] = []
+    for month in range(1, timeline.total_months + 1):
+        operating_month = month - timeline.construction_months
+        if operating_month < 1:
+            vec.append(0.0)
+        else:
+            vec.append(annual / 12 * _growth_multiplier(expense_growth, operating_month))
+    return vec, annual, warnings
+
+
 def stabilized_annual_noi(inputs: dict) -> float:
     """Stabilized-year NOI at today's rents (no growth): the sizing/exit basis
     when the deal's own vectors haven't stabilized. Mirrors one stabilized

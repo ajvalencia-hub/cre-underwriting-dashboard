@@ -48,7 +48,8 @@
     { "id": "interestCoverageRatio", "label": "Interest Coverage Ratio", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "governingConstraint", "label": "Governing Sizing Constraint", "type": "text", "group": "Debt & Leverage" },
     { "id": "stressedDscr", "label": "Stressed DSCR (+200bps, NOI −10%)", "type": "multiple", "group": "Debt & Leverage" },
-    { "id": "dscrAtCapStrike", "label": "DSCR at Cap Strike", "type": "multiple", "group": "Debt & Leverage" }
+    { "id": "dscrAtCapStrike", "label": "DSCR at Cap Strike", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "underwrittenDscr", "label": "Lender UW DSCR (NOI − reserves)", "type": "multiple", "group": "Debt & Leverage" }
   ],
   "sections": [
     {
@@ -101,6 +102,7 @@
         { "id": "loanTermYears", "label": "Loan Term (yrs)", "type": "number", "min": 0, "max": 40, "default": 10 },
         { "id": "ioMonths", "label": "Interest-Only Period (mo)", "type": "number", "min": 0, "default": 0 },
         { "id": "originationFeePct", "label": "Origination / Loan Fees", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
+        { "id": "monthsOfTaxesAndInsurance", "label": "Tax & Insurance Escrows (months, funded at close / released at exit)", "type": "number", "min": 0, "max": 24, "default": 0 },
         { "id": "dscrConstraint", "label": "Min DSCR Sizing Constraint", "type": "number", "min": 1, "max": 3, "default": 1.25 },
         { "id": "debtYieldConstraint", "label": "Min Debt Yield Sizing Constraint", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 },
         { "id": "sizingNoiBasis", "label": "Sizing NOI Basis", "type": "select", "options": ["in_place", "stabilized", "underwritten"], "default": "stabilized" },
@@ -171,7 +173,15 @@
         { "id": "payroll", "label": "Payroll", "type": "currency", "min": 0 },
         { "id": "generalAdmin", "label": "General & Admin", "type": "currency", "min": 0 },
         { "id": "managementFeePct", "label": "Management Fee", "type": "percent", "min": 0, "max": 0.2, "default": 0.03 },
-        { "id": "replacementReserves", "label": "Replacement Reserves", "type": "currency", "min": 0 },
+        { "id": "replacementReserves", "label": "Replacement Reserves (flat $/yr, inside opex)", "type": "currency", "min": 0 },
+        { "id": "replacementReservesPerUnit", "label": "Replacement Reserves ($/unit/yr)", "type": "currency", "min": 0 },
+        { "id": "replacementReservesPsf", "label": "Replacement Reserves ($/SF/yr, commercial)", "type": "currency", "min": 0 },
+        { "id": "reservesConvention", "label": "Reserves Convention", "type": "select",
+          "options": ["below_noi", "above_noi_underwritten"], "default": "below_noi",
+          "visibleWhen": { "any": [
+            { "field": "replacementReservesPerUnit", "notEmpty": true },
+            { "field": "replacementReservesPsf", "notEmpty": true }
+          ] } },
         { "id": "opexLineItems", "label": "Opex Detail (overrides the fields above when any row exists)", "type": "table",
           "columns": [
             { "id": "category", "label": "Category", "type": "select",

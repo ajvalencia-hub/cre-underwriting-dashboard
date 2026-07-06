@@ -57,6 +57,10 @@ export interface Statement {
   }
   /** J1: present only when a renovation program exists. */
   renovationCapex?: number[]
+  /** J6: present only with below-NOI per-unit/PSF reserves. */
+  replacementReserves?: number[]
+  /** J6: present only with tax & insurance escrows (−E at close, +E at exit). */
+  escrowFlows?: number[]
   /** J2: present only when loss-to-lease burn-off is active. */
   lossToLease?: { marketGpr: number[]; lossToLease: number[] }
   renovation?: {
@@ -87,6 +91,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   payroll: 'Payroll',
   generalAdmin: 'General & admin',
   replacementReserves: 'Replacement reserves',
+  reservesUnderwritten: 'Replacement reserves (underwritten)',
   managementFeeFixed: 'Management fee (fixed $)',
   otherOpex: 'Other opex',
 }
@@ -146,6 +151,24 @@ export function statementRows(statement: Statement): StatementRow[] {
       label: 'Renovation capex',
       kind: 'flow',
       series: (s) => s.renovationCapex ?? [],
+    })
+  }
+  if (statement.replacementReserves) {
+    // J6: below-NOI reserves — a capital row like TI/LC.
+    rows.push({
+      key: 'replacementReserves',
+      label: 'Replacement reserves (below NOI)',
+      kind: 'flow',
+      series: (s) => s.replacementReserves ?? [],
+    })
+  }
+  if (statement.escrowFlows) {
+    // J6: escrow timing — funded at close, released at exit.
+    rows.push({
+      key: 'escrowFlows',
+      label: 'Tax & insurance escrows',
+      kind: 'flow',
+      series: (s) => s.escrowFlows ?? [],
     })
   }
   rows.push(

@@ -115,6 +115,10 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("junior tranche (mezzanine / preferred equity)")
     if inputs.get("rateMode") == "floating":
         features.append("floating-rate debt (forward curve, floor, rate cap)")
+    if _num(inputs, "replacementReservesPerUnit") > 0 or _num(inputs, "replacementReservesPsf") > 0:
+        features.append("per-unit / PSF replacement reserves (convention-dependent placement)")
+    if _num(inputs, "monthsOfTaxesAndInsurance") > 0:
+        features.append("tax & insurance escrows (close/exit cash timing)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

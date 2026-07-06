@@ -100,6 +100,27 @@ def compute(inputs: dict) -> dict:
     noi = ops["noi"][:total]
     forward_noi_12 = sum(ops["noi"][total : total + 12])
     stabilized_noi = operations.stabilized_annual_noi(inputs)
+
+    # J6: replacement reserves — ONE dollar vector; the convention changes
+    # only where the line sits. above_noi_underwritten folds it into opex
+    # for ALL NOI-derived metrics (exit value, DSCR, sizing) right here,
+    # before anything consumes NOI; below_noi (the default) treats it as a
+    # capital cost after NOI further down. None at defaults — baseline-safe.
+    reserves_full, reserves_annual, reserves_warnings = operations.reserves_vector(
+        inputs, extended
+    )
+    warnings.extend(reserves_warnings)
+    reserves_convention = inputs.get("reservesConvention") or "below_noi"
+    if reserves_full is not None and reserves_convention == "above_noi_underwritten":
+        for i, amount in enumerate(reserves_full):
+            ops["noi"][i] -= amount
+            ops["opex"][i] += amount
+        # Distinct category key — "replacementReserves" is already taken by
+        # the legacy flat opex field.
+        ops["fixedOpexByCategory"]["reservesUnderwritten"] = reserves_full
+        noi = ops["noi"][:total]
+        forward_noi_12 = sum(ops["noi"][total : total + 12])
+        stabilized_noi -= reserves_annual
     # Leasing capital (TI/LC on commercial rollovers, H1) is a capital cost
     # BELOW NOI: it hits the cash-flow vectors but never DSCR or the exit cap
     # basis. Zeros for non-lease deals.
@@ -434,6 +455,51 @@ def compute(inputs: dict) -> dict:
             for name, amount in sources_and_uses["sources"]
         ]
 
+    # J6 (below_noi, the default convention): reserves are a capital cost
+    # after NOI, like TI/LC — both cash-flow vectors, never DSCR / sizing /
+    # the exit cap basis. The lender-UW view (NOI − reserves) is surfaced as
+    # the underwrittenDscr detail output instead.
+    reserves_stmt = None
+    if reserves_full is not None and reserves_convention == "below_noi":
+        reserves_stmt = [0.0] * (total + 1)
+        for m in range(1, total + 1):
+            amount = reserves_full[m - 1]
+            if amount:
+                unlevered[m] -= amount
+                levered[m] -= amount
+                reserves_stmt[m] = amount
+
+    # J6: tax & insurance escrows — PURE cash timing, levered only (a lender
+    # requirement; an all-cash buyer posts none): funded at close, released
+    # at exit. Never in the cost basis (it comes back) and never in P&L.
+    # Sized on the first operating month's modeled taxes + insurance so every
+    # tax source (flat, line items, reassessment) is honored.
+    escrow_amount = 0.0
+    escrow_months = _num(inputs, "monthsOfTaxesAndInsurance")
+    if escrow_months > 0:
+        om1 = timeline.construction_months  # 0-based index of operating month 1
+        monthly_ti = sum(
+            (vec[om1] if om1 < len(vec) else 0.0)
+            for key, vec in ops["fixedOpexByCategory"].items()
+            if key in ("realEstateTaxes", "insurance")
+        )
+        escrow_amount = monthly_ti * escrow_months
+        if escrow_amount > 0:
+            levered[0] -= escrow_amount
+            levered[total] += escrow_amount
+            initial_equity += escrow_amount
+            stmt_equity_funded[0] += escrow_amount
+            sources_and_uses["uses"].append(("Tax & insurance escrows", escrow_amount))
+            sources_and_uses["sources"] = [
+                (name, initial_equity if name == "Equity" else amount)
+                for name, amount in sources_and_uses["sources"]
+            ]
+        else:
+            warnings.append(
+                "monthsOfTaxesAndInsurance is set but the deal models no taxes "
+                "or insurance expense — no escrow was funded."
+            )
+
     for m in range(1, total + 1):
         if leasing_capital[m - 1]:
             unlevered[m] -= leasing_capital[m - 1]
@@ -718,6 +784,16 @@ def compute(inputs: dict) -> dict:
         dscrs = [n / s.payment for n, s in service_months]
         put("minDscr", min(dscrs))
         put("avgDscr", sum(dscrs) / len(dscrs))
+        if reserves_stmt is not None:
+            # J6: lender-UW DSCR on NOI − reserves — a DETAIL row; the
+            # deal's own DSCR stays on NOI (below_noi convention).
+            uw_dscrs = [
+                (noi[m - 1] - reserves_stmt[m]) / debt_service[m].payment
+                for m in range(1, total + 1)
+                if debt_service[m] is not None and debt_service[m].payment > 0
+            ]
+            if uw_dscrs:
+                put("underwrittenDscr", min(uw_dscrs))
         annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate_for_perm, amort_years)
         if io_months >= total - takeout_month + 1:
             annual_service = perm_loan * interest_rate_for_perm  # never leaves IO
@@ -940,6 +1016,15 @@ def compute(inputs: dict) -> dict:
             "fundingSource": reno["fundingSource"],
         }
         put("postRenoAvgRent", reno["postRenoAvgRent"])
+    if reserves_stmt is not None:
+        # J6: conditional below-NOI reserves row (both vectors).
+        statement["replacementReserves"] = reserves_stmt
+    if escrow_amount > 0:
+        # J6: conditional escrow timing row: −E at close, +E at exit.
+        escrow_vec = [0.0] * (total + 1)
+        escrow_vec[0] = -escrow_amount
+        escrow_vec[total] += escrow_amount
+        statement["escrowFlows"] = escrow_vec
     if am_fees_total > 0:
         # J3: conditional partnership-expense row (below NOI, levered only).
         statement["assetMgmtFee"] = am_fee_vec
