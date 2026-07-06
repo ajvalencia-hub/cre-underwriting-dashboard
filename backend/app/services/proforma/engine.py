@@ -438,6 +438,100 @@ def compute(inputs: dict) -> dict:
         )
 
     # ------------------------------------------------------------------
+    # J4: junior tranche (mezzanine / preferred equity). Funds at the same
+    # event as the senior (close for acquisitions, perm takeout for
+    # developments); senior sizing is UNAFFECTED. Current-pay interest is a
+    # below-NOI financing cost ranking AFTER senior debt service and
+    # property capital costs and BEFORE the partnership AM fee and equity;
+    # a current-pay shortfall converts to PIK ([FIN] — hard default
+    # rejected). Accrued mode compounds monthly at rate/12; the balance is
+    # repaid at exit AFTER senior payoff, BEFORE common equity.
+    # ------------------------------------------------------------------
+    junior_kind = inputs.get("juniorTrancheKind") or "none"
+    junior_block = None
+    if junior_kind in ("mezz", "pref_equity"):
+        junior_rate = _num(inputs, "juniorRatePct")
+        junior_fixed = _num(inputs, "juniorAmount")
+        junior_fill = _num(inputs, "juniorFillToLtcPct")
+        if junior_fixed > 0:
+            junior_amount = junior_fixed
+        elif junior_fill > 0:
+            junior_amount = max(0.0, junior_fill * total_cost_basis - perm_loan)
+        else:
+            junior_amount = 0.0
+        if junior_amount <= 0:
+            warnings.append(
+                "Junior tranche configured with no amount (set juniorAmount or "
+                "juniorFillToLtcPct above the senior) — ignored."
+            )
+    if junior_kind in ("mezz", "pref_equity") and junior_amount > 0:
+        junior_fee = junior_amount * _num(inputs, "juniorOriginationFeePct")
+        pay_mode = inputs.get("juniorPayMode") or "current"
+        if pay_mode not in ("current", "accrued"):
+            warnings.append(f"Unknown juniorPayMode '{pay_mode}' — using current.")
+            pay_mode = "current"
+        fund_month = 0 if deal_type == "acquisition" else min(takeout_month, total)
+        label = "Mezzanine tranche" if junior_kind == "mezz" else "Preferred equity tranche"
+
+        # Funding: reduces common equity by the tranche net of its fee.
+        levered[fund_month] += junior_amount - junior_fee
+        initial_equity = initial_equity - junior_amount + junior_fee
+        stmt_debt_draws[fund_month] += junior_amount
+        stmt_loan_fees[fund_month] += junior_fee
+        sources_and_uses["uses"].append((f"{label} fee", junior_fee))
+        sources_and_uses["sources"] = [
+            (name, amount - junior_amount + junior_fee if name == "Equity" else amount)
+            for name, amount in sources_and_uses["sources"]
+        ]
+        sources_and_uses["sources"].append((label, junior_amount))
+
+        junior_interest_paid = [0.0] * (total + 1)
+        junior_balance_vec = [0.0] * (total + 1)
+        pik_months: list[int] = []
+        balance = junior_amount
+        junior_balance_vec[fund_month] = balance
+        r = junior_rate / 12
+        for m in range(fund_month + 1, total + 1):
+            interest = balance * r
+            if pay_mode == "current":
+                available = max(0.0, levered[m])
+                paid = min(available, interest)
+                shortfall = interest - paid
+                if shortfall > 1e-9:
+                    balance += shortfall  # shortfall converts to PIK
+                    pik_months.append(m)
+                levered[m] -= paid
+                junior_interest_paid[m] = paid
+            else:  # accrued: full PIK
+                balance += interest
+            junior_balance_vec[m] = balance
+
+        # Exit payoff: after senior (already netted in sale proceeds),
+        # before common equity.
+        levered[total] -= balance
+        junior_payoff_vec = [0.0] * (total + 1)
+        junior_payoff_vec[total] = balance
+        if levered[total] < 0:
+            warnings.append(
+                f"{label} payoff (${balance:,.0f}) exceeds the remaining exit "
+                "cash — common equity's exit flow is negative."
+            )
+
+        junior_block = {
+            "kind": junior_kind,
+            "amount": junior_amount,
+            "fee": junior_fee,
+            "payMode": pay_mode,
+            "ratePct": junior_rate,
+            "fundMonth": fund_month,
+            "payoff": balance,
+            "pikMonths": pik_months,
+            "interestPaid": junior_interest_paid,
+            "balance": junior_balance_vec,
+            "payoffVector": junior_payoff_vec,
+        }
+
+    # ------------------------------------------------------------------
     # J3: asset management fee — a PARTNERSHIP expense below property NOI.
     # It reduces LEVERED cash flow (and therefore every levered metric and
     # the waterfall), but never NOI, DSCR, unlevered flows, or lender
@@ -466,6 +560,15 @@ def compute(inputs: dict) -> dict:
     def put(key: str, value):
         if value is not None and isinstance(value, (int, float)):
             outputs[key] = float(value)
+
+    if junior_block is not None:
+        # J4: combined leverage detail (senior + tranche). The senior-only
+        # lender metrics (ltv/ltc) stay untouched; pref equity differs from
+        # mezz in labeling only here.
+        if value_for_ltv > 0:
+            put("combinedLtv", (perm_loan + junior_block["amount"]) / value_for_ltv)
+        if total_cost_basis > 0:
+            put("combinedLtc", (perm_loan + junior_block["amount"]) / total_cost_basis)
 
     # IRR convention (G1): periodic_monthly (default, Run-1 behavior) computes
     # a monthly IRR annualized as (1+i)^12-1; xirr dates every flow at the
@@ -748,6 +851,13 @@ def compute(inputs: dict) -> dict:
     if am_fees_total > 0:
         # J3: conditional partnership-expense row (below NOI, levered only).
         statement["assetMgmtFee"] = am_fee_vec
+    if junior_block is not None:
+        # J4: conditional tranche rows — paid interest, running balance, and
+        # the exit payoff (levered = ... − juniorInterest − juniorPayoff for
+        # tranche deals).
+        statement["juniorInterest"] = junior_block["interestPaid"]
+        statement["juniorBalance"] = junior_block["balance"]
+        statement["juniorPayoff"] = junior_block["payoffVector"]
     ltl = ops.get("lossToLease")
     if ltl is not None:
         # J2: conditional display block — GPR at market, less loss-to-lease,
@@ -828,5 +938,10 @@ def compute(inputs: dict) -> dict:
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
         "gpEconomics": gp_economics,
+        "juniorTranche": (
+            {k: v for k, v in junior_block.items()
+             if k not in ("interestPaid", "balance", "payoffVector")}
+            if junior_block is not None else None
+        ),
         "statement": statement,
     }

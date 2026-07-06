@@ -64,6 +64,9 @@ def compute(payload: ComputeRequest, detail: bool = False):
     if result.get("gpEconomics"):
         # J3: conditional — only fee-carrying deals gain the block.
         response["gpEconomics"] = result["gpEconomics"]
+    if result.get("juniorTranche"):
+        # J4: conditional — only tranche deals gain the block.
+        response["juniorTranche"] = result["juniorTranche"]
     if detail:
         # The period-level statement: the engine's own vectors, no recompute.
         response["statement"] = result["statement"]

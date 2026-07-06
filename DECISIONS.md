@@ -3,6 +3,32 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J4 — Junior tranche (Run 5)
+
+- **[FIN, pinned] Ranking**: current-pay tranche interest is a below-NOI
+  financing cost AFTER senior debt service and property capital costs
+  (TI/LC, reno) and BEFORE the partnership AM fee and any equity
+  distribution. At exit the tranche is repaid after senior payoff and
+  before common equity, with a warning when proceeds don't cover it.
+- **[FIN] A current-pay shortfall converts to PIK** (the shortfall joins
+  the balance and compounds): the levered month is swept to zero, never
+  negative. Rejected: hard default — a modeling engine shouldn't
+  simulate an event of default; the PIK conversion is the standard
+  intercreditor outcome and keeps the vectors well-defined.
+- **[FIN] Funding matches the senior's event** (close for acquisitions,
+  perm takeout for developments); interest starts the month AFTER
+  funding in both shapes. Senior sizing is UNAFFECTED; fill-to-LTC
+  sizing = max(0, pct × total cost basis − senior). The tranche and its
+  origination fee ride the debtDraws/loanFees statement rows so the
+  close-month identity holds unchanged.
+- **Pref equity differs from mezz in LABELING only** here: senior-only
+  ltv/ltc stay untouched for both kinds; combinedLtv/combinedLtc are new
+  conditional detail outputs for both. Accrued mode compounds monthly at
+  rate/12 (balance = amount × (1+r/12)^m — hand-tested).
+- Conditional payload/statement keys only (juniorTranche block,
+  juniorInterest/Balance/Payoff rows) — the J0 baseline is untouched.
+  The tranche joins the Excel-export refusal list.
+
 ## J3 — GP fee economics (Run 5)
 
 - **[FIN, pinned] The asset management fee is a PARTNERSHIP expense BELOW
