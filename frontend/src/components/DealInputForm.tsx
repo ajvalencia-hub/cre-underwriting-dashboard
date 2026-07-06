@@ -44,6 +44,32 @@ function RatesHint() {
   )
 }
 
+/** J5: one-click seed of the floating index from FRED's latest SOFR print.
+ *  Explicit apply only (like the millage lookup) — never auto-fills. Renders
+ *  nothing when FRED is unavailable. */
+function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
+  const [rates, setRates] = useState<MarketRates | null>(null)
+  useEffect(() => {
+    fetchMarketRates()
+      .then(setRates)
+      .catch(() => setRates(null))
+  }, [])
+  const sofr = rates?.dataSource === 'fred' ? rates.rates.sofr : null
+  if (typeof sofr !== 'number') return null
+  const asOf = rates?.asOf?.sofr
+  return (
+    <div className="py-1.5 text-[11px] text-slate-400">
+      <button
+        type="button"
+        onClick={() => onApply(sofr)}
+        className="rounded border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+      >
+        Seed from FRED SOFR ({(sofr * 100).toFixed(2)}%{asOf ? `, ${asOf}` : ''})
+      </button>
+    </div>
+  )
+}
+
 export default function DealInputForm({ schema, values, onFieldChange }: DealInputFormProps) {
   const visibleSections = schema.sections.filter((s) => isVisible(s.visibleWhen, values))
 
@@ -143,6 +169,9 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     indicator={fieldIndicators[field.id]}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'currentIndexPct' && (
+                    <SofrSeed onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
+                  )}
                   {field.id === 'useReassessedTaxes' && (
                     <PropertyTaxLookup
                       address={address}

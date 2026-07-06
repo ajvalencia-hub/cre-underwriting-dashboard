@@ -211,6 +211,22 @@ export interface DebtStressCell {
   refiShortfall: number
 }
 
+export interface DebtRateInfo {
+  mode: 'floating'
+  index: string
+  spreadBps: number
+  initialRatePct: number
+  monthlyRatePct: number[]
+  floorPct?: number
+  cap?: {
+    strikePct: number
+    strikeAllInPct: number
+    termMonths: number
+    premium: number
+    dscrAtStrike: number | null
+  }
+}
+
 export interface DebtBlock {
   loanAmount: number
   sizedLoanAmount: number
@@ -221,6 +237,8 @@ export interface DebtBlock {
   stress: DebtStressCell[]
   /** H3: present only when opex detail mode carries an insurance line. */
   insuranceStress?: { bumpPct: number; minDscr: number | null; leveredCfDeltaAnnual: number }[]
+  /** J5: present only for floating-rate loans. */
+  rate?: DebtRateInfo
 }
 
 export interface GpEconomics {

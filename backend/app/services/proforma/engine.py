@@ -129,6 +129,16 @@ def compute(inputs: dict) -> dict:
     dscr_constraint = _num(inputs, "dscrConstraint", 1.25)
     debt_yield_constraint = _num(inputs, "debtYieldConstraint", 0.08)
 
+    # J5: floating-rate senior debt. rate_vec[m-1] is the all-in annual rate
+    # for month m; None in fixed mode (the default — reproduces Run 4
+    # exactly). Sizing and the reported loan constant use the in-force rate
+    # at the loan's funding event ([FIN]: the rate quoted at close/takeout,
+    # not a curve average — a lender sizes at today's rate, the curve is the
+    # borrower's carry risk).
+    rate_vec = debt.floating_rate_vector(inputs, total)
+    if rate_vec is not None:
+        interest_rate = rate_vec[0]
+
     year1_noi = sum(noi[: min(12, total)]) * (12 / min(12, total)) if total else 0.0
     sizing_noi = _resolve_sizing_noi(inputs, stabilized_noi, year1_noi)
 
@@ -198,8 +208,14 @@ def compute(inputs: dict) -> dict:
         unlevered[0] = -basis
         levered[0] = -initial_equity
 
-        schedule = debt.amortization_schedule(
-            loan_amount, interest_rate, amort_years, io_months, total
+        schedule = (
+            debt.amortization_schedule_floating(
+                loan_amount, rate_vec, amort_years, io_months, total
+            )
+            if rate_vec is not None
+            else debt.amortization_schedule(
+                loan_amount, interest_rate, amort_years, io_months, total
+            )
         )
         for m in range(1, total + 1):
             unlevered[m] += noi[m - 1]
@@ -251,7 +267,8 @@ def compute(inputs: dict) -> dict:
         # loan-funded on top (interest-reserve convention). See DECISIONS.md.
         equity_target = budget.total_ex_financing * (1 - ltc_or_ltv)
         financing = debt.construction_financing(
-            cost_schedule, equity_target, interest_rate, origination_fee_pct
+            cost_schedule, equity_target, interest_rate, origination_fee_pct,
+            rate_vector=rate_vec,
         )
         total_cost_basis = (
             budget.total_ex_financing
@@ -282,16 +299,23 @@ def compute(inputs: dict) -> dict:
         takeout_month = min(timeline.stabilization_month, total + 1)
         balance = financing.ending_balance
         r = interest_rate / 12
+
+        def _carry_rate(m: int) -> float:
+            # J5: carry months accrue at the floating rate when in force.
+            if rate_vec is None:
+                return r
+            return (rate_vec[m - 1] if m - 1 < len(rate_vec) else rate_vec[-1]) / 12
+
         for m in range(timeline.construction_months + 1, takeout_month):
             prior = balance
-            balance = max(0.0, balance + balance * r - noi[m - 1])
+            balance = max(0.0, balance + balance * _carry_rate(m) - noi[m - 1])
             if m <= total:
                 # The sweep is debt service in statement terms: interest on
                 # the prior balance, the remainder principal (negative =
                 # further accrual). Matches the engine's zero levered CF.
-                stmt_interest[m] = prior * r
+                stmt_interest[m] = prior * _carry_rate(m)
                 stmt_service[m] = noi[m - 1]
-                stmt_principal[m] = noi[m - 1] - prior * r
+                stmt_principal[m] = noi[m - 1] - prior * _carry_rate(m)
                 stmt_balance[m] = balance
 
         value_for_ltv = stabilized_noi / exit_cap if exit_cap > 0 else 0.0
@@ -314,7 +338,12 @@ def compute(inputs: dict) -> dict:
         # the construction rate plus an explicit spread, with explicit costs
         # (% of the new loan) deducted at takeout. Defaults (0 spread, 0
         # costs) preserve the original at-par behavior exactly.
-        perm_rate = interest_rate + _num(inputs, "refiRateSpreadPct")
+        refi_spread = _num(inputs, "refiRateSpreadPct")
+        perm_rate = interest_rate + refi_spread
+        if rate_vec is not None and takeout_month <= total:
+            # J5: the floating takeout prices at the in-force rate at the
+            # takeout month plus the refi spread, and keeps floating.
+            perm_rate = rate_vec[takeout_month - 1] + refi_spread
         refi_costs_pct = _num(inputs, "refiCostsPct")
 
         if takeout_month <= total:
@@ -345,9 +374,19 @@ def compute(inputs: dict) -> dict:
                     f"(governed by {_GOVERNING_LABELS[governing_constraint]})."
                 )
             perm_months = total - takeout_month + 1
-            schedule = debt.amortization_schedule(
-                perm_loan, perm_rate, amort_years, io_months, perm_months
-            )
+            if rate_vec is not None:
+                perm_rate_vec = [
+                    (rate_vec[m - 1] if m - 1 < len(rate_vec) else rate_vec[-1])
+                    + refi_spread
+                    for m in range(takeout_month, total + 1)
+                ]
+                schedule = debt.amortization_schedule_floating(
+                    perm_loan, perm_rate_vec, amort_years, io_months, perm_months
+                )
+            else:
+                schedule = debt.amortization_schedule(
+                    perm_loan, perm_rate, amort_years, io_months, perm_months
+                )
             for m in range(takeout_month, total + 1):
                 entry = schedule[m - takeout_month]
                 levered[m] += noi[m - 1] - entry.payment
@@ -365,10 +404,10 @@ def compute(inputs: dict) -> dict:
             )
             for m in range(takeout_month, total + 1):
                 prior = balance
-                balance = max(0.0, balance + balance * r - noi[m - 1])
-                stmt_interest[m] = prior * r
+                balance = max(0.0, balance + balance * _carry_rate(m) - noi[m - 1])
+                stmt_interest[m] = prior * _carry_rate(m)
                 stmt_service[m] = noi[m - 1]
-                stmt_principal[m] = noi[m - 1] - prior * r
+                stmt_principal[m] = noi[m - 1] - prior * _carry_rate(m)
                 stmt_balance[m] = balance
             perm_loan = balance
             governing_constraint = "none"
@@ -377,6 +416,23 @@ def compute(inputs: dict) -> dict:
                 "No permanent takeout occurs before exit — construction debt "
                 "is repaid from sale proceeds."
             )
+
+    # J5: rate-cap premium — a financing cost paid by equity at close.
+    # [FIN]: it rides the loanFees statement row (levered only, never
+    # unlevered — buying rate protection is a capital-structure choice,
+    # like origination fees) and joins the cost basis and uses.
+    cap_premium = _num(inputs, "rateCapPremium") if rate_vec is not None else 0.0
+    if cap_premium > 0:
+        levered[0] -= cap_premium
+        initial_equity += cap_premium
+        total_cost_basis += cap_premium
+        stmt_loan_fees[0] += cap_premium
+        stmt_equity_funded[0] += cap_premium
+        sources_and_uses["uses"].append(("Rate cap premium", cap_premium))
+        sources_and_uses["sources"] = [
+            (name, initial_equity if name == "Equity" else amount)
+            for name, amount in sources_and_uses["sources"]
+        ]
 
     for m in range(1, total + 1):
         if leasing_capital[m - 1]:
@@ -783,6 +839,42 @@ def compute(inputs: dict) -> dict:
             "value": value_for_ltv,
             "stress": stress,
         }
+        if rate_vec is not None:
+            # J5: floating-rate detail — conditional, fixed deals unchanged.
+            strike = _num(inputs, "rateCapStrikePct")
+            cap_term = int(_num(inputs, "rateCapTermMonths"))
+            spread = _num(inputs, "spreadBps") / 10_000
+            rate_info: dict = {
+                "mode": "floating",
+                "index": "SOFR",
+                "spreadBps": _num(inputs, "spreadBps"),
+                "initialRatePct": interest_rate_for_perm,
+                "monthlyRatePct": rate_vec,
+            }
+            floor_raw = inputs.get("floorPct")
+            if isinstance(floor_raw, (int, float)) and not isinstance(floor_raw, bool):
+                rate_info["floorPct"] = float(floor_raw)
+            if strike > 0 and cap_term > 0:
+                # DSCR if the loan reprices AT the cap strike — the relevant
+                # stress for a capped floater (the +200bps row is a fiction
+                # the borrower already paid to escape while the cap runs).
+                strike_all_in = strike + spread
+                constant = debt.annual_loan_constant(strike_all_in, amort_years)
+                if io_months >= total - takeout_month + 1:
+                    constant = strike_all_in  # never leaves IO
+                dscr_at_strike = (
+                    sizing_noi / (perm_loan * constant) if constant > 0 else None
+                )
+                rate_info["cap"] = {
+                    "strikePct": strike,
+                    "strikeAllInPct": strike_all_in,
+                    "termMonths": cap_term,
+                    "premium": _num(inputs, "rateCapPremium"),
+                    "dscrAtStrike": dscr_at_strike,
+                }
+                if dscr_at_strike is not None:
+                    put("dscrAtCapStrike", dscr_at_strike)
+            debt_block["rate"] = rate_info
 
     # ------------------------------------------------------------------
     # Period-level statement (G2): the vectors above, packaged. Index 0 =

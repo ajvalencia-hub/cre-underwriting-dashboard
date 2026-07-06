@@ -47,7 +47,8 @@
     { "id": "breakEvenRatio", "label": "Break-Even Ratio", "type": "percent", "group": "Debt & Leverage" },
     { "id": "interestCoverageRatio", "label": "Interest Coverage Ratio", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "governingConstraint", "label": "Governing Sizing Constraint", "type": "text", "group": "Debt & Leverage" },
-    { "id": "stressedDscr", "label": "Stressed DSCR (+200bps, NOI −10%)", "type": "multiple", "group": "Debt & Leverage" }
+    { "id": "stressedDscr", "label": "Stressed DSCR (+200bps, NOI −10%)", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "dscrAtCapStrike", "label": "DSCR at Cap Strike", "type": "multiple", "group": "Debt & Leverage" }
   ],
   "sections": [
     {
@@ -76,7 +77,26 @@
         { "id": "totalCostBasis", "label": "Purchase / Total Cost Basis", "type": "currency", "min": 0, "required": true },
         { "id": "ltvOrLtc", "label": "LTV / LTC", "type": "percent", "min": 0, "max": 1, "default": 0.65 },
         { "id": "loanAmount", "label": "Loan Amount", "type": "currency", "min": 0 },
-        { "id": "interestRate", "label": "Interest Rate", "type": "percent", "min": 0, "max": 0.25, "default": 0.065 },
+        { "id": "interestRate", "label": "Interest Rate (fixed mode)", "type": "percent", "min": 0, "max": 0.25, "default": 0.065 },
+        { "id": "rateMode", "label": "Rate Mode", "type": "select", "options": ["fixed", "floating"], "default": "fixed" },
+        { "id": "currentIndexPct", "label": "Current Index (SOFR)", "type": "percent", "min": 0, "max": 0.15,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "spreadBps", "label": "Spread (bps over index)", "type": "number", "min": 0, "max": 1500,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "floorPct", "label": "Index Floor (blank = none)", "type": "percent", "min": 0, "max": 0.15,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "forwardCurve", "label": "Forward Curve (index from month; step function, blank = flat at current)", "type": "table",
+          "columns": [
+            { "id": "month", "label": "From Month", "type": "number" },
+            { "id": "indexPct", "label": "Index", "type": "percent" }
+          ],
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCapStrikePct", "label": "Rate Cap Strike (on the index)", "type": "percent", "min": 0, "max": 0.15,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCapTermMonths", "label": "Rate Cap Term (mo)", "type": "number", "min": 0, "max": 120,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCapPremium", "label": "Rate Cap Premium (paid at close)", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
         { "id": "amortYears", "label": "Amortization (yrs)", "type": "number", "min": 0, "max": 40, "default": 30 },
         { "id": "loanTermYears", "label": "Loan Term (yrs)", "type": "number", "min": 0, "max": 40, "default": 10 },
         { "id": "ioMonths", "label": "Interest-Only Period (mo)", "type": "number", "min": 0, "default": 0 },

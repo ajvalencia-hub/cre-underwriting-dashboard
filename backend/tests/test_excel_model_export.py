@@ -42,11 +42,12 @@ def test_unsupported_features_refuse_with_the_full_list(analytic):
             "tenant": "T", "sf": 1000, "startDate": "2026-01-01",
             "endDate": "2036-01-01", "baseRentPsfAnnual": 30,
         }],
+        "rateMode": "floating",
     }
     with pytest.raises(UnsupportedModelFeatures) as excinfo:
         build_model_workbook(hostile)
     text = str(excinfo.value)
-    for fragment in ("lease", "waterfall", "XIRR", "reassessed"):
+    for fragment in ("lease", "waterfall", "XIRR", "reassessed", "floating-rate"):
         assert fragment in text, fragment
 
 

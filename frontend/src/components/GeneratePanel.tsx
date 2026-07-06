@@ -24,6 +24,32 @@ interface GeneratePanelProps {
 
 const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
 
+/** J5: tiny inline sparkline of the floating loan's all-in monthly rate. */
+function RateSparkline({ rates }: { rates: number[] }) {
+  if (rates.length < 2) return null
+  const min = Math.min(...rates)
+  const max = Math.max(...rates)
+  const span = max - min || 1
+  const w = 140
+  const h = 22
+  const points = rates
+    .map((r, i) => `${((i / (rates.length - 1)) * w).toFixed(1)},${(h - 3 - ((r - min) / span) * (h - 6)).toFixed(1)}`)
+    .join(' ')
+  return (
+    <svg
+      width={w}
+      height={h}
+      className="shrink-0"
+      aria-label={`All-in rate ${(min * 100).toFixed(2)}%–${(max * 100).toFixed(2)}% over the hold`}
+    >
+      <title>
+        All-in rate {(min * 100).toFixed(2)}%–{(max * 100).toFixed(2)}% over the hold
+      </title>
+      <polyline points={points} fill="none" stroke="#0284c7" strokeWidth="1.5" />
+    </svg>
+  )
+}
+
 export default function GeneratePanel({
   template,
   mappingProfileId,
@@ -182,6 +208,19 @@ export default function GeneratePanel({
             DEBT SIZING — {fmtMoney(debtBlock.loanAmount)} · governed by{' '}
             {debtBlock.governingConstraint}
           </div>
+          {debtBlock.rate && (
+            <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+              <span>
+                Floating: {debtBlock.rate.index} + {Math.round(debtBlock.rate.spreadBps)}bps ·
+                initial {(debtBlock.rate.initialRatePct * 100).toFixed(2)}%
+                {debtBlock.rate.floorPct !== undefined &&
+                  ` · floor ${(debtBlock.rate.floorPct * 100).toFixed(2)}%`}
+                {debtBlock.rate.cap &&
+                  ` · cap ${(debtBlock.rate.cap.strikePct * 100).toFixed(2)}% strike, ${debtBlock.rate.cap.termMonths}mo`}
+              </span>
+              <RateSparkline rates={debtBlock.rate.monthlyRatePct} />
+            </div>
+          )}
           <table className="mt-1 text-xs">
             <thead>
               <tr className="text-left text-slate-400">
@@ -192,13 +231,30 @@ export default function GeneratePanel({
               </tr>
             </thead>
             <tbody>
+              {debtBlock.rate?.cap?.dscrAtStrike != null && (
+                // J5: for a capped floater the generic rate-bump rows are a
+                // fiction the borrower paid to escape — show the strike row.
+                <tr className="text-slate-600">
+                  <td className="pr-3">
+                    At cap strike ({(debtBlock.rate.cap.strikeAllInPct * 100).toFixed(2)}% all-in)
+                  </td>
+                  <td
+                    className={`pr-3 ${debtBlock.rate.cap.dscrAtStrike < 1 ? 'text-red-600' : ''}`}
+                  >
+                    {debtBlock.rate.cap.dscrAtStrike.toFixed(2)}x
+                  </td>
+                  <td className="pr-3">—</td>
+                  <td className="pr-3">—</td>
+                </tr>
+              )}
               {debtBlock.stress
                 .filter(
                   (c) =>
                     (c.rateBumpBps === 0 && c.noiHaircutPct === 0) ||
-                    (c.rateBumpBps > 0 && c.noiHaircutPct === 0) ||
-                    (c.rateBumpBps === 0 && c.noiHaircutPct > 0) ||
-                    (c.rateBumpBps === 200 && c.noiHaircutPct === 0.1),
+                    (!debtBlock.rate?.cap &&
+                      ((c.rateBumpBps > 0 && c.noiHaircutPct === 0) ||
+                        (c.rateBumpBps === 200 && c.noiHaircutPct === 0.1))) ||
+                    (c.rateBumpBps === 0 && c.noiHaircutPct > 0),
                 )
                 .map((c) => (
                   <tr key={`${c.rateBumpBps}-${c.noiHaircutPct}`} className="text-slate-600">

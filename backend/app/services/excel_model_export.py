@@ -113,6 +113,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("asset management fee (partnership expense below NOI)")
     if (inputs.get("juniorTrancheKind") or "none") in ("mezz", "pref_equity"):
         features.append("junior tranche (mezzanine / preferred equity)")
+    if inputs.get("rateMode") == "floating":
+        features.append("floating-rate debt (forward curve, floor, rate cap)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

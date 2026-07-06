@@ -3,6 +3,45 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J5 — Floating-rate debt + rate cap (Run 5)
+
+- **[FIN, pinned] Monthly rate = max(index(m), floor) + spread, capped at
+  strike + spread while the cap is in force.** The cap strikes on the
+  INDEX (market convention for SOFR caps); the borrower always pays the
+  spread. In force means m ≤ capTermMonths; after expiry the rate is
+  uncapped.
+- **[FIN, pinned] The forward curve is a STEP function — no smoothing.**
+  index(m) = the last curve point with month ≤ m; before the first point
+  (or with no curve at all) the index is currentIndexPct. Rejected:
+  linear interpolation between points — the curve rows are the user's
+  assumption blocks, not samples of a continuous process, and steps are
+  hand-checkable.
+- **[FIN] Floating amortization reprices like an ARM**: each amortizing
+  month's payment is recomputed at that month's rate over the REMAINING
+  amortization; a flat vector degenerates to exactly the fixed
+  level-payment schedule (tested to 1e-9). Rejected: freezing the payment
+  at the initial rate — it silently un-floats the principal path.
+- **[FIN] Sizing and the reported loan constant use the in-force rate at
+  the loan's funding event** (month 1 at close; the takeout month + refi
+  spread for developments). Rejected: a curve-average rate — a lender
+  sizes at today's rate; the curve is the borrower's carry risk, and the
+  strike-DSCR row is where that risk is surfaced.
+- **[FIN] The cap premium is a levered financing cost at close** — it
+  rides the loanFees statement row (never unlevered — rate protection is
+  a capital-structure choice, like origination fees), joins uses and the
+  cost basis, and the Equity source row absorbs it.
+- **DSCR at the cap strike replaces the generic +200bps stress rows in
+  the UI for capped floaters** (the +200bps repricing is a fiction the
+  borrower already paid to escape while the cap runs); NOI-haircut rows
+  stay. Uncapped floaters keep the full generic grid. Conditional
+  `debt.rate` block + `dscrAtCapStrike` output only — fixed mode (the
+  default) reproduces the J0 baseline exactly, and floating inputs are
+  inert unless rateMode = "floating".
+- **Seed-from-FRED is an explicit button** (like the millage lookup),
+  reusing the existing /api/market/rates SOFR fetch — never an
+  auto-fill. Floating-rate debt joins the Excel-export refusal list
+  (a formula-live forward-curve engine is not exportable honestly).
+
 ## J4 — Junior tranche (Run 5)
 
 - **[FIN, pinned] Ranking**: current-pay tranche interest is a below-NOI

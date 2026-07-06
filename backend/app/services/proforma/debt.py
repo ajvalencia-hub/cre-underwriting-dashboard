@@ -39,6 +39,95 @@ class DebtServiceMonth:
         return self.interest + self.principal
 
 
+def floating_rate_vector(inputs: dict, months: int) -> list[float] | None:
+    """J5: the loan's annual rate per month 1..months, or None for fixed
+    mode. rate(m) = max(index(m), floor) + spread, capped at strike + spread
+    while the cap is in force. The forward curve is a STEP function ([FIN]:
+    no smoothing — curve points are the user's assumption, not samples of a
+    smooth process); before the first point the index is currentIndexPct."""
+    if inputs.get("rateMode") != "floating":
+        return None
+
+    def _n(key: str, default: float = 0.0) -> float:
+        value = inputs.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default
+        return float(value)
+
+    current = _n("currentIndexPct")
+    spread = _n("spreadBps") / 10_000
+    floor_raw = inputs.get("floorPct")
+    floor = (
+        float(floor_raw)
+        if isinstance(floor_raw, (int, float)) and not isinstance(floor_raw, bool)
+        else None
+    )
+    points = sorted(
+        (
+            (int(row["month"]), float(row["indexPct"]))
+            for row in (inputs.get("forwardCurve") or [])
+            if isinstance(row, dict)
+            and isinstance(row.get("month"), (int, float))
+            and isinstance(row.get("indexPct"), (int, float))
+        ),
+        key=lambda p: p[0],
+    )
+    strike = _n("rateCapStrikePct")
+    cap_term = int(_n("rateCapTermMonths"))
+    cap_active = strike > 0 and cap_term > 0
+
+    rates: list[float] = []
+    for m in range(1, months + 1):
+        index = current
+        for point_month, point_index in points:
+            if point_month <= m:
+                index = point_index
+            else:
+                break
+        if floor is not None:
+            index = max(index, floor)
+        rate = index + spread
+        if cap_active and m <= cap_term:
+            rate = min(rate, strike + spread)
+        rates.append(rate)
+    return rates
+
+
+def amortization_schedule_floating(
+    principal: float,
+    rate_vector: list[float],
+    amort_years: float,
+    io_months: int,
+    months: int,
+) -> list[DebtServiceMonth]:
+    """J5: ARM-style floating amortization — each amortizing month's payment
+    is recomputed at that month's rate over the REMAINING amortization
+    ([FIN]: reprices like an ARM; freezing the payment at the initial rate
+    was rejected — it silently un-floats the principal path)."""
+    schedule: list[DebtServiceMonth] = []
+    if principal <= 0 or months <= 0:
+        return [DebtServiceMonth(0.0, 0.0, 0.0) for _ in range(max(0, months))]
+
+    balance = principal
+    total_amort_months = round(amort_years * 12)
+    for month in range(1, months + 1):
+        rate = rate_vector[month - 1] if month - 1 < len(rate_vector) else rate_vector[-1]
+        r = rate / 12
+        interest = balance * r
+        if month <= io_months or total_amort_months <= 0:
+            principal_paid = 0.0
+        else:
+            remaining = max(1, total_amort_months - (month - io_months - 1))
+            if r == 0:
+                payment = balance / remaining
+            else:
+                payment = balance * r / (1 - (1 + r) ** -remaining)
+            principal_paid = min(max(payment - interest, 0.0), balance)
+        balance -= principal_paid
+        schedule.append(DebtServiceMonth(interest, principal_paid, balance))
+    return schedule
+
+
 def amortization_schedule(
     principal: float,
     annual_rate: float,
@@ -171,10 +260,13 @@ def construction_financing(
     total_equity: float,
     annual_rate: float,
     origination_fee_pct: float = 0.0,
+    rate_vector: list[float] | None = None,
 ) -> ConstructionFinancing:
     """Equity-first funding of a monthly cost schedule; loan interest accrues
     on the drawn balance and is capitalized (added to the balance). The
-    origination fee is drawn at the first loan draw."""
+    origination fee is drawn at the first loan draw. J5: when rate_vector is
+    given (annual rate per deal month 1..n), construction interest accrues at
+    that month's floating rate instead of the fixed annual_rate."""
     r = annual_rate / 12
     equity_remaining = total_equity
     balance = 0.0
@@ -203,7 +295,13 @@ def construction_financing(
         # of the prior month plus current draws at mid-month. Keep it simple
         # and defensible: accrue on the post-draw balance for months >= 1,
         # nothing at month 0 (closing).
-        interest = balance * r if month >= 1 else 0.0
+        if rate_vector is not None and month >= 1:
+            month_rate = (
+                rate_vector[month - 1] if month - 1 < len(rate_vector) else rate_vector[-1]
+            )
+            interest = balance * month_rate / 12
+        else:
+            interest = balance * r if month >= 1 else 0.0
         balance += interest
         interest_total += interest
 
