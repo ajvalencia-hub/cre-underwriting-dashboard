@@ -61,6 +61,10 @@ export interface Statement {
   replacementReserves?: number[]
   /** J6: present only with tax & insurance escrows (−E at close, +E at exit). */
   escrowFlows?: number[]
+  /** J9: per-calendar-year operating break-evens (analytic, on these vectors). */
+  breakEvens?: {
+    years: { year: number; occupancy: number | null; rentFactor: number | null; notes: string[] }[]
+  }
   /** J2: present only when loss-to-lease burn-off is active. */
   lossToLease?: { marketGpr: number[]; lossToLease: number[] }
   renovation?: {

@@ -3,6 +3,33 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J9 — Operating break-evens (Run 5)
+
+- **[FIN] Solved ANALYTICALLY on the statement's own annual sums** —
+  both questions are linear given the conventions below, so no engine
+  recomputes and no bisection. Operating flows only: close, sale
+  proceeds, debt draws, loan fees, and escrow timing are excluded.
+- **[FIN] Response model**: the management fee scales with EGI at the
+  year's modeled effective rate; other income scales with occupancy
+  (mirroring the engine's occupancy-share rule); every other below-NOI
+  cash cost (debt service, TI/LC, operating-cash reno draws, AM fee,
+  junior interest, below-NOI reserves) is held at MODELED levels.
+  Variable-with-occupancy opex is NOT re-flexed — that biases the
+  break-evens conservative (high), which is the right direction for a
+  lender-style question. Rejected: full engine re-solves per candidate
+  occupancy (accurate to the flex rules but 100+ computes per deal for
+  a footer row).
+- **Impossible years return null + a note carrying the out-of-range
+  number** ("needs 108% of scheduled") — never a bare out-of-range
+  value. Construction years return null with a construction note.
+- **Baseline**: J9 adds always-present keys (statement.breakEvens,
+  year-1 outputs) — the regression diff was verified KEY-ONLY (zero
+  value drift across all 6 fixtures) before the sanctioned
+  UPDATE_BASELINE=1 regeneration.
+- Consistency pin: on a flat stabilized deal the year-1 break-even
+  occupancy equals the existing quick-screen breakEvenOccupancy formula
+  exactly (tested).
+
 ## J8 — Monte Carlo (Run 5)
 
 - **numpy IS used for correlations (Cholesky)** — the run rules permit it

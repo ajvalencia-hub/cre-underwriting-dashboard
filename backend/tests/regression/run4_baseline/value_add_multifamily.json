@@ -91,7 +91,9 @@
   "avgCashOnCash": 0.04430829737997011,
   "avgDscr": 1.429831585765339,
   "breakEvenOccupancy": 0.8287139877406544,
+  "breakEvenOccupancyYear1": 0.7665034985114035,
   "breakEvenRatio": 0.831244507630522,
+  "breakEvenRentYear1": 0.8027154582338423,
   "cashOnCashYear1": 0.04489221338220063,
   "debtYield": 0.09235758006395917,
   "developmentSpreadBps": 0.00046685817508353156,
@@ -121,6 +123,40 @@
   "yieldOnCost": 0.05546685817508353
  },
  "statement": {
+  "breakEvens": {
+   "years": [
+    {
+     "notes": [],
+     "occupancy": 0.7665034985114035,
+     "rentFactor": 0.8027154582338423,
+     "year": 1
+    },
+    {
+     "notes": [],
+     "occupancy": 0.7539676767340473,
+     "rentFactor": 0.7884608546321062,
+     "year": 2
+    },
+    {
+     "notes": [],
+     "occupancy": 0.804113644509163,
+     "rentFactor": 0.845482317249809,
+     "year": 3
+    },
+    {
+     "notes": [],
+     "occupancy": 0.7903875683642827,
+     "rentFactor": 0.8298742639504282,
+     "year": 4
+    },
+    {
+     "notes": [],
+     "occupancy": 0.777014219147809,
+     "rentFactor": 0.8146672998363753,
+     "year": 5
+    }
+   ]
+  },
   "constructionMonths": 0,
   "costs": [
    18480000.0,

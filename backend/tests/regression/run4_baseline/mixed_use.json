@@ -4,6 +4,8 @@
  "outputs": {
   "annualizedReturn": 0.05315382382833711,
   "avgCashOnCash": 0.063,
+  "breakEvenOccupancyYear1": 0.09462365591397849,
+  "breakEvenRentYear1": 0.045454545454545456,
   "cashOnCashYear1": 0.063,
   "commercialYieldOnCost": 0.07844516129032257,
   "developmentSpreadBps": 0.0030000000000000027,
@@ -27,6 +29,40 @@
   "yieldOnCost": 0.063
  },
  "statement": {
+  "breakEvens": {
+   "years": [
+    {
+     "notes": [],
+     "occupancy": 0.09462365591397849,
+     "rentFactor": 0.045454545454545456,
+     "year": 1
+    },
+    {
+     "notes": [],
+     "occupancy": 0.09462365591397849,
+     "rentFactor": 0.045454545454545456,
+     "year": 2
+    },
+    {
+     "notes": [],
+     "occupancy": 0.09462365591397849,
+     "rentFactor": 0.045454545454545456,
+     "year": 3
+    },
+    {
+     "notes": [],
+     "occupancy": 0.09462365591397849,
+     "rentFactor": 0.045454545454545456,
+     "year": 4
+    },
+    {
+     "notes": [],
+     "occupancy": 0.09462365591397849,
+     "rentFactor": 0.045454545454545456,
+     "year": 5
+    }
+   ]
+  },
   "components": {
    "commercial": {
     "creditLoss": [

@@ -103,7 +103,9 @@
   "avgCashOnCash": 0.00732549021709328,
   "avgDscr": 1.347815714815689,
   "breakEvenOccupancy": 0.8514105972302386,
+  "breakEvenOccupancyYear1": 0.8125715673132703,
   "breakEvenRatio": 0.8428964912579363,
+  "breakEvenRentYear1": 0.7584831369070039,
   "cashOnCashYear1": 0.018749533162513696,
   "debtYield": 0.0948102035239448,
   "developmentSpreadBps": -0.03231265204042628,
@@ -132,6 +134,43 @@
   "yieldOnCost": 0.03768734795957373
  },
  "statement": {
+  "breakEvens": {
+   "years": [
+    {
+     "notes": [],
+     "occupancy": 0.8125715673132703,
+     "rentFactor": 0.7584831369070039,
+     "year": 1
+    },
+    {
+     "notes": [],
+     "occupancy": 0.8642109746301335,
+     "rentFactor": 0.8245573826969077,
+     "year": 2
+    },
+    {
+     "notes": [
+      "Cannot break even on occupancy \u2014 even 100% occupied falls short (needs 126%).",
+      "Cannot break even at scheduled rents \u2014 would need 150% of scheduled."
+     ],
+     "occupancy": null,
+     "rentFactor": null,
+     "year": 3
+    },
+    {
+     "notes": [],
+     "occupancy": 0.8239884060047462,
+     "rentFactor": 0.7721517179066029,
+     "year": 4
+    },
+    {
+     "notes": [],
+     "occupancy": 0.8090988796929126,
+     "rentFactor": 0.7523019672413188,
+     "year": 5
+    }
+   ]
+  },
   "constructionMonths": 0,
   "costs": [
    6085000.0,

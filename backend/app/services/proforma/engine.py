@@ -45,6 +45,96 @@ def _resolve_sizing_noi(inputs: dict, stabilized_noi: float, year1_noi: float) -
     return explicit if explicit > 0 else stabilized_noi
 
 
+def _operating_break_evens(statement: dict, total: int) -> dict:
+    """J9: per CALENDAR YEAR, the economic occupancy at which levered
+    operating cash flow is zero holding rents, and the rent level (fraction
+    of scheduled) at which it is zero holding occupancy — solved
+    ANALYTICALLY on the statement's own annual sums (both are linear given
+    the pinned conventions; no engine recomputes).
+
+    Conventions [FIN]: operating flows only — close, sale proceeds, debt
+    draws, loan fees, and escrow timing are excluded. The management fee
+    scales with EGI at the year's modeled effective rate; other income
+    scales with occupancy (mirroring the engine); every other below-NOI
+    cash cost (debt service, TI/LC, reno draws, AM fee, junior interest,
+    below-NOI reserves) is held at modeled levels — variable-with-occupancy
+    opex is NOT re-flexed, which biases the break-evens conservative (high).
+    Impossible years return null with a note, never an out-of-range number.
+    """
+    def _yr(vec: list[float], year: int) -> float:
+        return sum(vec[m] for m in range(12 * (year - 1) + 1, min(12 * year, total) + 1))
+
+    zeros = [0.0] * (total + 1)
+    years = []
+    for year in range(1, (total + 11) // 12 + 1):
+        gpr = _yr(statement["gpr"], year)
+        notes: list[str] = []
+        if gpr <= 0:
+            years.append({
+                "year": year, "occupancy": None, "rentFactor": None,
+                "notes": ["No operating revenue this year (construction)."],
+            })
+            continue
+        vacancy = _yr(statement["vacancyLoss"], year)
+        credit = _yr(statement["creditLoss"], year)
+        other = _yr(statement["otherIncome"], year)
+        egi = _yr(statement["egi"], year)
+        mgmt = _yr(statement["managementFee"], year)
+        fixed = _yr(statement["opexTotal"], year) - mgmt
+        below = (
+            _yr(statement["debtService"], year)
+            + _yr(statement["leasingCapital"], year)
+            + _yr(statement.get("renovationCapex", zeros), year)
+            + _yr(statement.get("assetMgmtFee", zeros), year)
+            + _yr(statement.get("juniorInterest", zeros), year)
+            + _yr(statement.get("replacementReserves", zeros), year)
+        )
+        mgmt_pct = mgmt / egi if egi > 0 else 0.0
+        occupied = gpr - vacancy
+        occupancy_now = occupied / gpr
+        credit_pct = credit / occupied if occupied > 0 else 0.0
+        # EGI needed so that EGI·(1−mgmt%) covers fixed opex + below-NOI cash.
+        needed_egi = (fixed + below) / (1 - mgmt_pct) if mgmt_pct < 1 else None
+
+        occupancy_be = rent_be = None
+        if needed_egi is not None:
+            denom_occ = gpr * (1 - credit_pct) + (
+                other / occupancy_now if occupancy_now > 0 else 0.0
+            )
+            if denom_occ > 0:
+                solved = needed_egi / denom_occ
+                if solved > 1:
+                    notes.append(
+                        f"Cannot break even on occupancy — even 100% occupied "
+                        f"falls short (needs {solved:.0%})."
+                    )
+                elif solved < 0:
+                    occupancy_be = 0.0
+                    notes.append("Positive levered cash flow even at zero occupancy.")
+                else:
+                    occupancy_be = solved
+            denom_rent = gpr - vacancy - credit
+            if denom_rent > 0:
+                solved = (needed_egi - other) / denom_rent
+                if solved > 1:
+                    notes.append(
+                        f"Cannot break even at scheduled rents — would need "
+                        f"{solved:.0%} of scheduled."
+                    )
+                elif solved < 0:
+                    rent_be = 0.0
+                    notes.append("Positive levered cash flow even at zero rent.")
+                else:
+                    rent_be = solved
+        else:
+            notes.append("Management fee consumes all revenue — no break-even.")
+        years.append({
+            "year": year, "occupancy": occupancy_be, "rentFactor": rent_be,
+            "notes": notes,
+        })
+    return {"years": years}
+
+
 def compute(inputs: dict) -> dict:
     """Returns {"outputs": {<schema output id>: float}, "warnings": [str]}.
     Raises InsufficientInputsError naming every missing required field."""
@@ -1035,6 +1125,14 @@ def compute(inputs: dict) -> dict:
         statement["juniorInterest"] = junior_block["interestPaid"]
         statement["juniorBalance"] = junior_block["balance"]
         statement["juniorPayoff"] = junior_block["payoffVector"]
+    # J9: per-calendar-year operating break-evens on the statement's own
+    # vectors (analytic; no recomputes). Year-1 values join the sidebar.
+    statement["breakEvens"] = _operating_break_evens(statement, total)
+    if statement["breakEvens"]["years"]:
+        year1_be = statement["breakEvens"]["years"][0]
+        put("breakEvenOccupancyYear1", year1_be["occupancy"])
+        put("breakEvenRentYear1", year1_be["rentFactor"])
+
     ltl = ops.get("lossToLease")
     if ltl is not None:
         # J2: conditional display block — GPR at market, less loss-to-lease,

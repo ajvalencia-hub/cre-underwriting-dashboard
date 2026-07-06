@@ -49,7 +49,9 @@
     { "id": "governingConstraint", "label": "Governing Sizing Constraint", "type": "text", "group": "Debt & Leverage" },
     { "id": "stressedDscr", "label": "Stressed DSCR (+200bps, NOI −10%)", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "dscrAtCapStrike", "label": "DSCR at Cap Strike", "type": "multiple", "group": "Debt & Leverage" },
-    { "id": "underwrittenDscr", "label": "Lender UW DSCR (NOI − reserves)", "type": "multiple", "group": "Debt & Leverage" }
+    { "id": "underwrittenDscr", "label": "Lender UW DSCR (NOI − reserves)", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "breakEvenOccupancyYear1", "label": "Break-Even Occupancy (Yr 1)", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "breakEvenRentYear1", "label": "Break-Even Rent Level (Yr 1, % of scheduled)", "type": "percent", "group": "Debt & Leverage" }
   ],
   "sections": [
     {

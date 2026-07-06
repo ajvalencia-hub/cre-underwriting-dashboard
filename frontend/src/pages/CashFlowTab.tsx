@@ -315,6 +315,52 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
         </table>
       </div>
 
+      {statement.breakEvens && statement.breakEvens.years.length > 0 && (
+        <div className="mt-4 rounded border border-slate-200 bg-white p-3">
+          <div className="text-sm font-semibold text-slate-600">
+            Operating break-evens (per calendar year)
+          </div>
+          <table className="mt-2 text-xs">
+            <thead>
+              <tr className="text-left text-slate-400">
+                <th className="pr-3 font-medium">Year</th>
+                {statement.breakEvens.years.map((y) => (
+                  <th key={y.year} className="pr-3 text-right font-medium">
+                    {y.year}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="text-slate-600">
+              <tr>
+                <td className="pr-3">Break-even occupancy</td>
+                {statement.breakEvens.years.map((y) => (
+                  <td key={y.year} className="pr-3 text-right tabular-nums" title={y.notes.join(' ')}>
+                    {y.occupancy === null ? '—' : `${(y.occupancy * 100).toFixed(1)}%`}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="pr-3">Break-even rent (% of scheduled)</td>
+                {statement.breakEvens.years.map((y) => (
+                  <td key={y.year} className="pr-3 text-right tabular-nums" title={y.notes.join(' ')}>
+                    {y.rentFactor === null ? '—' : `${(y.rentFactor * 100).toFixed(1)}%`}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+          {statement.breakEvens.years.some((y) => y.notes.length > 0) && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              {statement.breakEvens.years
+                .filter((y) => y.notes.length > 0)
+                .map((y) => `Yr ${y.year}: ${y.notes.join(' ')}`)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
       {statement.renovation && (
         <div className="mt-4 rounded border border-slate-200 bg-white p-3">
           <div className="text-sm font-semibold text-slate-600">Renovation program</div>
