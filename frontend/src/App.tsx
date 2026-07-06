@@ -48,7 +48,8 @@ import {
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
-import type { InputSchema } from './types/schema'
+import GoalSeekModal from './components/GoalSeekModal'
+import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
 type LoadState =
@@ -98,6 +99,8 @@ function App() {
   const [nativeIrrConvention, setNativeIrrConvention] = useState<'periodic_monthly' | 'xirr' | null>(null)
   const [nativeStatement, setNativeStatement] = useState<Statement | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
+  // J7: which sidebar metric the Goal Seek modal is open for.
+  const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -406,8 +409,19 @@ function App() {
                     const isFullModelOnly =
                       tab === 'quickscreen' && displayValue === undefined && quickScreenFullModelOnlyIds.has(metric.id)
                     return (
-                      <li key={metric.id} className="flex items-center justify-between text-slate-500">
-                        <span>{metric.label}</span>
+                      <li key={metric.id} className="group flex items-center justify-between text-slate-500">
+                        <span>
+                          {metric.label}
+                          {metric.type !== ('text' as string) && (
+                            <button
+                              onClick={() => setGoalSeekMetric(metric)}
+                              title={`Goal-seek ${metric.label}`}
+                              className="ml-1 hidden text-[10px] text-sky-500 hover:text-sky-700 group-hover:inline"
+                            >
+                              ◎
+                            </button>
+                          )}
+                        </span>
                         <span
                           title={
                             isFullModelOnly ? 'Requires full underwriting — map a template and generate.' : undefined
@@ -454,6 +468,14 @@ function App() {
         </>
       }
     >
+      {goalSeekMetric && (
+        <GoalSeekModal
+          metric={goalSeekMetric}
+          values={formValues}
+          onApply={(fieldId, value) => handleFieldChange(fieldId, value)}
+          onClose={() => setGoalSeekMetric(null)}
+        />
+      )}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
         <select

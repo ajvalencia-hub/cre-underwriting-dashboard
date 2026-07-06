@@ -274,6 +274,35 @@ export function computeNative(
   )
 }
 
+export interface GoalSeekResult {
+  solvedValue: number | null
+  achievedMetric?: number
+  iterations?: number
+  otherCrossings?: number[]
+  reason?: 'no_crossing' | 'metric_unavailable'
+  detail?: string
+  scanned?: { value: number; metric: number | null }[]
+  scannedRange: [number, number]
+  targetInput: string
+  outputMetric: string
+  targetValue: number
+  tolerance: number
+}
+
+export function runGoalSeek(payload: {
+  values: Record<string, unknown>
+  targetInput: string
+  outputMetric: string
+  targetValue: number
+  bounds?: [number, number]
+}) {
+  return postJson<GoalSeekResult>('/compute/goal-seek', payload, 'POST')
+}
+
+export function fetchGoalSeekInputs() {
+  return getJson<{ id: string; label: string; type: string }[]>('/compute/goal-seek/inputs')
+}
+
 export interface MarketRates {
   dataSource: string
   rates: Record<string, number | null>

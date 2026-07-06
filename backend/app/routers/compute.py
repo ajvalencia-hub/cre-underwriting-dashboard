@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import compute_cache, tornado_service
+from app.services import compute_cache, goal_seek, tornado_service
 from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -17,6 +17,14 @@ class ComputeRequest(BaseModel):
 class TornadoRequest(BaseModel):
     values: dict[str, Any]
     metric: str = "leveredIrr"
+
+
+class GoalSeekRequest(BaseModel):
+    values: dict[str, Any]
+    targetInput: str
+    outputMetric: str
+    targetValue: float
+    bounds: tuple[float, float] | None = None
 
 
 @router.post("/hold-sweep")
@@ -41,6 +49,33 @@ def tornado(payload: TornadoRequest):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/goal-seek")
+def goal_seek_endpoint(payload: GoalSeekRequest):
+    """J7: solve one numeric input for a target output metric. A found
+    solution and a typed no-solution are both 200s — the scan detail is the
+    answer either way; only a malformed request is a 400."""
+    try:
+        return goal_seek.run_goal_seek(
+            payload.values, payload.targetInput, payload.outputMetric,
+            payload.targetValue, payload.bounds,
+        )
+    except goal_seek.GoalSeekError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except engine.InsufficientInputsError as exc:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "missing": exc.missing}
+        )
+
+
+@router.get("/goal-seek/inputs")
+def goal_seek_inputs():
+    """The searchable list of numeric schema inputs for the UI picker."""
+    return [
+        {"id": field_id, "label": field.get("label", field_id), "type": field["type"]}
+        for field_id, field in goal_seek.numeric_input_fields().items()
+    ]
 
 
 @router.post("")

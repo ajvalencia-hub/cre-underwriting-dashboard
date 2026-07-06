@@ -3,6 +3,32 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J7 — Generalized goal-seek (Run 5)
+
+- **Bracket scan (12 points) + bisection; monotonicity is NEVER assumed.**
+  Every adjacent pair of valid scan points with a sign change of
+  (metric − target) is a candidate bracket; the one nearest the CURRENT
+  input value is bisected and the midpoints of the others are reported.
+  Rejected: Newton/secant methods — engine metrics have kinks (IO
+  cliffs, cap strikes, sizing-constraint switches) where derivative
+  methods diverge; bisection inside a verified bracket cannot.
+- **Bounds: explicit request bounds > schema min AND max (both defined)
+  > ±80% of the current value.** A zero current value with no schema
+  bounds is a typed error asking for bounds, not a guessed range.
+- **Metric-typed tolerances**: percent outputs 1e-5 (0.1bp), currency
+  $100, ratios/multiples 1e-4; iteration cap 60 including the scan.
+- **A no-solution is a 200, not an error**: {solvedValue: null, reason,
+  scanned points, range} — the scan detail IS the answer ("the metric
+  ranges X..Y here"); only malformed requests 400. A metric that is
+  None at a scan point (e.g. DSCR with no debt) breaks brackets rather
+  than being treated as zero.
+- **Every evaluation goes through the H13 compute cache** (the engine is
+  pure and the eval sequence deterministic, so re-running a goal-seek is
+  answered entirely from cache — tested by hit-count).
+- **Apply writes through the normal input-change path** (autosave +
+  history record it like a manual edit); the modal never mutates state
+  directly.
+
 ## J6 — Replacement reserves + escrows (Run 5)
 
 - **[FIN, pinned] One reserves dollar vector; the convention changes only
