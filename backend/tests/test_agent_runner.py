@@ -364,3 +364,25 @@ def test_unavailable_error_text_is_not_run_through_provenance_check(db, thread, 
     out = runner.run_turn(db, thread, "hi")
 
     assert out["unverifiedClaims"] == []
+
+
+# ---------------------------------------------------------------------------
+# K10: token usage accumulates across turns, not just within one
+# ---------------------------------------------------------------------------
+
+def test_token_usage_accumulates_across_separate_turns(db, thread, monkeypatch):
+    _install(monkeypatch, [
+        ChatResult(text="first", tool_calls=[], usage=Usage(10, 5), stop_reason="end_turn"),
+    ])
+    runner.run_turn(db, thread, "one")
+    db.refresh(thread)
+    assert thread.total_input_tokens == 10
+    assert thread.total_output_tokens == 5
+
+    _install(monkeypatch, [
+        ChatResult(text="second", tool_calls=[], usage=Usage(7, 3), stop_reason="end_turn"),
+    ])
+    runner.run_turn(db, thread, "two")
+    db.refresh(thread)
+    assert thread.total_input_tokens == 17
+    assert thread.total_output_tokens == 8
