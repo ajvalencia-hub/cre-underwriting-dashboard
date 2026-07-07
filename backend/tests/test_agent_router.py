@@ -197,3 +197,44 @@ def test_reject_already_rejected_proposal_is_400(client, monkeypatch):
     client.post(f"/api/agent/proposals/{proposal_id}/reject", json={})
     again = client.post(f"/api/agent/proposals/{proposal_id}/reject", json={})
     assert again.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# K8: plays
+# ---------------------------------------------------------------------------
+
+def test_list_plays_returns_id_and_label_only(client):
+    resp = client.get("/api/agent/plays")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) > 0
+    assert set(body[0]) == {"id", "label"}
+    assert "screen" in {p["id"] for p in body}
+
+
+def test_post_message_with_play_id_uses_the_canned_prompt(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+
+    def fake_chat_with(provider_name, messages, tools, system):
+        return ChatResult(text="Screened.", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn")
+
+    monkeypatch.setattr(runner, "chat_with", fake_chat_with)
+
+    resp = client.post(f"/api/agent/threads/{deal['id']}/messages", json={"playId": "screen"})
+    assert resp.status_code == 200
+    assert resp.json()["text"] == "Screened."
+
+    thread = client.get(f"/api/agent/threads/{deal['id']}").json()
+    assert "Screen this deal" in thread["messages"][0]["content"]
+
+
+def test_post_message_unknown_play_id_is_400(client):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    resp = client.post(f"/api/agent/threads/{deal['id']}/messages", json={"playId": "not-a-real-play"})
+    assert resp.status_code == 400
+
+
+def test_post_message_no_content_and_no_play_id_is_400(client):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    resp = client.post(f"/api/agent/threads/{deal['id']}/messages", json={})
+    assert resp.status_code == 400

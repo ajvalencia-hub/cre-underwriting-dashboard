@@ -8,7 +8,7 @@ export interface AgentThreadController {
   loading: boolean
   sending: boolean
   error: string | null
-  sendMessage: (content: string) => Promise<void>
+  sendMessage: (content: string, playId?: string) => Promise<void>
   approveProposal: (proposalId: string, overrideChanges?: Record<string, unknown>) => Promise<Deal | null>
   rejectProposal: (proposalId: string, note?: string) => Promise<void>
 }
@@ -43,12 +43,12 @@ export function useAgentThread(dealId: string | null): AgentThreadController {
     void refresh()
   }, [refresh])
 
-  async function sendMessage(content: string) {
-    if (!dealId || !content.trim() || sending) return
+  async function sendMessage(content: string, playId?: string) {
+    if (!dealId || sending || (!content.trim() && !playId)) return
     setSending(true)
     setError(null)
     try {
-      await postAgentMessage(dealId, content.trim())
+      await postAgentMessage(dealId, content.trim(), playId)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message')

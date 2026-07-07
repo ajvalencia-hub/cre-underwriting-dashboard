@@ -66,7 +66,9 @@ class _ScriptedProvider:
         self.calls: list[dict] = []
 
     def __call__(self, provider_name, messages, tools, system):
-        self.calls.append({"provider": provider_name, "messages": messages, "tools": tools})
+        self.calls.append(
+            {"provider": provider_name, "messages": messages, "tools": tools, "system": system}
+        )
         if not self._results:
             raise AssertionError("provider called more times than scripted")
         return self._results.pop(0)
@@ -259,6 +261,58 @@ def test_provider_error_does_not_crash(db, thread, monkeypatch):
 
     assert out["text"] == "network timeout"
     assert out["stoppedReason"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# K8: context seed + restricted tool subset for plays
+# ---------------------------------------------------------------------------
+
+def test_context_seed_is_appended_to_system_prompt(db, thread, deal, monkeypatch):
+    scripted = _install(monkeypatch, [
+        ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    runner.run_turn(db, thread, "hi")
+
+    system_sent = scripted.calls[0]["system"]
+    assert deal.name in system_sent
+    assert "screening" in system_sent
+
+
+def test_missing_deal_context_seed_leaves_system_prompt_unchanged(db, monkeypatch):
+    orphan_thread = AgentThread(deal_id="not-a-real-deal", provider="anthropic")
+    db.add(orphan_thread)
+    db.commit()
+    scripted = _install(monkeypatch, [
+        ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    runner.run_turn(db, orphan_thread, "hi")
+
+    assert scripted.calls[0]["system"] == runner.SYSTEM_PROMPT
+
+
+def test_tool_names_restricts_the_surface_offered_to_the_provider(db, thread, monkeypatch):
+    scripted = _install(monkeypatch, [
+        ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    runner.run_turn(db, thread, "screen it", tool_names=["get_deal", "compute", "solve"])
+
+    tool_names_sent = {t.name for t in scripted.calls[0]["tools"]}
+    assert tool_names_sent == {"get_deal", "compute", "solve"}
+
+
+def test_tool_names_none_offers_the_full_surface(db, thread, monkeypatch):
+    scripted = _install(monkeypatch, [
+        ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    runner.run_turn(db, thread, "hi")
+
+    tool_names_sent = {t.name for t in scripted.calls[0]["tools"]}
+    assert "propose_input_changes" in tool_names_sent
+    assert "get_market_context" in tool_names_sent
 
 
 # ---------------------------------------------------------------------------

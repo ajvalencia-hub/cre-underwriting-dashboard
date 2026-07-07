@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import PendingProposalCard from './PendingProposalCard'
+import { fetchAgentPlays } from '../lib/api'
 import type { AgentThreadController } from '../lib/useAgentThread'
+import type { AgentPlay } from '../types/agent'
 import type { InputSchema } from '../types/schema'
 
 interface AgentChatProps {
@@ -11,13 +13,6 @@ interface AgentChatProps {
   onReject: (proposalId: string, note: string) => Promise<void>
   compact?: boolean
 }
-
-const SUGGESTIONS = [
-  'Screen this deal — is it worth pursuing?',
-  "What's driving the levered IRR the most?",
-  'What exit cap rate gets me to a 15% IRR?',
-  'Propose a more conservative rent growth assumption.',
-]
 
 /** K6: the message list + composer, shared verbatim by the floating dock
  * (AgentDock) and the full Agent tab (AgentPage) — both are handed the
@@ -33,7 +28,14 @@ export default function AgentChat({
 }: AgentChatProps) {
   const { thread, loading, sending, error, sendMessage } = controller
   const [input, setInput] = useState('')
+  const [plays, setPlays] = useState<AgentPlay[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    fetchAgentPlays()
+      .then(setPlays)
+      .catch(() => setPlays([]))
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -43,6 +45,11 @@ export default function AgentChat({
     if (!text.trim() || sending) return
     setInput('')
     await sendMessage(text)
+  }
+
+  async function handlePlay(playId: string) {
+    if (sending) return
+    await sendMessage('', playId)
   }
 
   const proposalById = new Map((thread?.proposals ?? []).map((p) => [p.id, p]))
@@ -58,13 +65,13 @@ export default function AgentChat({
               changes for you to review and approve. I never apply a change myself.
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((s) => (
+              {plays.map((play) => (
                 <button
-                  key={s}
-                  onClick={() => void handleSend(s)}
+                  key={play.id}
+                  onClick={() => void handlePlay(play.id)}
                   className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
                 >
-                  {s}
+                  {play.label}
                 </button>
               ))}
             </div>

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AgentMessage, AgentProposal, AgentThread, AgentToolCall
+from app.services.agent import context as agent_context
 from app.services.agent import provenance
 from app.services.agent.providers import chat_with
 from app.services.agent.providers.types import Message as ProviderMessage
@@ -72,7 +73,12 @@ def _load_history_as_provider_messages(db: Session, thread_id: str) -> list[Prov
     return [ProviderMessage(role=m.role, content=m.content) for m in rows]
 
 
-def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
+def run_turn(
+    db: Session, thread: AgentThread, user_text: str, tool_names: list[str] | None = None
+) -> dict:
+    """`tool_names=None` exposes the full tool surface (the default, freeform
+    chat path); a "play" (K8) passes a restricted subset so a canned
+    workflow gets a more focused turn."""
     start = time.monotonic()
 
     provider_messages = _load_history_as_provider_messages(db, thread.id)
@@ -80,7 +86,15 @@ def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
     db.add(AgentMessage(thread_id=thread.id, role="user", content=user_text))
 
     assistant_message_id = str(uuid.uuid4())
-    tool_specs = to_tool_specs()
+    tool_specs = to_tool_specs(tool_names)
+
+    seed = agent_context.build_context_seed(db, thread.deal_id)
+    system_prompt = SYSTEM_PROMPT
+    if seed:
+        system_prompt += (
+            f"\n\nCurrent deal context (from the database, not yet tool-verified this "
+            f"turn — call get_deal or compute before stating any number from it): {seed}"
+        )
 
     tool_call_count = 0
     compute_call_count = 0
@@ -97,7 +111,7 @@ def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
             stopped_reason = f"tool-call limit ({MAX_TOOL_CALLS_PER_TURN}) reached"
             break
 
-        result = chat_with(thread.provider, provider_messages, tool_specs, SYSTEM_PROMPT)
+        result = chat_with(thread.provider, provider_messages, tool_specs, system_prompt)
         thread.total_input_tokens += result.usage.input_tokens
         thread.total_output_tokens += result.usage.output_tokens
 

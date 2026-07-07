@@ -8,7 +8,7 @@ import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
-import type { AgentProposal, AgentThreadState, AgentTurnResult } from '../types/agent'
+import type { AgentPlay, AgentProposal, AgentThreadState, AgentTurnResult } from '../types/agent'
 
 const API_BASE = '/api'
 
@@ -372,8 +372,16 @@ export function fetchAgentThread(dealId: string) {
   return getJson<AgentThreadState>(`/agent/threads/${dealId}`)
 }
 
-export function postAgentMessage(dealId: string, content: string) {
-  return postJson<AgentTurnResult>(`/agent/threads/${dealId}/messages`, { content }, 'POST')
+export function postAgentMessage(dealId: string, content: string, playId?: string) {
+  return postJson<AgentTurnResult>(
+    `/agent/threads/${dealId}/messages`,
+    playId ? { playId } : { content },
+    'POST',
+  )
+}
+
+export function fetchAgentPlays() {
+  return getJson<AgentPlay[]>('/agent/plays')
 }
 
 export function approveAgentProposal(proposalId: string, overrideChanges?: Record<string, unknown>) {

@@ -14,7 +14,7 @@ from app.database import get_db
 from app.models import AgentMessage, AgentProposal, AgentThread, Deal
 from app.routers.deals import _to_out as _deal_to_out
 from app.services import deal_history
-from app.services.agent import runner
+from app.services.agent import plays, runner
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -80,18 +80,32 @@ def get_thread(deal_id: str, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/plays")
+def list_plays():
+    """K8: the canned-workflow library surfaced as suggestion chips in the
+    UI — id + label only; the prompt and tool-subset stay server-side."""
+    return [{"id": p.id, "label": p.label} for p in plays.PLAYS]
+
+
 class PostMessageRequest(BaseModel):
-    content: str
+    content: str = ""
+    playId: str | None = None
 
 
 @router.post("/threads/{deal_id}/messages")
 def post_message(deal_id: str, payload: PostMessageRequest, db: Session = Depends(get_db)):
     if db.get(Deal, deal_id) is None:
         raise HTTPException(404, "Deal not found")
-    if not payload.content.strip():
+    play = plays.PLAYS_BY_ID.get(payload.playId) if payload.playId else None
+    if payload.playId and play is None:
+        raise HTTPException(400, f"Unknown play '{payload.playId}'.")
+    if play is None and not payload.content.strip():
         raise HTTPException(400, "Message content cannot be empty.")
+
+    text = play.prompt if play else payload.content.strip()
+    tool_names = play.tools if play else None
     thread = _get_or_create_thread(db, deal_id)
-    result = runner.run_turn(db, thread, payload.content.strip())
+    result = runner.run_turn(db, thread, text, tool_names=tool_names)
     return {"threadId": thread.id, **result}
 
 
