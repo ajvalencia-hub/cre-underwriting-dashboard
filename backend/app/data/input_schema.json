@@ -22,7 +22,7 @@
 
     { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
     { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
-    { "id": "developmentSpreadBps", "label": "Development Spread (over exit cap)", "type": "percent", "group": "Yield & Value" },
+    { "id": "developmentSpreadBps", "label": "Yield Spread (over exit cap)", "type": "percent", "group": "Yield & Value" },
     { "id": "residentialYieldOnCost", "label": "Residential Yield on Cost", "type": "percent", "group": "Yield & Value" },
     { "id": "commercialYieldOnCost", "label": "Commercial Yield on Cost", "type": "percent", "group": "Yield & Value" },
     { "id": "breakEvenOccupancy", "label": "Breakeven Occupancy", "type": "percent", "group": "Yield & Value" },
