@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import AgentDock from './components/AgentDock'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
+import AgentPage from './pages/AgentPage'
 import CashFlowTab from './pages/CashFlowTab'
 import CompsPage from './pages/CompsPage'
 import PipelinePage from './pages/PipelinePage'
@@ -12,6 +14,7 @@ import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
 import TemplateUpload from './pages/TemplateUpload'
+import { useAgentThread } from './lib/useAgentThread'
 import {
   createDeal,
   deleteDeal,
@@ -66,6 +69,7 @@ type Tab =
   | 'sensitivity'
   | 'scenarios'
   | 'comps'
+  | 'agent'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -117,6 +121,20 @@ function App() {
     autosaverRef.current = createAutosaver(async ({ dealId, inputs }) => {
       await updateDeal(dealId, { inputs })
     })
+  }
+
+  const agentController = useAgentThread(activeDealId)
+
+  async function handleApproveProposal(proposalId: string) {
+    const deal = await agentController.approveProposal(proposalId)
+    if (deal) {
+      setFormValues((prev) => ({ ...prev, ...deal.inputs }))
+      setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
+    }
+  }
+
+  async function handleRejectProposal(proposalId: string, note: string) {
+    await agentController.rejectProposal(proposalId, note)
   }
 
   const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
@@ -358,6 +376,7 @@ function App() {
   }
 
   return (
+    <>
     <Layout
       nav={
         <ul className="space-y-1">
@@ -586,6 +605,7 @@ function App() {
             ['sensitivity', '5. Sensitivity'],
             ['scenarios', '6. Scenarios'],
             ['comps', '7. Comps'],
+            ['agent', 'Agent'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -737,7 +757,28 @@ function App() {
       <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
         <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
       </div>
-    </Layout>
+
+      <div style={{ display: tab === 'agent' ? 'block' : 'none' }}>
+        <AgentPage
+          dealId={activeDealId}
+          controller={agentController}
+          schema={schema}
+          currentValues={formValues}
+          onApprove={handleApproveProposal}
+          onReject={handleRejectProposal}
+        />
+      </div>
+      </Layout>
+
+      <AgentDock
+        dealId={activeDealId}
+        controller={agentController}
+        schema={schema}
+        currentValues={formValues}
+        onApprove={handleApproveProposal}
+        onReject={handleRejectProposal}
+      />
+    </>
   )
 }
 

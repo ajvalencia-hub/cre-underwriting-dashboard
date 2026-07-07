@@ -8,6 +8,7 @@ import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
+import type { AgentProposal, AgentThreadState, AgentTurnResult } from '../types/agent'
 
 const API_BASE = '/api'
 
@@ -347,7 +348,7 @@ export function fetchDemographics(market: string, submarket = '', address = '') 
 
 export interface DealSnapshotMeta {
   id: string
-  kind: 'baseline' | 'autosave' | 'restore'
+  kind: 'baseline' | 'autosave' | 'restore' | 'agent'
   changedPaths: string[]
   createdAt: string
   updatedAt: string
@@ -365,6 +366,26 @@ export function fetchDealSnapshot(dealId: string, snapshotId: string) {
 
 export function restoreDealSnapshot(dealId: string, snapshotId: string) {
   return postJson<Deal>(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
+}
+
+export function fetchAgentThread(dealId: string) {
+  return getJson<AgentThreadState>(`/agent/threads/${dealId}`)
+}
+
+export function postAgentMessage(dealId: string, content: string) {
+  return postJson<AgentTurnResult>(`/agent/threads/${dealId}/messages`, { content }, 'POST')
+}
+
+export function approveAgentProposal(proposalId: string, overrideChanges?: Record<string, unknown>) {
+  return postJson<{ deal: Deal; proposal: AgentProposal }>(
+    `/agent/proposals/${proposalId}/approve`,
+    { overrideChanges: overrideChanges ?? null },
+    'POST',
+  )
+}
+
+export function rejectAgentProposal(proposalId: string, note = '') {
+  return postJson<{ proposal: AgentProposal }>(`/agent/proposals/${proposalId}/reject`, { note }, 'POST')
 }
 
 export interface AssumptionPreset {

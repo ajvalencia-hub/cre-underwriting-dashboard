@@ -23,6 +23,7 @@ const KIND_LABELS: Record<DealSnapshotMeta['kind'], string> = {
   baseline: 'Baseline (before first edit)',
   autosave: 'Edit',
   restore: 'Restore',
+  agent: 'Agent-applied',
 }
 
 /** Input change history (H9): snapshot list with what changed, and a
@@ -150,7 +151,9 @@ export default function HistoryDrawer({ schema, dealId, onRestored }: HistoryDra
                           ? 'text-slate-400'
                           : snapshot.kind === 'restore'
                             ? 'text-violet-600'
-                            : 'text-slate-600'
+                            : snapshot.kind === 'agent'
+                              ? 'text-indigo-600'
+                              : 'text-slate-600'
                       }`}
                     >
                       {KIND_LABELS[snapshot.kind]}
