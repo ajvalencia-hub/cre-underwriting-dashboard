@@ -153,6 +153,35 @@ def test_injected_content_cannot_reach_deal_inputs_via_write_tool(
     assert deal_with_injected_field.inputs["purchasePrice"] == 1_000_000  # unchanged
 
 
+def test_get_deal_ignores_a_model_supplied_dealid_and_stays_scoped_to_the_thread(
+    db, thread, deal_with_injected_field, monkeypatch
+):
+    """The model has no way to learn another deal's raw id from its own
+    context, but even if it guessed or was manipulated into passing one
+    (e.g. via injected text elsewhere), get_deal/list_scenarios are always
+    forced back onto the thread's own deal — no cross-deal read surface."""
+    other_deal = Deal(name="Someone Else's Deal", inputs={"purchasePrice": 999})
+    db.add(other_deal)
+    db.commit()
+
+    scripted = _install(monkeypatch, [
+        ChatResult(
+            text="",
+            tool_calls=[ToolCall(id="c1", name="get_deal", arguments={"dealId": other_deal.id})],
+            usage=Usage(1, 1), stop_reason="tool_use",
+        ),
+        ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    runner.run_turn(db, thread, "look at that other deal")
+
+    tool_message = scripted.calls[1]["messages"][-1]
+    sent = json.loads(tool_message.content)
+    assert sent["data"]["id"] == deal_with_injected_field.id
+    assert sent["data"]["name"] == "Test Deal"
+    assert "Someone Else's Deal" not in json.dumps(sent)
+
+
 def test_write_tools_structural_privilege_reasserted(deal_with_injected_field):
     """Re-assertion of K3's guarantee at this security-focused layer: no
     write tool function can accept a db/Session, so the property proven

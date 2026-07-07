@@ -39,6 +39,12 @@ MAX_COMPUTE_CALLS_PER_TURN = 15
 MAX_WALL_CLOCK_SECONDS = 60
 
 _COMPUTE_FAMILY = {"compute", "solve", "run_sensitivity", "run_tornado"}
+# K9/K11: these tools are always scoped to the CURRENT thread's deal — the
+# runner supplies dealId itself and ignores/overrides anything the model
+# passes, so there's no argument surface for the model to try reading a
+# different deal through, and no need for the model to have learned a raw
+# deal id from anywhere in its context.
+_DEAL_SCOPED_TOOLS = {"get_deal", "list_scenarios"}
 
 SYSTEM_PROMPT = (
     "You are the Underwriting Agent inside a CRE deal-analysis dashboard. "
@@ -179,8 +185,11 @@ def run_turn(
                 else:
                     if call.name in _COMPUTE_FAMILY:
                         compute_call_count += 1
+                    call_arguments = call.arguments
+                    if call.name in _DEAL_SCOPED_TOOLS:
+                        call_arguments = {**call_arguments, "dealId": thread.deal_id}
                     try:
-                        payload = tool_def.fn(db, **call.arguments)
+                        payload = tool_def.fn(db, **call_arguments)
                     except Exception as exc:  # noqa: BLE001 — a bad call becomes tool feedback, not a crash
                         payload = {"error": f"Tool call failed: {exc}"}
             else:  # write

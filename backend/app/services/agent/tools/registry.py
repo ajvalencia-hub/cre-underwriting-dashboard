@@ -24,19 +24,21 @@ class ToolDef:
 _READ_TOOLS: list[ToolDef] = [
     ToolDef(
         name="get_deal",
-        description="Fetch a deal's current status and full input values by id.",
-        parameters={
-            "type": "object",
-            "properties": {"dealId": _STR},
-            "required": ["dealId"],
-        },
+        description=(
+            "Fetch the CURRENT deal's status and full input values. Always scoped to the "
+            "deal this conversation is about — takes no arguments."
+        ),
+        parameters={"type": "object", "properties": {}},
         privilege="read",
         fn=read_tools.get_deal,
     ),
     ToolDef(
         name="list_scenarios",
-        description="List the saved scenarios for a deal (id, name, kind only).",
-        parameters={"type": "object", "properties": {"dealId": _STR}, "required": ["dealId"]},
+        description=(
+            "List the saved scenarios for the CURRENT deal (id, name, kind only) — takes "
+            "no arguments."
+        ),
+        parameters={"type": "object", "properties": {}},
         privilege="read",
         fn=read_tools.list_scenarios,
     ),
