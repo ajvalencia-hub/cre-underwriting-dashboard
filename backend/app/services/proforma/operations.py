@@ -720,6 +720,23 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     management_fee_pct = expenses["egiPctTotal"]
     fixed_by_category = expenses["byCategory"]
 
+    # Acquisition value-add ramp (opt-in via leaseUpMonths, see timeline.py):
+    # an acquisition's stabilized-shape EGI is scaled down during the
+    # lease-up window from the in-place run-rate up to 100%, instead of
+    # assuming day-one stabilization. Fixed opex (taxes, insurance) is NOT
+    # scaled — it's owed whether or not units are occupied; only revenue
+    # (and the management fee, which is % of collected EGI) ramps.
+    is_acquisition = inputs.get("dealType") == "acquisition"
+    ramp_start_ratio: float | None = None
+    if is_acquisition and timeline.lease_up_months > 0:
+        in_place_noi = _num(inputs, "inPlaceNoi")
+        stabilized_noi = stabilized_annual_noi(inputs)
+        if in_place_noi > 0 and stabilized_noi > 0:
+            ramp_start_ratio = max(0.0, min(1.0, in_place_noi / stabilized_noi))
+        # No inPlaceNoi to anchor a ramp shape to -> no ramp of any kind
+        # (occupancy stays at its stabilized level below), rather than
+        # guessing. leaseUpMonths alone is not enough context.
+
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
     opex_vec: list[float] = []
@@ -743,7 +760,13 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
                 vec.append(0.0)
             continue
 
-        if phase == "lease_up":
+        if phase == "lease_up" and not is_acquisition:
+            # Development-style lease-up: occupancy ramps 0 -> stabilized
+            # (a new building filling up). Never applied to an acquisition
+            # — that deal already has real occupancy (partially leased at
+            # closing); occupancy stays at its stabilized level there and
+            # REVENUE ramps instead when there's an in-place NOI to anchor
+            # to (see below), or not at all otherwise.
             ramp_months = max(1, timeline.stabilization_month - timeline.construction_months - 1)
             progress = (month - timeline.construction_months) / ramp_months
             occupancy = stabilized_occupancy * min(1.0, progress)
@@ -763,6 +786,14 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         occupancy_share = occupancy / stabilized_occupancy if stabilized_occupancy > 0 else 0.0
         other_income_month = other_month * occupancy_share
         egi_month = collected_rent + other_income_month
+
+        if ramp_start_ratio is not None and phase == "lease_up":
+            # Linear ramp from the in-place run-rate up to 100% of stabilized
+            # EGI by the stabilization month — represents renovation/lease-up
+            # execution on a partially-performing acquisition, not vacancy.
+            progress = month / timeline.stabilization_month
+            ramp_fraction = ramp_start_ratio + (1.0 - ramp_start_ratio) * progress
+            egi_month *= max(0.0, min(1.0, ramp_fraction))
 
         fixed_expenses_month = sum(vec[month - 1] for vec in fixed_by_category.values())
         management_fee_month = egi_month * management_fee_pct

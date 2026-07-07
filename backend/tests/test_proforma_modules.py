@@ -159,3 +159,121 @@ def test_stabilized_annual_noi_matches_vector_math():
     assert stabilized_annual_noi(inputs) == pytest.approx(80_000)
     ops = build_noi_vector(inputs, Timeline(12, 0, 0, 1))
     assert sum(ops["noi"]) == pytest.approx(80_000)
+
+
+# ------------------------------------------------ acquisition lease-up ramp
+# P2: acquisitions used to always assume day-one stabilization — Year 1 NOI
+# jumped straight to the stabilized figure even on a value-add deal bought
+# partially vacant. leaseUpMonths (now also on acquisition_specific) opts
+# an acquisition into a ramp from its in-place run-rate to stabilized.
+
+
+def test_acquisition_without_lease_up_months_is_unchanged():
+    """Omitting leaseUpMonths must reproduce the exact prior behavior —
+    this is an opt-in improvement, not a silent change to every acquisition."""
+    tl, warnings = build_timeline("acquisition", 5, lease_up_months=None)
+    assert (tl.construction_months, tl.lease_up_months, tl.stabilization_month) == (0, 0, 1)
+    assert tl.phase(1) == "stabilized"
+    assert warnings == []
+
+
+def test_acquisition_timeline_with_lease_up_months():
+    tl, warnings = build_timeline("acquisition", 5, lease_up_months=12)
+    assert (tl.construction_months, tl.lease_up_months, tl.stabilization_month) == (0, 12, 13)
+    assert tl.phase(1) == "lease_up"
+    assert tl.phase(12) == "lease_up"
+    assert tl.phase(13) == "stabilized"
+    assert warnings == []
+
+
+def test_acquisition_lease_up_exceeding_hold_warns():
+    tl, warnings = build_timeline("acquisition", 1, lease_up_months=18)
+    assert tl.total_months == 12
+    assert any("sold before stabilizing" in w for w in warnings)
+
+
+def test_acquisition_ramp_starts_near_in_place_and_reaches_stabilized():
+    """Month 1 NOI should be close to the in-place run-rate (not the
+    stabilized one), and NOI should end up materially higher by the first
+    stabilized month than it started."""
+    inputs = {
+        "dealType": "acquisition",
+        "grossPotentialRent": 200_000,
+        "vacancyPct": 0.05,
+        "creditLossPct": 0.0,
+        "realEstateTaxes": 30_000,
+        "managementFeePct": 0.0,
+        "rentGrowthMode": "flat",
+        "expenseGrowthMode": "flat",
+        # inPlaceNoi/stabilizedNoi anchor the ramp's start/end SHAPE; the
+        # actual stabilized-phase NOI the ramp approaches is whatever the
+        # vector math derives from GPR/vacancy/expenses (200_000 * 0.95 -
+        # 30_000 = 160_000 here) — kept equal to the stated stabilizedNoi
+        # so this fixture is intuitive to read, but note the ramp code
+        # itself never reads the stabilizedNoi field directly.
+        "inPlaceNoi": 80_000,
+        "stabilizedNoi": 160_000,
+        "leaseUpMonths": 12,
+    }
+    tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
+    ops = build_noi_vector(inputs, tl)
+
+    month1_annualized = ops["noi"][0] * 12
+    month12_annualized = ops["noi"][11] * 12
+    stabilized_month_noi = ops["noi"][12] * 12  # month 13, first stabilized month
+
+    assert month1_annualized == pytest.approx(80_000, rel=0.15)
+    assert month12_annualized > month1_annualized
+    assert stabilized_month_noi == pytest.approx(160_000, rel=0.01)
+    # Fixed opex (real estate taxes) must NOT ramp — it's owed regardless
+    # of occupancy/lease-up progress.
+    assert ops["fixedOpexByCategory"]["realEstateTaxes"][0] == pytest.approx(30_000 / 12)
+
+
+def test_acquisition_ramp_year1_is_between_in_place_and_stabilized():
+    """The whole point of the fix: Year 1 cash flow should land somewhere
+    between in-place and stabilized, not jump straight to stabilized."""
+    inputs = {
+        "dealType": "acquisition",
+        "grossPotentialRent": 200_000,
+        "vacancyPct": 0.05,
+        "creditLossPct": 0.0,
+        "realEstateTaxes": 30_000,
+        "managementFeePct": 0.0,
+        "rentGrowthMode": "flat",
+        "expenseGrowthMode": "flat",
+        # inPlaceNoi/stabilizedNoi anchor the ramp's start/end SHAPE; the
+        # actual stabilized-phase NOI the ramp approaches is whatever the
+        # vector math derives from GPR/vacancy/expenses (200_000 * 0.95 -
+        # 30_000 = 160_000 here) — kept equal to the stated stabilizedNoi
+        # so this fixture is intuitive to read, but note the ramp code
+        # itself never reads the stabilizedNoi field directly.
+        "inPlaceNoi": 80_000,
+        "stabilizedNoi": 160_000,
+        "leaseUpMonths": 12,
+    }
+    tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
+    year1_noi = sum(build_noi_vector(inputs, tl)["noi"][0:12])
+
+    assert 80_000 < year1_noi < 160_000
+
+
+def test_acquisition_without_in_place_noi_falls_back_to_stabilized():
+    """No inPlaceNoi set (leaseUpMonths alone isn't enough context to ramp
+    from) -> no ramp applied, matches prior day-one-stabilized behavior."""
+    inputs = {
+        "dealType": "acquisition",
+        "grossPotentialRent": 200_000,
+        "vacancyPct": 0.05,
+        "creditLossPct": 0.0,
+        "realEstateTaxes": 20_000,
+        "managementFeePct": 0.0,
+        "rentGrowthMode": "flat",
+        "expenseGrowthMode": "flat",
+        "leaseUpMonths": 12,
+    }
+    tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
+    ops = build_noi_vector(inputs, tl)
+    # Every month is at the stabilized run-rate — flat across the year,
+    # no ramp.
+    assert ops["noi"][0] == pytest.approx(ops["noi"][11])

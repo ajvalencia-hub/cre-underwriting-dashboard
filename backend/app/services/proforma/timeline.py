@@ -63,7 +63,24 @@ def build_timeline(
     total_months = max(1, round(hold_period_years * 12))
 
     if deal_type != "development":
-        return Timeline(total_months, 0, 0, 1), warnings
+        # Acquisitions have no construction phase, but a value-add deal can
+        # still set a lease-up/renovation period (leaseUpMonths) to ramp NOI
+        # from in-place toward stabilized rather than assuming day-one
+        # stabilization — opt-in: omitting it keeps the prior
+        # immediately-stabilized behavior unchanged.
+        lease_up = int(lease_up_months or 0)
+        if lease_up <= 0:
+            return Timeline(total_months, 0, 0, 1), warnings
+        stabilization = int(stabilization_month) if stabilization_month else lease_up + 1
+        stabilization = max(stabilization, 1)
+        if stabilization > total_months:
+            warnings.append(
+                f"Stabilization (month {stabilization}) falls after the exit "
+                f"(month {total_months}) — the deal is sold before "
+                "stabilizing, so the forward 12-month NOI behind the exit "
+                "value is partly un-stabilized."
+            )
+        return Timeline(total_months, 0, lease_up, stabilization), warnings
 
     construction = int(construction_months or 0)
     lease_up = int(lease_up_months or 0)
