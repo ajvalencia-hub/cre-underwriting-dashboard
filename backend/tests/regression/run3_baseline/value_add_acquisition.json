@@ -99,6 +99,7 @@
   "goingInCapRate": 0.06,
   "governingConstraint": "LTV",
   "gpIrr": 0.31975841804670746,
+  "gpTotalComp": 1421973.485989403,
   "interestCoverageRatio": 2.2363910059171594,
   "leveredIrr": 0.2850958159504664,
   "loanConstant": 0.07584816281915584,

@@ -106,6 +106,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         for r in (inputs.get("renovationProgram") or [])
     ):
         features.append("value-add renovation program (per-unit-type downtime/premium schedule)")
+    if _num(inputs, "assetMgmtFeePct") > 0:
+        features.append("asset management fee (new partnership-level fee timing)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

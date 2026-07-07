@@ -103,7 +103,11 @@
             { "id": "irrHurdle", "label": "IRR Hurdle", "type": "percent" },
             { "id": "lpSplitAboveHurdle", "label": "LP Split Above", "type": "percent" },
             { "id": "gpSplitAboveHurdle", "label": "GP Split Above (Promote)", "type": "percent" }
-          ] }
+          ] },
+        { "id": "assetMgmtFeePct", "label": "Asset Management Fee", "type": "percent", "min": 0, "max": 0.05 },
+        { "id": "assetMgmtFeeBasis", "label": "Asset Mgmt Fee Basis", "type": "select",
+          "options": ["egi", "committed_equity"], "default": "egi",
+          "visibleWhen": { "all": [{ "field": "assetMgmtFeePct", "notEmpty": true }] } }
       ]
     },
     {

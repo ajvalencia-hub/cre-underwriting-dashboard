@@ -99,6 +99,7 @@
   "goingInCapRate": 0.08000000000000002,
   "governingConstraint": "Manual (loan amount input)",
   "gpIrr": 0.11571883619521195,
+  "gpTotalComp": 62000.00000000003,
   "interestCoverageRatio": 2.2222222222222223,
   "leveredIrr": 0.11571883619521484,
   "loanConstant": 0.06,

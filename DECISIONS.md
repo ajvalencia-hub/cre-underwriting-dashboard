@@ -3,6 +3,40 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L3 — GP fee economics [FIN]
+
+- **The asset management fee is a NEW partnership-level expense, subtracted
+  from `levered` cash flow only** — never `unlevered`, never touching NOI,
+  DSCR, or any lender metric (all computed upstream of this deduction and
+  verified with a bit-for-bit-identical assertion, not just claimed).
+  `acquisitionFeePct`/`developerFeePct` already existed (uses/YoC-basis,
+  both branches) and are completely unchanged by this entry.
+- **`'egi'` basis mirrors the existing property-level `managementFeePct`
+  convention exactly** (`egi_month * pct`, no extra `/12` since EGI is
+  already monthly) as a genuinely distinct new field — `managementFeePct`
+  itself (inside NOI) is untouched. `'committed_equity'` basis is flat for
+  the hold (`initial_equity * pct / 12`), the standard alternative
+  convention for this fee.
+- **`gpTotalComp` sums the fee(s) actually paid PLUS everything the
+  waterfall's `gpFlows` vector shows the GP receiving** (pro-rata
+  distributions and promote combined — `gpFlows` is already the GP's full
+  cash-flow vector, so summing its non-close entries covers both without
+  needing to decompose the waterfall's own math). This means the AM fee's
+  net effect on `gpTotalComp` isn't simply "+ the fee amount": on a
+  no-promote pro-rata waterfall, the GP's own distributions shrink by its
+  pro-rata share of the same dollars the fee removed from `levered` —
+  verified directly in a hand-computed test (`9,000` fee → `+8,100` net,
+  = `9,000 * (1 - gpSplitPct)`), not assumed.
+- **`gpTotalComp` is an unconditional new output** (present for every deal,
+  like `gpIrr`), not gated behind "only when a fee is set" like L1's
+  `renoCapex`. Two of the regression fixtures already had nonzero
+  `acquisitionFeePct`/`developerFeePct` before this feature existed, so a
+  "conditional on any fee" rule would have triggered a baseline
+  regeneration anyway — the baselines were regenerated once at this
+  commit, reviewed to confirm the ONLY diff per fixture is the new
+  `gpTotalComp` key appearing (no other value moved), and are now the new
+  pinned reference.
+
 ## L2 — Loss-to-lease burn-off [FIN]
 
 - **The dynamic per-unit-type model (`unitMix` rows with `annualTurnoverPct`

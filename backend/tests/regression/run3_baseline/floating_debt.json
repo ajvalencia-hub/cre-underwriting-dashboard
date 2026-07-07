@@ -99,6 +99,7 @@
   "goingInCapRate": 0.09093034198502153,
   "governingConstraint": "DSCR",
   "gpIrr": 0.4193562832989999,
+  "gpTotalComp": 4183186.83251371,
   "interestCoverageRatio": 1.4113992001162556,
   "leveredIrr": 0.28863297955524914,
   "loanConstant": 0.08186115360674281,

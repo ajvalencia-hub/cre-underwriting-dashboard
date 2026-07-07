@@ -400,10 +400,40 @@ def compute(inputs: dict) -> dict:
                 "is repaid from sale proceeds."
             )
 
+    # L3: acquisition/developer fees already existed (uses/YoC-basis, both
+    # branches above, unchanged); captured here just for gpTotalComp below.
+    acquisition_fee_paid = (
+        purchase_price * _num(inputs, "acquisitionFeePct") if deal_type == "acquisition" else 0.0
+    )
+    developer_fee_paid = budget.developer_fee if deal_type == "development" else 0.0
+
+    # L3: the AM fee is a NEW partnership-level expense — subtracted from
+    # LEVERED cash flow only (never unlevered/NOI/DSCR/lender metrics,
+    # which are all computed upstream of this point and untouched) and
+    # BEFORE the waterfall runs below, so LP IRR nets it automatically by
+    # construction. 'egi' basis mirrors the existing property-level
+    # managementFeePct convention exactly (egi_month * pct, no extra /12 —
+    # EGI is already monthly) but as a distinct fee; managementFeePct
+    # itself (inside NOI) is completely untouched.
+    am_fee_pct = _num(inputs, "assetMgmtFeePct")
+    am_fee_basis = inputs.get("assetMgmtFeeBasis") or "egi"
+    am_fee_by_month = [0.0] * (total + 1)
+    if am_fee_pct > 0:
+        if am_fee_basis == "committed_equity":
+            monthly_fee = initial_equity * am_fee_pct / 12
+            for m in range(1, total + 1):
+                am_fee_by_month[m] = monthly_fee
+        else:
+            egi_vec = ops["egi"][:total]
+            for m in range(1, total + 1):
+                am_fee_by_month[m] = egi_vec[m - 1] * am_fee_pct
+
     for m in range(1, total + 1):
         if leasing_capital[m - 1]:
             unlevered[m] -= leasing_capital[m - 1]
             levered[m] -= leasing_capital[m - 1]
+        if am_fee_by_month[m]:
+            levered[m] -= am_fee_by_month[m]
         # L1: operating_cash mode draws renovation capex from cash flow in
         # the incurring month instead of funding it at close (equity_at_close
         # already folded the whole program into basis above, at month 0 —
@@ -590,6 +620,19 @@ def compute(inputs: dict) -> dict:
     put("lpIrr", irr_of(waterfall["lpFlows"]))
     put("gpIrr", irr_of(waterfall["gpFlows"]))
     put("lpEquityMultiple", waterfall["lpMultiple"])
+    # L3: GP total comp = both existing acquisition-basis fees + this run's
+    # AM fee + everything the GP actually receives from the waterfall
+    # (pro-rata distributions AND promote combined — gpFlows is already the
+    # GP's full cash-flow vector, so summing its non-month-0 entries covers
+    # both without needing to decompose them separately). Always present
+    # (like gpIrr) — zero when no fees/promote apply, not omitted, since
+    # this is a core return metric, not an opt-in feature flag.
+    total_am_fee_paid = sum(am_fee_by_month)
+    gp_distributions_received = sum(f for f in waterfall["gpFlows"][1:] if f > 0)
+    put(
+        "gpTotalComp",
+        acquisition_fee_paid + developer_fee_paid + total_am_fee_paid + gp_distributions_received,
+    )
 
     # ------------------------------------------------------------------
     # Debt sizing detail: governing constraint + rate/NOI stress grid.
