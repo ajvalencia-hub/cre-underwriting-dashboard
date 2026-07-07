@@ -36,8 +36,11 @@ export default defineConfig({
       // The scratch DB path is injected INSIDE the python command (not via
       // webServer env) so it works identically regardless of how the runner
       // spawns the process.
+      // AGENT_PROVIDER=scripted: the Underwriting Agent e2e spec (K11) needs
+      // a deterministic, network-free provider — no live model, no API key.
       command:
         `"${pythonBin}" -c "import os; os.environ['CRE_DB_PATH'] = r'${scratchDbPath}'; ` +
+        `os.environ['AGENT_PROVIDER'] = 'scripted'; ` +
         `import uvicorn; uvicorn.run('app.main:app', port=8123)"`,
       cwd: backendDir,
       port: 8123,

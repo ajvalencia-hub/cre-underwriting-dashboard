@@ -4,12 +4,15 @@ chat(messages, tools, system, model) -> ChatResult signature (see types.py),
 so the runner (K4) never branches on provider."""
 
 from app.config import ANTHROPIC_AGENT_MODEL, OPENAI_AGENT_MODEL
-from app.services.agent.providers import anthropic_provider, openai_provider
+from app.services.agent.providers import anthropic_provider, openai_provider, scripted_provider
 from app.services.agent.providers.types import ChatResult, Message, ToolSpec, Usage
 
 _PROVIDERS = {
     "anthropic": (anthropic_provider, ANTHROPIC_AGENT_MODEL),
     "openai": (openai_provider, OPENAI_AGENT_MODEL),
+    # K11: deterministic, network-free — only ever selected by explicitly
+    # setting AGENT_PROVIDER=scripted (the Playwright e2e config does this).
+    "scripted": (scripted_provider, "scripted-v1"),
 }
 
 
