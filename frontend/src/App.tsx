@@ -222,6 +222,10 @@ function App() {
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
     applyDealState(state.schema, deal, new URLSearchParams())
     setActiveDealId(deal.id)
+    // Drop straight into the rename box so a real name is one keystroke
+    // away instead of a leftover "Untitled Deal N" the user has to
+    // remember to come back and fix.
+    setRenamingName('')
   }
 
   async function handleRenameDeal(name: string) {
@@ -480,9 +484,14 @@ function App() {
             autoFocus
             value={renamingName}
             onChange={(e) => setRenamingName(e.target.value)}
-            onBlur={() => void handleRenameDeal(renamingName)}
+            // Read the DOM's live value directly rather than the
+            // `renamingName` closure — a blur following an input event in
+            // rapid succession (programmatic fills, very fast typing) can
+            // invoke this closure before it captures the just-set state,
+            // committing a stale (often empty) value otherwise.
+            onBlur={(e) => void handleRenameDeal(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleRenameDeal(renamingName)
+              if (e.key === 'Enter') void handleRenameDeal(e.currentTarget.value)
               if (e.key === 'Escape') setRenamingName(null)
             }}
             className="rounded border border-slate-300 px-2 py-1 text-sm"
