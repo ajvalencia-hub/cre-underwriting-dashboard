@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.services.agent import runner
-from app.services.agent.providers.types import ChatResult, Usage
+from app.services.agent.providers.types import ChatResult, ToolCall, Usage
 
 
 @pytest.fixture
@@ -39,6 +39,32 @@ def _stub_end_turn(monkeypatch, text: str):
         return ChatResult(text=text, tool_calls=[], usage=Usage(2, 2), stop_reason="end_turn")
 
     monkeypatch.setattr(runner, "chat_with", fake_chat_with)
+
+
+def _stub_sequence(monkeypatch, results: list[ChatResult]):
+    it = iter(results)
+
+    def fake_chat_with(provider_name, messages, tools, system):
+        return next(it)
+
+    monkeypatch.setattr(runner, "chat_with", fake_chat_with)
+
+
+def _propose_one(client, monkeypatch, deal_id: str, changes: dict, rationale: str = "test") -> str:
+    """Drives one turn that proposes `changes` and returns the new proposal id."""
+    _stub_sequence(monkeypatch, [
+        ChatResult(
+            text="",
+            tool_calls=[ToolCall(
+                id="c1", name="propose_input_changes",
+                arguments={"currentValues": {}, "changes": changes, "rationale": rationale},
+            )],
+            usage=Usage(1, 1), stop_reason="tool_use",
+        ),
+        ChatResult(text="Proposed a change.", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+    turn = client.post(f"/api/agent/threads/{deal_id}/messages", json={"content": "propose something"}).json()
+    return turn["proposals"][0]["id"]
 
 
 def test_get_thread_404s_for_missing_deal(client):
@@ -91,3 +117,83 @@ def test_post_message_rejects_empty_content(client):
     deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
     resp = client.post(f"/api/agent/threads/{deal['id']}/messages", json={"content": "   "})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# K7: proposal approve / reject
+# ---------------------------------------------------------------------------
+
+def test_approve_proposal_applies_changes_via_history_kind_agent(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    client.put(f"/api/deals/{deal['id']}", json={"inputs": {"purchasePrice": 1000000}})
+    proposal_id = _propose_one(client, monkeypatch, deal["id"], {"purchasePrice": 1100000})
+
+    resp = client.post(f"/api/agent/proposals/{proposal_id}/approve", json={})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deal"]["inputs"]["purchasePrice"] == 1100000
+    assert body["proposal"]["status"] == "approved"
+
+    history = client.get(f"/api/deals/{deal['id']}/history").json()
+    assert any(h["kind"] == "agent" for h in history)
+
+
+def test_approve_proposal_marks_other_pending_proposals_stale(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    _stub_sequence(monkeypatch, [
+        ChatResult(
+            text="",
+            tool_calls=[
+                ToolCall(id="c1", name="propose_input_changes",
+                          arguments={"currentValues": {}, "changes": {"purchasePrice": 900000}, "rationale": "a"}),
+                ToolCall(id="c2", name="propose_input_changes",
+                          arguments={"currentValues": {}, "changes": {"purchasePrice": 950000}, "rationale": "b"}),
+            ],
+            usage=Usage(1, 1), stop_reason="tool_use",
+        ),
+        ChatResult(text="Two options.", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+    turn = client.post(f"/api/agent/threads/{deal['id']}/messages", json={"content": "give me options"}).json()
+    first_id, second_id = [p["id"] for p in turn["proposals"]]
+
+    client.post(f"/api/agent/proposals/{first_id}/approve", json={})
+
+    thread = client.get(f"/api/agent/threads/{deal['id']}").json()
+    statuses = {p["id"]: p["status"] for p in thread["proposals"]}
+    assert statuses[first_id] == "approved"
+    assert statuses[second_id] == "stale"
+
+
+def test_approve_already_approved_proposal_is_400(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    proposal_id = _propose_one(client, monkeypatch, deal["id"], {"purchasePrice": 900000})
+
+    client.post(f"/api/agent/proposals/{proposal_id}/approve", json={})
+    again = client.post(f"/api/agent/proposals/{proposal_id}/approve", json={})
+    assert again.status_code == 400
+
+
+def test_approve_proposal_404s_for_missing_id(client):
+    resp = client.post("/api/agent/proposals/not-real/approve", json={})
+    assert resp.status_code == 404
+
+
+def test_reject_proposal_marks_rejected_and_appends_note(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    proposal_id = _propose_one(client, monkeypatch, deal["id"], {"purchasePrice": 900000})
+
+    resp = client.post(f"/api/agent/proposals/{proposal_id}/reject", json={"note": "too aggressive"})
+    assert resp.status_code == 200
+    assert resp.json()["proposal"]["status"] == "rejected"
+
+    thread = client.get(f"/api/agent/threads/{deal['id']}").json()
+    assert any("too aggressive" in m["content"] for m in thread["messages"])
+
+
+def test_reject_already_rejected_proposal_is_400(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    proposal_id = _propose_one(client, monkeypatch, deal["id"], {"purchasePrice": 900000})
+
+    client.post(f"/api/agent/proposals/{proposal_id}/reject", json={})
+    again = client.post(f"/api/agent/proposals/{proposal_id}/reject", json={})
+    assert again.status_code == 400
