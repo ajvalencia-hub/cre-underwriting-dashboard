@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import compute_cache, tornado_service
+from app.services import compute_cache, compute_solver, tornado_service
 from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -17,6 +17,17 @@ class ComputeRequest(BaseModel):
 class TornadoRequest(BaseModel):
     values: dict[str, Any]
     metric: str = "leveredIrr"
+
+
+class SolveRequest(BaseModel):
+    values: dict[str, Any]
+    targetField: str
+    targetMetric: str
+    targetValue: float
+    lowerBound: float
+    upperBound: float
+    tolerance: float = 1e-4
+    maxIterations: int = 50
 
 
 @router.post("/hold-sweep")
@@ -40,6 +51,27 @@ def tornado(payload: TornadoRequest):
             status_code=422, content={"detail": str(exc), "missing": exc.missing}
         )
     except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/solve")
+def solve(payload: SolveRequest):
+    try:
+        return compute_solver.solve(
+            payload.values,
+            payload.targetField,
+            payload.targetMetric,
+            payload.targetValue,
+            payload.lowerBound,
+            payload.upperBound,
+            payload.tolerance,
+            payload.maxIterations,
+        )
+    except engine.InsufficientInputsError as exc:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "missing": exc.missing}
+        )
+    except (compute_solver.SolveOutOfRangeError, compute_solver.SolveNoConvergenceError, ValueError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
