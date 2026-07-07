@@ -253,6 +253,45 @@ def build_combined_rent_roll_and_income_statement(path) -> None:
     wb.save(path)
 
 
+def build_marketing_om_without_literal_phrase_pdf(path) -> None:
+    """Real-world OM failure mode (traced from an actual broker package):
+    a multi-page marketing deck that never once uses the phrase "offering
+    memorandum" anywhere in its text — the cover/highlights/zoning/photo
+    pages are the ONLY content, no financials at all. Generic real-estate
+    boilerplate ("Unit Count: 12", "Bldg Area: 5,677 SF") on the fact-sheet
+    page is exactly the kind of scattered wording that used to outscore the
+    real OM-specific vocabulary and get this misclassified as a rent roll."""
+    styles = getSampleStyleSheet()
+    footer = "Jane Broker, Senior Commercial Advisor  |  555-0100  |  Acme Commercial Advisors LLC"
+
+    def page(*paragraphs):
+        return [Paragraph(p, styles["Normal"]) for p in paragraphs] + [
+            Paragraph(footer, styles["Normal"]),
+            PageBreak(),
+        ]
+
+    flow = []
+    flow += page("Maple Court Apartments", "123 Maple St, Springfield")
+    flow += page(
+        "Investment Highlights",
+        "Stabilized 12-Unit Multifamily Asset offering reliable cash flow.",
+        "Unit Count: 12", "Bldg Area: 5,677 SF", "Lot Size: 10,395 SF",
+    )
+    flow += page(
+        "Zoning", "Subject Zoning: T5-R", "Max. Density: 15 units",
+        "Max. Height: 5 stories", "Allowable Uses: Multi-family",
+    )
+    flow += page("Bird's Eye View", "Unit Mix diagram — see site plan.")
+    flow += page("Building Photos")
+    flow += page("Exterior Photos")
+    flow += page("Interior Photos")
+    flow += page("Neighborhood Map", "Prime location near transit and retail.")
+    flow += page(footer)  # 9th page, keeps page_count comfortably >= 8
+
+    doc = SimpleDocTemplate(str(path), pagesize=letter)
+    doc.build(flow)
+
+
 def build_broker_om_pdf(path) -> None:
     styles = getSampleStyleSheet()
     header = ["Unit", "Tenant", "SF", "Rent"]

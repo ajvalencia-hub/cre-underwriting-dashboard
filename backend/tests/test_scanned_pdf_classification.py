@@ -24,7 +24,7 @@ Net Operating Income   337,000
 
 def _pretend_scanned(monkeypatch):
     monkeypatch.setattr(
-        document_classifier, "_pdf_text_and_scanned_flag", lambda path, max_pages=3: ("", True)
+        document_classifier, "_pdf_text_and_scanned_flag", lambda path, max_pages=8: ("", True, 1)
     )
 
 

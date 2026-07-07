@@ -29,7 +29,12 @@ from app.services.extraction import ocr
 DOCUMENT_TYPES = ("offering_memorandum", "rent_roll", "t12_operating_statement", "other")
 
 _AMBIGUITY_MARGIN = 0.08  # if top two heuristic scores are this close, ask the LLM
-_MIN_CONFIDENT_SCORE = 0.15
+# A handful of scattered keyword hits ("unit", "sf") is not real confidence —
+# real OMs routinely score in the 0.25-0.35 range on the WRONG type purely
+# from generic real-estate boilerplate. This must be high enough that a weak
+# false win still routes to the LLM (or is at least reported with honestly
+# low confidence) instead of being reported as "clearly ahead of alternatives".
+_MIN_CONFIDENT_SCORE = 0.35
 
 _MONTHS = {
     "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
@@ -53,6 +58,16 @@ _OM_KEYWORDS = {
     "investment highlights", "confidential", "asking price", "marketing package",
     "for sale", "investment opportunity", "cushman", "cbre", "jll",
     "marcus & millichap", "colliers", "newmark", "walker & dunlop",
+    # Section headers and marketing vocabulary an OM carries even when it
+    # never uses the literal phrase "offering memorandum" (a real, observed
+    # failure mode — a broker's own custom template with no financials at
+    # all, just marketing + a fact sheet + zoning + area maps).
+    "zoning", "max. density", "max. height", "allowable uses", "buildable area",
+    "bird's eye view", "site plan", "aerial", "neighborhood map", "development map",
+    "walkable access", "prime location", "reinvestment", "submarket",
+    "year built", "lot size", "bldg area", "asset type", "senior commercial advisor",
+    "managing broker", "commercial advisors", "assemblage opportunity",
+    "building photos", "exterior photos", "interior photos",
 }
 
 
@@ -64,7 +79,10 @@ def _score_keywords(text: str, keyword_sets: dict[str, set[str]]) -> dict[str, f
     norm = _normalize(text)
     scores = {}
     for doc_type, keywords in keyword_sets.items():
-        hits = sum(1 for kw in keywords if kw in norm)
+        # Word-boundary match, not a raw substring — "sf" as a raw substring
+        # matches inside unrelated words (and "unit"/"rent" are common enough
+        # English words that a boundary-free match on ANY document is noisy).
+        hits = sum(1 for kw in keywords if re.search(rf"\b{re.escape(kw)}\b", norm))
         scores[doc_type] = hits / len(keywords) if keywords else 0.0
     return scores
 
@@ -90,15 +108,16 @@ def _spreadsheet_headers_and_text(path: Path, ext: str) -> str:
     return "\n".join(chunks)
 
 
-def _pdf_text_and_scanned_flag(path: Path, max_pages: int = 3) -> tuple[str, bool]:
+def _pdf_text_and_scanned_flag(path: Path, max_pages: int = 8) -> tuple[str, bool, int]:
     text_chunks: list[str] = []
     with pdfplumber.open(path) as pdf:
+        page_count = len(pdf.pages)
         for page in pdf.pages[:max_pages]:
             page_text = page.extract_text() or ""
             text_chunks.append(page_text)
     text = "\n".join(text_chunks)
     scanned = len(text.strip()) < 100
-    return text, scanned
+    return text, scanned, page_count
 
 
 def _heuristic_classify(path: Path, ext: str) -> dict:
@@ -116,7 +135,7 @@ def _heuristic_classify(path: Path, ext: str) -> dict:
         return {"scores": scores, "sourceText": text[:4000], "scanned": False}
 
     if ext == "pdf":
-        text, scanned = _pdf_text_and_scanned_flag(path)
+        text, scanned, page_count = _pdf_text_and_scanned_flag(path)
         ocr_note = ""
         if scanned:
             # The extraction path already OCRs scanned PDFs; classification
@@ -143,6 +162,14 @@ def _heuristic_classify(path: Path, ext: str) -> dict:
                 "t12_operating_statement": _T12_KEYWORDS,
             },
         )
+        # A long, mostly-photos/maps deck is a strong, always-available OM
+        # signal that needs no text at all — rent rolls and T-12 statements
+        # are essentially never this long. Additive, not exclusive: a long
+        # PDF that's ALSO full of rent-roll keywords still loses to that on
+        # raw score, this just keeps a thin marketing-heavy OM from losing
+        # to a couple of stray keyword hits.
+        if page_count >= 8:
+            scores["offering_memorandum"] = min(1.0, scores.get("offering_memorandum", 0) + 0.2)
         return {"scores": scores, "sourceText": text[:4000], "scanned": False}
 
     return {"scores": {t: 0.0 for t in DOCUMENT_TYPES}, "sourceText": "", "scanned": False}
