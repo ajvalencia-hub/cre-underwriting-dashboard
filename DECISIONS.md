@@ -3,6 +3,49 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L4 — Mezzanine / preferred-equity tranche [FIN]
+
+- **Acquisition-only for this pass.** A development deal's construction-draw
+  stack and refinance-at-takeout interaction with a junior tranche is
+  meaningfully more complex than an additive close-day layer, and out of
+  scope here (mirrors L1's renovation-program scoping rationale exactly). A
+  development deal with junior-tranche inputs set gets an explicit warning
+  (never a silent no-op) and the tranche has zero effect.
+- **Sizing is purely additive on top of senior debt — `debt.size_permanent_loan`
+  is completely untouched.** `fill_to_total_ltc` sizes as
+  `max(0, totalLtcPct * basis - seniorLoanAmount)`; `fixed` just uses the
+  input amount. The tranche funds at close, reducing required common equity
+  by its amount (mirroring how the senior loan's `loan_fees`/`loan_amount`
+  already adjust `initial_equity`/`total_cost_basis`); its origination fee
+  capitalizes into `total_cost_basis` the same way the senior loan's does.
+- **Ranking: senior debt service → junior tranche service → common equity,
+  both during the hold and at exit.** Current-pay service
+  (`amount * ratePct/12`, interest-only) is paid from whatever's left after
+  senior debt service; a month where that residual can't cover it converts
+  the SHORTFALL TO PIK (accrues into the junior balance) rather than
+  defaulting — the safer of the two options for a v1, and explicitly what
+  the spec asked for. Accrued mode compounds monthly with zero cash service
+  and the full balance repays at exit. Exit repayment is deducted from
+  `levered[total]` AFTER the senior payoff is already netted out (i.e. after
+  `net_sale_proceeds = grossSale - exitDebtBalance` is applied) — if the
+  junior balance exceeds what's left, the levered exit flow goes negative
+  with an explicit warning, never a silent clamp.
+- **`pref_equity` uses IDENTICAL cash-flow-ranking mechanics to `mezz`** —
+  same current-pay/accrued/PIK logic — differing only in output labeling and
+  in being EXCLUDED from the new `combinedLtv`/`combinedLtc` outputs' numerator
+  (`perm_loan + juniorAmount` only when `kind == "mezz"`). Preferred equity
+  ranks ahead of common for cash-flow purposes but isn't debt for
+  covenant/leverage-ratio purposes, per the spec.
+- **`juniorTranche` (engine result) and `combinedLtv`/`combinedLtc` (outputs)
+  are OMITTED, not null/zero, when no tranche is configured** — same
+  baseline-churn-avoidance convention as L1's `renoCapex`, not L3's
+  unconditional `gpTotalComp` (a junior tranche is a true opt-in feature, not
+  a core always-relevant return metric). This required a mid-implementation
+  fix: the `/api/compute` response was initially wired to always include
+  `"juniorTranche": null`, which broke the Run-3 regression baseline's
+  "unexpected new key" check on every existing fixture — corrected to only
+  add the key when the engine result is non-null.
+
 ## L3 — GP fee economics [FIN]
 
 - **The asset management fee is a NEW partnership-level expense, subtracted

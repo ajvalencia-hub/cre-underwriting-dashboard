@@ -81,7 +81,35 @@
         { "id": "refiRateSpreadPct", "label": "Refi / Takeout Rate Spread (over construction rate)", "type": "percent", "min": -0.05, "max": 0.05, "default": 0,
           "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
         { "id": "refiCostsPct", "label": "Refi / Takeout Costs (% of new loan)", "type": "percent", "min": 0, "max": 0.05, "default": 0.01,
-          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } }
+          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
+        { "id": "juniorTrancheKind", "label": "Junior Tranche", "type": "select",
+          "options": ["none", "mezz", "pref_equity"], "default": "none" },
+        { "id": "juniorTrancheSizing", "label": "Junior Tranche Sizing", "type": "select",
+          "options": ["fixed", "fill_to_total_ltc"], "default": "fixed",
+          "visibleWhen": { "any": [
+            { "field": "juniorTrancheKind", "equals": "mezz" },
+            { "field": "juniorTrancheKind", "equals": "pref_equity" }
+          ] } },
+        { "id": "juniorTrancheAmount", "label": "Junior Tranche Amount", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "juniorTrancheSizing", "equals": "fixed" }] } },
+        { "id": "juniorTrancheTotalLtcPct", "label": "Target Combined LTC/LTV %", "type": "percent", "min": 0, "max": 1,
+          "visibleWhen": { "all": [{ "field": "juniorTrancheSizing", "equals": "fill_to_total_ltc" }] } },
+        { "id": "juniorTrancheRatePct", "label": "Junior Tranche Rate", "type": "percent", "min": 0, "max": 0.25,
+          "visibleWhen": { "any": [
+            { "field": "juniorTrancheKind", "equals": "mezz" },
+            { "field": "juniorTrancheKind", "equals": "pref_equity" }
+          ] } },
+        { "id": "juniorTranchePayMode", "label": "Junior Tranche Pay Mode", "type": "select",
+          "options": ["current", "accrued"], "default": "current",
+          "visibleWhen": { "any": [
+            { "field": "juniorTrancheKind", "equals": "mezz" },
+            { "field": "juniorTrancheKind", "equals": "pref_equity" }
+          ] } },
+        { "id": "juniorTrancheOriginationFeePct", "label": "Junior Tranche Origination Fee", "type": "percent", "min": 0, "max": 0.05,
+          "visibleWhen": { "any": [
+            { "field": "juniorTrancheKind", "equals": "mezz" },
+            { "field": "juniorTrancheKind", "equals": "pref_equity" }
+          ] } }
       ]
     },
     {

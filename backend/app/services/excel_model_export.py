@@ -108,6 +108,11 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("value-add renovation program (per-unit-type downtime/premium schedule)")
     if _num(inputs, "assetMgmtFeePct") > 0:
         features.append("asset management fee (new partnership-level fee timing)")
+    if inputs.get("juniorTrancheKind") in ("mezz", "pref_equity") and (
+        _num(inputs, "juniorTrancheAmount") > 0
+        or _num(inputs, "juniorTrancheTotalLtcPct") > 0
+    ):
+        features.append("junior tranche (mezzanine debt / preferred equity)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

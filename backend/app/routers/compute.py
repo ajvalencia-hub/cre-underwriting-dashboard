@@ -93,6 +93,11 @@ def compute(payload: ComputeRequest, detail: bool = False):
         "irrConvention": result["irrConvention"],
         "waterfallStyle": result["waterfallStyle"],
     }
+    if result["juniorTranche"] is not None:
+        # L4: omitted (not null) when inactive — an opt-in feature, not a
+        # core always-relevant metric, so it must never appear as a new key
+        # in the byte-identical-reproduction regression baseline.
+        response["juniorTranche"] = result["juniorTranche"]
     if detail:
         # The period-level statement: the engine's own vectors, no recompute.
         response["statement"] = result["statement"]

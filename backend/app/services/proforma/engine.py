@@ -4,7 +4,7 @@ ids out. Orchestration only — every formula lives in the sibling modules
 outside this package reimplements any of them.
 """
 
-from app.services.proforma import debt, development, equity, operations, returns
+from app.services.proforma import debt, development, equity, mezzanine, operations, returns
 from app.services.proforma.timeline import Timeline, build_timeline, month_end_dates
 
 
@@ -168,6 +168,11 @@ def compute(inputs: dict) -> dict:
     stmt_service = [0.0] * (total + 1)
     stmt_balance = [0.0] * (total + 1)
 
+    # L4: acquisition-only for this pass (see DECISIONS.md) — declared here
+    # so both branches below can safely reference them.
+    junior_sizing = None
+    junior_result = None
+
     if deal_type == "acquisition":
         purchase_price = _num(inputs, "purchasePrice")
         # L1: equity_at_close (default) funds the WHOLE reno program at
@@ -213,8 +218,18 @@ def compute(inputs: dict) -> dict:
             loan_amount = ltc_or_ltv * purchase_price
             governing_constraint = "ltv"
         loan_fees = loan_amount * origination_fee_pct
-        initial_equity = basis - loan_amount + loan_fees
-        total_cost_basis = basis + loan_fees
+
+        # L4: an optional junior tranche (mezz debt or preferred equity),
+        # acquisition-only for this pass (see DECISIONS.md — a development
+        # deal's construction-phase funding/refinance interaction is
+        # meaningfully more complex and out of scope here). Sizing is
+        # purely additive: senior sizing above is completely untouched.
+        junior_sizing = mezzanine.size_junior_tranche(inputs, loan_amount, basis)
+        junior_amount = junior_sizing.amount if junior_sizing else 0.0
+        junior_origination_fee = junior_sizing.origination_fee if junior_sizing else 0.0
+
+        initial_equity = basis - loan_amount + loan_fees - junior_amount + junior_origination_fee
+        total_cost_basis = basis + loan_fees + junior_origination_fee
 
         unlevered[0] = -basis
         levered[0] = -initial_equity
@@ -230,6 +245,14 @@ def compute(inputs: dict) -> dict:
         takeout_month = 1
         perm_loan = loan_amount
         value_for_ltv = purchase_price
+
+        junior_result = None
+        if junior_sizing:
+            senior_service_by_month = [schedule[m].payment for m in range(total)]
+            junior_result = mezzanine.run_junior_tranche(junior_sizing, noi, senior_service_by_month)
+            warnings.extend(junior_result["warnings"])
+            for m in range(1, total + 1):
+                levered[m] -= junior_result["serviceByMonth"][m - 1]
 
         stmt_costs[0] = basis
         stmt_loan_fees[0] = loan_fees
@@ -259,6 +282,12 @@ def compute(inputs: dict) -> dict:
         ]
 
     else:  # development
+        if inputs.get("juniorTrancheKind") in ("mezz", "pref_equity"):
+            warnings.append(
+                "Junior tranche (mezzanine/pref equity) inputs are set but this "
+                "feature is acquisition-only in this pass — ignored for "
+                "development deals."
+            )
         budget = development.build_budget(
             land_cost=_num(inputs, "landCost"),
             hard_costs=_num(inputs, "hardCosts"),
@@ -458,6 +487,18 @@ def compute(inputs: dict) -> dict:
         warnings.append(
             "Sale proceeds do not cover the debt payoff — levered exit flow is negative."
         )
+    # L4: the junior tranche's full accrued/outstanding balance repays at
+    # exit, ranking AFTER the senior payoff (already netted into
+    # net_sale_proceeds above) and BEFORE common equity — so this comes out
+    # of levered exit cash flow before the waterfall (below) ever sees it.
+    junior_exit_repayment = junior_result["exitRepayment"] if junior_result else 0.0
+    if junior_exit_repayment:
+        levered[total] -= junior_exit_repayment
+        if levered[total] < 0:
+            warnings.append(
+                f"Junior tranche exit repayment (${junior_exit_repayment:,.0f}) exceeds "
+                "residual sale proceeds after senior debt payoff — levered exit flow is negative."
+            )
 
     # ------------------------------------------------------------------
     # Metrics
@@ -574,6 +615,19 @@ def compute(inputs: dict) -> dict:
             put("ltv", perm_loan / value_for_ltv)
         if total_cost_basis > 0:
             put("ltc", perm_loan / total_cost_basis)
+        # L4: combined leverage adds the junior tranche's principal to the
+        # senior loan — but ONLY when it's mezz debt. pref_equity ranks like
+        # debt for cash-flow purposes (ahead of common) but isn't debt for
+        # covenant/leverage purposes, so it's excluded from the numerator
+        # (see DECISIONS.md). Emitted only when a junior tranche is present
+        # at all — omitted (not zero) otherwise, matching this run's
+        # baseline-churn-avoidance convention.
+        if junior_sizing:
+            combined_amount = perm_loan + (junior_sizing.amount if junior_sizing.kind == "mezz" else 0.0)
+            if value_for_ltv > 0:
+                put("combinedLtv", combined_amount / value_for_ltv)
+            if total_cost_basis > 0:
+                put("combinedLtc", combined_amount / total_cost_basis)
 
         gpr_annual, other_annual, _, _ = operations.annual_gpr_and_other_income(inputs)
         # Lease-modeled deals embed vacancy as downtime — the general
@@ -722,6 +776,14 @@ def compute(inputs: dict) -> dict:
     # that isn't using this feature.
     if any(reno_capex_by_month):
         statement["renoCapex"] = [0.0] + reno_capex_by_month
+    # L4: only added when a junior tranche is actually active — same
+    # baseline-churn-avoidance reasoning as renoCapex above.
+    if junior_result is not None:
+        statement["juniorInterest"] = [0.0] + junior_result["interestByMonth"]
+        statement["juniorService"] = [0.0] + junior_result["serviceByMonth"]
+        balance_vec = [0.0] + junior_result["balanceByMonth"]
+        balance_vec[total] = 0.0  # the exit repayment zeroes the balance
+        statement["juniorBalance"] = balance_vec
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.
@@ -783,11 +845,23 @@ def compute(inputs: dict) -> dict:
             for name, comp in components.items()
         }
 
+    junior_tranche_block = None
+    if junior_sizing is not None:
+        junior_tranche_block = {
+            "kind": junior_sizing.kind,
+            "amount": junior_sizing.amount,
+            "ratePct": junior_sizing.rate_pct,
+            "payMode": junior_sizing.pay_mode,
+            "originationFee": junior_sizing.origination_fee,
+            "exitRepayment": junior_result["exitRepayment"] if junior_result else 0.0,
+        }
+
     return {
         "outputs": outputs,
         "warnings": warnings,
         "gprSource": gpr_source,
         "debt": debt_block,
+        "juniorTranche": junior_tranche_block,
         "sourcesAndUses": sources_and_uses,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
