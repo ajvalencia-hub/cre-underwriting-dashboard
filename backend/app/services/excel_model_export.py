@@ -108,6 +108,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("value-add renovation program (per-unit-type downtime/premium schedule)")
     if _num(inputs, "assetMgmtFeePct") > 0:
         features.append("asset management fee (new partnership-level fee timing)")
+    if inputs.get("rateMode") == "floating":
+        features.append("floating-rate debt (period-by-period rate resets / rate caps)")
     if inputs.get("juniorTrancheKind") in ("mezz", "pref_equity") and (
         _num(inputs, "juniorTrancheAmount") > 0
         or _num(inputs, "juniorTrancheTotalLtcPct") > 0

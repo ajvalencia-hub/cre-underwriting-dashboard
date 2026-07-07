@@ -109,7 +109,30 @@
           "visibleWhen": { "any": [
             { "field": "juniorTrancheKind", "equals": "mezz" },
             { "field": "juniorTrancheKind", "equals": "pref_equity" }
-          ] } }
+          ] } },
+        { "id": "rateMode", "label": "Senior Rate Mode", "type": "select",
+          "options": ["fixed", "floating"], "default": "fixed" },
+        { "id": "rateIndex", "label": "Floating Index", "type": "select",
+          "options": ["SOFR"], "default": "SOFR",
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateSpreadBps", "label": "Spread over Index (bps)", "type": "number", "min": 0, "max": 1000,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateFloorPct", "label": "Index Floor", "type": "percent", "min": 0, "max": 0.25,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCurrentIndexPct", "label": "Current Index Rate", "type": "percent", "min": 0, "max": 0.25,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateForwardCurve", "label": "Forward Index Curve", "type": "table",
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] },
+          "columns": [
+            { "id": "month", "label": "Month", "type": "number" },
+            { "id": "indexPct", "label": "Index Rate", "type": "percent" }
+          ] },
+        { "id": "rateCapStrikePct", "label": "Rate Cap Strike (index)", "type": "percent", "min": 0, "max": 0.25,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCapTermMonths", "label": "Rate Cap Term (months)", "type": "number", "min": 0,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
+        { "id": "rateCapPremium", "label": "Rate Cap Premium (cost)", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } }
       ]
     },
     {

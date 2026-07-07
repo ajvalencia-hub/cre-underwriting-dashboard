@@ -3,6 +3,55 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L5 — Floating-rate debt + rate caps [FIN]
+
+- **Floating applies to the PERMANENT loan only — construction-phase
+  financing stays fixed at `interestRate` always.** Real construction loans
+  do commonly float, but generalizing `construction_financing`'s draw/carry
+  mechanics to a per-month rate schedule is materially more code for a v1
+  and this is explicitly framed as "senior-loan, stated simplification" in
+  the spec; the permanent loan (the acquisition's single loan, or a
+  development's stabilization takeout) is the far more common real-world
+  case for floating pricing anyway. Verified with a dedicated regression
+  test: a development's capitalized construction interest is byte-identical
+  with or without a floating perm loan.
+- **Step interpolation on the forward curve** (the value at the largest
+  `month <= target` wins, no smoothing) — matches every other growth-curve
+  convention already in this codebase (annual step-ups, not continuous
+  compounding). No explicit curve seeds a flat schedule from
+  `currentIndexPct`.
+- **The rate cap caps the ALL-IN rate (index+spread), not the index alone**
+  — protects the borrower's total debt cost, which is the number that
+  actually matters for DSCR/cash flow.
+- **`debt.amortization_schedule` accepting a per-month rate LIST (vs. the
+  existing constant float) recomputes the level payment every amortizing
+  month against the current balance and remaining term — never a payment
+  fixed once at the original rate.** The remaining-term clock only starts
+  counting down once amortization actually begins (an IO period never
+  shrinks it) — this is what makes a CONSTANT floating-rate list reproduce
+  the existing fixed-rate schedule bit-for-bit, IO period included, and was
+  caught by a real test failure during development (a naive "amort_years
+  minus total elapsed months including IO" formula silently overpaid by
+  recomputing a shorter remaining term than the fixed schedule assumes).
+- **Stressed-DSCR row: for a CAPPED floating loan, the existing +200bps
+  stress cell is REPLACED by "service at the cap strike"** (the real worst
+  case for a capped loan is the strike, not strike+200bps — the cap already
+  bounds the downside the +200bps cell exists to probe). Fixed and
+  uncapped-floating loans keep the existing +200bps convention completely
+  unchanged. The new `stressedDscrBasis` output is OMITTED (not
+  `"plus_200bps"`) when not capped — same opt-in-omission convention as
+  L1/L4, since introducing it unconditionally for every existing
+  fixed-rate deal would trip the "unexpected new key" regression guard for
+  no reason (an opt-in feature's absence already implies the default
+  convention).
+- **No frontend "seed from live SOFR" action built in this pass** — the
+  spec frames it as a UI convenience (read the existing `GET
+  /api/market/rates` endpoint once into `currentIndexPct`, never
+  auto-refresh), and no prior L-phase feature (L1-L4) built dedicated
+  frontend UI beyond the schema-driven generic form either. Deferred, not
+  forgotten — `rateForwardCurve`/`rateCurrentIndexPct`/etc. are fully
+  functional via the generic dynamic form and API today.
+
 ## L4 — Mezzanine / preferred-equity tranche [FIN]
 
 - **Acquisition-only for this pass.** A development deal's construction-draw

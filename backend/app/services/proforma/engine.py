@@ -141,6 +141,35 @@ def compute(inputs: dict) -> dict:
     dscr_constraint = _num(inputs, "dscrConstraint", 1.25)
     debt_yield_constraint = _num(inputs, "debtYieldConstraint", 0.08)
 
+    # L5: floating-rate debt applies to the PERMANENT loan only — the
+    # acquisition's single loan, or a development's takeout (construction-
+    # phase financing stays fixed at `interestRate` always; see DECISIONS.md
+    # for why). `floating_rate_schedule` is the ALL-IN (index+spread,
+    # floor/cap-adjusted) annual rate for months 1..total; None in fixed
+    # mode, so every existing caller path (constant `interest_rate`) is
+    # completely untouched.
+    rate_mode = inputs.get("rateMode") or "fixed"
+    floating_rate_schedule: list[float] | None = None
+    rate_cap: dict | None = None
+    if rate_mode == "floating":
+        forward_curve = [r for r in (inputs.get("rateForwardCurve") or []) if isinstance(r, dict)]
+        cap_strike = _num(inputs, "rateCapStrikePct")
+        cap_term = int(_num(inputs, "rateCapTermMonths"))
+        if cap_strike > 0 and cap_term > 0:
+            rate_cap = {"strikePct": cap_strike, "termMonths": cap_term}
+        floor_raw = inputs.get("rateFloorPct")
+        floor_pct = (
+            float(floor_raw) if isinstance(floor_raw, (int, float)) and not isinstance(floor_raw, bool) else None
+        )
+        floating_rate_schedule = debt.resolve_floating_rate_schedule(
+            spread_bps=_num(inputs, "rateSpreadBps"),
+            floor_pct=floor_pct,
+            forward_curve=forward_curve,
+            current_index_pct=_num(inputs, "rateCurrentIndexPct"),
+            rate_cap=rate_cap,
+            months=total,
+        )
+
     year1_noi = sum(noi[: min(12, total)]) * (12 / min(12, total)) if total else 0.0
     sizing_noi = _resolve_sizing_noi(inputs, stabilized_noi, year1_noi)
 
@@ -194,10 +223,14 @@ def compute(inputs: dict) -> dict:
         )
         # ltvOrLtc = 0 is an explicit all-equity request — the DSCR/debt-yield
         # constraints are caps on proceeds, never a source of them.
+        # L5: floating loans size off the AT-CLOSE (month-1) rate — the rate
+        # actually in effect when the lender underwrites the deal.
+        sizing_rate = floating_rate_schedule[0] if floating_rate_schedule else interest_rate
+        interest_rate_for_perm = sizing_rate
         explicit_loan = _num(inputs, "loanAmount")
         sizing = debt.size_permanent_loan(
             sizing_noi, purchase_price, ltc_or_ltv, dscr_constraint,
-            debt_yield_constraint, interest_rate, amort_years,
+            debt_yield_constraint, sizing_rate, amort_years,
         ) if ltc_or_ltv > 0 or explicit_loan > 0 else debt.PermSizing(0.0, "none", {})
         if explicit_loan > 0:
             loan_amount = explicit_loan
@@ -235,7 +268,7 @@ def compute(inputs: dict) -> dict:
         levered[0] = -initial_equity
 
         schedule = debt.amortization_schedule(
-            loan_amount, interest_rate, amort_years, io_months, total
+            loan_amount, floating_rate_schedule or interest_rate, amort_years, io_months, total
         )
         for m in range(1, total + 1):
             unlevered[m] += noi[m - 1]
@@ -365,7 +398,14 @@ def compute(inputs: dict) -> dict:
         # the construction rate plus an explicit spread, with explicit costs
         # (% of the new loan) deducted at takeout. Defaults (0 spread, 0
         # costs) preserve the original at-par behavior exactly.
-        perm_rate = interest_rate + _num(inputs, "refiRateSpreadPct")
+        # L5: a floating perm loan ignores refiRateSpreadPct entirely — its
+        # all-in pricing comes straight from rateSpreadBps/floor/curve/cap,
+        # independent of the construction-phase rate (which stays fixed).
+        perm_floating_schedule = floating_rate_schedule[takeout_month - 1:] if floating_rate_schedule else None
+        perm_rate = (
+            perm_floating_schedule[0] if perm_floating_schedule
+            else interest_rate + _num(inputs, "refiRateSpreadPct")
+        )
         refi_costs_pct = _num(inputs, "refiCostsPct")
 
         if takeout_month <= total:
@@ -397,7 +437,7 @@ def compute(inputs: dict) -> dict:
                 )
             perm_months = total - takeout_month + 1
             schedule = debt.amortization_schedule(
-                perm_loan, perm_rate, amort_years, io_months, perm_months
+                perm_loan, perm_floating_schedule or perm_rate, amort_years, io_months, perm_months
             )
             for m in range(takeout_month, total + 1):
                 entry = schedule[m - takeout_month]
@@ -700,12 +740,30 @@ def compute(inputs: dict) -> dict:
             sizing_noi, value_for_ltv, perm_loan, ltc_or_ltv, dscr_constraint,
             debt_yield_constraint, interest_rate_for_perm, amort_years,
         )
-        worst = next(
-            (c for c in stress if c["rateBumpBps"] == 200 and c["noiHaircutPct"] == 0.10),
-            None,
-        )
-        if worst and worst["dscr"] is not None:
-            put("stressedDscr", worst["dscr"])
+        # L5: a capped floating loan's real worst case is service AT THE CAP
+        # STRIKE, not "current rate + 200bps" — the cap makes +200bps either
+        # moot (already inside the cap) or understated (a wide-open floor-
+        # to-strike gap the +200bps grid never reaches). Replace the cell for
+        # capped floating loans only; fixed and uncapped-floating loans keep
+        # the existing +200bps convention unchanged. Both use the SAME 10%
+        # NOI haircut as the existing worst-case cell, for comparability.
+        if rate_cap is not None:
+            cap_all_in_rate = rate_cap["strikePct"] + _num(inputs, "rateSpreadBps") / 10000
+            capped_constant = debt.annual_loan_constant(cap_all_in_rate, amort_years)
+            if perm_loan > 0 and capped_constant > 0:
+                put("stressedDscr", (sizing_noi * 0.90) / (perm_loan * capped_constant))
+            # Omitted (not "plus_200bps") when uncapped — same
+            # baseline-churn-avoidance convention as L1/L4: this label is
+            # opt-in metadata for an opt-in feature, and its absence already
+            # implies the existing +200bps convention by construction.
+            outputs["stressedDscrBasis"] = "cap_strike"
+        else:
+            worst = next(
+                (c for c in stress if c["rateBumpBps"] == 200 and c["noiHaircutPct"] == 0.10),
+                None,
+            )
+            if worst and worst["dscr"] is not None:
+                put("stressedDscr", worst["dscr"])
         debt_block = {
             "loanAmount": perm_loan,
             "sizedLoanAmount": sizing.amount,
@@ -784,6 +842,10 @@ def compute(inputs: dict) -> dict:
         balance_vec = [0.0] + junior_result["balanceByMonth"]
         balance_vec[total] = 0.0  # the exit repayment zeroes the balance
         statement["juniorBalance"] = balance_vec
+    # L5: only added in floating mode — same baseline-churn-avoidance
+    # reasoning as renoCapex/juniorInterest above.
+    if floating_rate_schedule is not None:
+        statement["seniorRate"] = [0.0] + floating_rate_schedule
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.

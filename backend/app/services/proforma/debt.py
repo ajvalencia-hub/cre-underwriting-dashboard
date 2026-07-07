@@ -41,31 +41,94 @@ class DebtServiceMonth:
 
 def amortization_schedule(
     principal: float,
-    annual_rate: float,
+    annual_rate: float | list[float],
     amort_years: float,
     io_months: int,
     months: int,
 ) -> list[DebtServiceMonth]:
     """Monthly schedule for `months` periods: IO for io_months, then level
-    amortizing payments on the full amortization curve."""
+    amortizing payments on the full amortization curve.
+
+    `annual_rate` is normally a constant float (unchanged behavior). L5:
+    passing a per-month list instead switches to a FLOATING-rate schedule —
+    see DECISIONS.md for why a fixed payment computed once at close is
+    wrong for these: the level payment is recomputed each amortizing month
+    against the CURRENT rate and the REMAINING amortizing term (the
+    standard ARM/floating-CRE-loan convention), never a payment fixed at
+    the original rate for the life of the loan. The remaining-term clock
+    only starts counting down once amortization actually begins — an IO
+    period never shrinks it (matching the fixed-rate convention above,
+    where `amort_years` is always the FULL original term regardless of
+    `io_months`) — which is what makes a constant-rate floating schedule
+    reproduce the fixed schedule exactly, IO period included."""
     schedule: list[DebtServiceMonth] = []
     if principal <= 0 or months <= 0:
         return [DebtServiceMonth(0.0, 0.0, 0.0) for _ in range(max(0, months))]
 
-    r = annual_rate / 12
+    is_floating = isinstance(annual_rate, list)
     balance = principal
-    payment = monthly_payment(principal, annual_rate, amort_years)
+    fixed_payment = None if is_floating else monthly_payment(principal, annual_rate, amort_years)
 
     for month in range(1, months + 1):
+        rate = annual_rate[month - 1] if is_floating else annual_rate
+        r = rate / 12
         interest = balance * r
         if month <= io_months:
             principal_paid = 0.0
         else:
+            if is_floating:
+                elapsed_amortizing_months = month - io_months - 1
+                remaining_years = max(amort_years - elapsed_amortizing_months / 12, 1 / 12)
+                payment = monthly_payment(balance, rate, remaining_years)
+            else:
+                payment = fixed_payment
             principal_paid = min(payment - interest, balance)
             principal_paid = max(principal_paid, 0.0)
         balance -= principal_paid
         schedule.append(DebtServiceMonth(interest, principal_paid, balance))
     return schedule
+
+
+def resolve_floating_rate_schedule(
+    spread_bps: float,
+    floor_pct: float | None,
+    forward_curve: list[dict],
+    current_index_pct: float,
+    rate_cap: dict | None,
+    months: int,
+) -> list[float]:
+    """L5: month-by-month ALL-IN annual rate for a floating-rate loan.
+
+    Step interpolation (curve value at the largest `month` <= the target
+    month wins) — no smoothing, matching every other growth-curve
+    convention already in this codebase (annual step-ups, not continuous
+    compounding). No explicit forwardCurve -> a flat one-point curve seeded
+    from currentIndexPct. A rate cap, if present, caps the ALL-IN rate
+    (index+spread) at strike+spread for months within its term — the cap
+    protects the borrower's total cost, not the index in isolation."""
+    curve = sorted(
+        ({"month": int(p["month"]), "indexPct": float(p["indexPct"])} for p in forward_curve),
+        key=lambda p: p["month"],
+    ) if forward_curve else [{"month": 0, "indexPct": current_index_pct}]
+
+    spread = spread_bps / 10000
+    cap_strike = float(rate_cap["strikePct"]) if rate_cap else None
+    cap_term = int(rate_cap["termMonths"]) if rate_cap else 0
+
+    rates: list[float] = []
+    index_pct = curve[0]["indexPct"]
+    for m in range(1, months + 1):
+        for point in curve:
+            if point["month"] <= m:
+                index_pct = point["indexPct"]
+            else:
+                break
+        rate = max(index_pct, floor_pct) if floor_pct is not None else index_pct
+        rate += spread
+        if cap_strike is not None and m <= cap_term:
+            rate = min(rate, cap_strike + spread)
+        rates.append(rate)
+    return rates
 
 
 @dataclass(frozen=True)
@@ -174,7 +237,12 @@ def construction_financing(
 ) -> ConstructionFinancing:
     """Equity-first funding of a monthly cost schedule; loan interest accrues
     on the drawn balance and is capitalized (added to the balance). The
-    origination fee is drawn at the first loan draw."""
+    origination fee is drawn at the first loan draw.
+
+    L5 scoping note (DECISIONS.md): floating-rate debt applies to the
+    PERMANENT loan only (acquisition's single loan, or development's
+    takeout) — construction-phase financing stays fixed-rate always, a
+    deliberate v1 simplification, not an oversight."""
     r = annual_rate / 12
     equity_remaining = total_equity
     balance = 0.0
