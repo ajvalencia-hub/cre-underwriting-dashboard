@@ -1,12 +1,17 @@
-"""I0: the Run-3 regression baseline.
+"""I0: the Run-3 regression baseline. Extended at L0 (Phase L) with two more
+fixtures — value_add_acquisition (exercises the existing P2 lease-up ramp)
+and floating_debt (an ordinary fixed-rate development deal) — pinned BEFORE
+any L-phase code exists specifically so L1-L7 can prove they compose with
+existing behavior without changing it at defaults.
 
-For five representative deals (analytic acquisition + development, the
-parity commercial NNN case, a rollover-heavy commercial roll, and the H2
-mixed-use fixture) the FULL /api/compute?detail=true payload is recorded to
+For seven representative deals (analytic acquisition + development, the
+parity commercial NNN case, a rollover-heavy commercial roll, the H2
+mixed-use fixture, a value-add acquisition, and a floating-debt-to-be
+development) the FULL /api/compute?detail=true payload is recorded to
 JSON. This test asserts the live payload is identical (floats to 1e-9)
-with every Run-4 input at its default — it must pass after EVERY I-series
-commit. If a feature cannot keep this green at defaults, the feature stops
-and goes to BLOCKED.md; the baseline is never loosened to fit.
+with every input at its default — it must pass after EVERY commit that
+touches proforma/. If a feature cannot keep this green at defaults, the
+feature stops and goes to BLOCKED.md; the baseline is never loosened to fit.
 
 Regenerate (Run-3 behavior changes are NOT a valid reason):
     UPDATE_BASELINE=1 pytest tests/regression -q
@@ -35,6 +40,10 @@ CASES = {
     "commercial_nnn": _PARITY_CORPUS / "commercial_nnn" / "inputs.json",
     "commercial_rollover": _FIXTURES / "commercial_rollover.json",
     "mixed_use": _FIXTURES / "mixed_use.json",
+    # L0 (Phase L): pinned BEFORE any L-phase engine code exists, so every
+    # L1-L7 commit must keep reproducing these exactly at defaults.
+    "value_add_acquisition": _FIXTURES / "value_add_acquisition.json",
+    "floating_debt": _FIXTURES / "floating_debt.json",
 }
 
 FLOAT_TOL = 1e-9
