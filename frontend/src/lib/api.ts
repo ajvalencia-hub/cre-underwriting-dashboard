@@ -8,7 +8,13 @@ import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
-import type { AgentPlay, AgentProposal, AgentThreadState, AgentTurnResult } from '../types/agent'
+import type {
+  AgentPlay,
+  AgentProposal,
+  AgentProviderInfo,
+  AgentThreadState,
+  AgentTurnResult,
+} from '../types/agent'
 
 const API_BASE = '/api'
 
@@ -382,6 +388,18 @@ export function postAgentMessage(dealId: string, content: string, playId?: strin
 
 export function fetchAgentPlays() {
   return getJson<AgentPlay[]>('/agent/plays')
+}
+
+export function fetchAgentProviders() {
+  return getJson<AgentProviderInfo[]>('/agent/providers')
+}
+
+export function setAgentThreadProvider(dealId: string, provider: string) {
+  return postJson<{ id: string; dealId: string; provider: string }>(
+    `/agent/threads/${dealId}/provider`,
+    { provider },
+    'PUT',
+  )
 }
 
 export function approveAgentProposal(proposalId: string, overrideChanges?: Record<string, unknown>) {

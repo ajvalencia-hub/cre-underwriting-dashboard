@@ -31,7 +31,7 @@ export default function AgentPage({
         <div className="text-sm font-semibold text-slate-700">Underwriting Agent</div>
         {thread && (
           <div className="text-xs text-slate-400">
-            {thread.provider} · {thread.totalInputTokens + thread.totalOutputTokens} tokens used
+            {thread.totalInputTokens + thread.totalOutputTokens} tokens used
           </div>
         )}
       </div>

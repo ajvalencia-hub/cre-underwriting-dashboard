@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import AGENT_PROVIDER
+from app.config import AGENT_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY
 from app.database import get_db
 from app.models import AgentMessage, AgentProposal, AgentThread, Deal
 from app.routers.deals import _to_out as _deal_to_out
@@ -17,6 +17,15 @@ from app.services import deal_history
 from app.services.agent import plays, runner
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+# User-selectable providers only — "scripted" (K11's e2e-only deterministic
+# stub) is deliberately excluded from this list; it's reachable solely via
+# the AGENT_PROVIDER env var, never through the UI.
+_SELECTABLE_PROVIDERS = [
+    {"id": "anthropic", "label": "Anthropic (Claude)", "hasKey": bool(ANTHROPIC_API_KEY)},
+    {"id": "openai", "label": "OpenAI", "hasKey": bool(OPENAI_API_KEY)},
+]
+_SELECTABLE_PROVIDER_IDS = {p["id"] for p in _SELECTABLE_PROVIDERS}
 
 
 def _get_or_create_thread(db: Session, deal_id: str) -> AgentThread:
@@ -85,6 +94,39 @@ def list_plays():
     """K8: the canned-workflow library surfaced as suggestion chips in the
     UI — id + label only; the prompt and tool-subset stay server-side."""
     return [{"id": p.id, "label": p.label} for p in plays.PLAYS]
+
+
+@router.get("/providers")
+def list_providers():
+    """Which providers the UI may switch to, and whether each has a key
+    configured server-side — the UI never sees the key itself, only this
+    boolean, so it can gray out an option instead of letting the user pick
+    a provider that will just come back "unavailable"."""
+    return _SELECTABLE_PROVIDERS
+
+
+class SetProviderRequest(BaseModel):
+    provider: str
+
+
+@router.put("/threads/{deal_id}/provider")
+def set_thread_provider(deal_id: str, payload: SetProviderRequest, db: Session = Depends(get_db)):
+    """Switches which model answers the NEXT turn in this deal's thread.
+    Takes effect immediately — no server restart, no .env edit — since the
+    runner already reads thread.provider per turn rather than a fixed
+    global. History from the previous provider is untouched; only future
+    turns use the new one."""
+    if payload.provider not in _SELECTABLE_PROVIDER_IDS:
+        raise HTTPException(
+            400, f"Unknown provider '{payload.provider}'. Valid options: {', '.join(sorted(_SELECTABLE_PROVIDER_IDS))}."
+        )
+    if db.get(Deal, deal_id) is None:
+        raise HTTPException(404, "Deal not found")
+    thread = _get_or_create_thread(db, deal_id)
+    thread.provider = payload.provider
+    db.commit()
+    db.refresh(thread)
+    return {"id": thread.id, "dealId": thread.deal_id, "provider": thread.provider}
 
 
 class PostMessageRequest(BaseModel):

@@ -68,6 +68,12 @@ export interface AgentPlay {
   label: string
 }
 
+export interface AgentProviderInfo {
+  id: string
+  label: string
+  hasKey: boolean
+}
+
 export const PROPOSAL_STATUS_LABELS: Record<ProposalStatus, string> = {
   pending: 'Pending review',
   approved: 'Approved',

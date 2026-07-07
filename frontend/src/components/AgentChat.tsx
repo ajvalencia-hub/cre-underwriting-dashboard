@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import PendingProposalCard from './PendingProposalCard'
-import { fetchAgentPlays } from '../lib/api'
+import { fetchAgentPlays, fetchAgentProviders } from '../lib/api'
 import type { AgentThreadController } from '../lib/useAgentThread'
-import type { AgentPlay } from '../types/agent'
+import type { AgentPlay, AgentProviderInfo } from '../types/agent'
 import type { InputSchema } from '../types/schema'
 
 interface AgentChatProps {
@@ -26,16 +26,27 @@ export default function AgentChat({
   onReject,
   compact = false,
 }: AgentChatProps) {
-  const { thread, loading, sending, error, sendMessage } = controller
+  const { thread, loading, sending, error, sendMessage, setProvider } = controller
   const [input, setInput] = useState('')
   const [plays, setPlays] = useState<AgentPlay[]>([])
+  const [providers, setProviders] = useState<AgentProviderInfo[]>([])
+  const [switchingProvider, setSwitchingProvider] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchAgentPlays()
       .then(setPlays)
       .catch(() => setPlays([]))
+    fetchAgentProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]))
   }, [])
+
+  async function handleProviderChange(providerId: string) {
+    setSwitchingProvider(true)
+    await setProvider(providerId)
+    setSwitchingProvider(false)
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -54,8 +65,37 @@ export default function AgentChat({
 
   const proposalById = new Map((thread?.proposals ?? []).map((p) => [p.id, p]))
 
+  const activeProvider = providers.find((p) => p.id === thread?.provider)
+  const activeProviderHasKey = activeProvider?.hasKey ?? true // unknown yet -> don't flash a false warning
+
   return (
     <div className={`flex flex-col ${compact ? 'h-96' : 'h-[70vh]'}`}>
+      {thread && providers.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-xs">
+          <label htmlFor="agent-provider-select" className="text-slate-400">
+            Provider
+          </label>
+          <select
+            id="agent-provider-select"
+            value={thread.provider}
+            disabled={switchingProvider}
+            onChange={(e) => void handleProviderChange(e.target.value)}
+            className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs text-slate-700 disabled:opacity-50"
+          >
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+                {!p.hasKey ? ' (no API key set)' : ''}
+              </option>
+            ))}
+          </select>
+          {!activeProviderHasKey && (
+            <span className="text-amber-600">
+              No API key configured for this provider — set it in backend/.env.
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
         {loading && <div className="text-xs text-slate-400">Loading…</div>}
         {!loading && (thread?.messages.length ?? 0) === 0 && (

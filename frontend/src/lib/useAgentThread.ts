@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { approveAgentProposal, fetchAgentThread, postAgentMessage, rejectAgentProposal } from './api'
+import {
+  approveAgentProposal,
+  fetchAgentThread,
+  postAgentMessage,
+  rejectAgentProposal,
+  setAgentThreadProvider,
+} from './api'
 import type { AgentThreadState } from '../types/agent'
 import type { Deal } from '../types/deal'
 
@@ -11,6 +17,7 @@ export interface AgentThreadController {
   sendMessage: (content: string, playId?: string) => Promise<void>
   approveProposal: (proposalId: string, overrideChanges?: Record<string, unknown>) => Promise<Deal | null>
   rejectProposal: (proposalId: string, note?: string) => Promise<void>
+  setProvider: (provider: string) => Promise<void>
 }
 
 /** K6: one thread per deal, shared by the chat dock and the Agent tab — both
@@ -79,5 +86,16 @@ export function useAgentThread(dealId: string | null): AgentThreadController {
     }
   }
 
-  return { thread, loading, sending, error, sendMessage, approveProposal, rejectProposal }
+  async function setProvider(provider: string) {
+    if (!dealId) return
+    setError(null)
+    try {
+      await setAgentThreadProvider(dealId, provider)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to switch provider')
+    }
+  }
+
+  return { thread, loading, sending, error, sendMessage, approveProposal, rejectProposal, setProvider }
 }

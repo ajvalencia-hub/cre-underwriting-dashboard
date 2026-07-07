@@ -238,3 +238,60 @@ def test_post_message_no_content_and_no_play_id_is_400(client):
     deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
     resp = client.post(f"/api/agent/threads/{deal['id']}/messages", json={})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# In-dashboard provider switching
+# ---------------------------------------------------------------------------
+
+def test_list_providers_returns_anthropic_and_openai_with_key_flags(client):
+    resp = client.get("/api/agent/providers")
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = {p["id"] for p in body}
+    assert ids == {"anthropic", "openai"}
+    assert "scripted" not in ids  # e2e-only, never a user-facing option
+    for p in body:
+        assert set(p) == {"id", "label", "hasKey"}
+        assert isinstance(p["hasKey"], bool)
+
+
+def test_set_thread_provider_switches_and_persists(client):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    # default thread provider comes from AGENT_PROVIDER (anthropic in tests)
+    initial = client.get(f"/api/agent/threads/{deal['id']}").json()
+    assert initial["provider"] == "anthropic"
+
+    resp = client.put(f"/api/agent/threads/{deal['id']}/provider", json={"provider": "openai"})
+    assert resp.status_code == 200
+    assert resp.json()["provider"] == "openai"
+
+    after = client.get(f"/api/agent/threads/{deal['id']}").json()
+    assert after["provider"] == "openai"
+
+
+def test_set_thread_provider_takes_effect_on_the_next_turn(client, monkeypatch):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    client.put(f"/api/agent/threads/{deal['id']}/provider", json={"provider": "openai"})
+
+    seen_providers = []
+
+    def fake_chat_with(provider_name, messages, tools, system):
+        seen_providers.append(provider_name)
+        return ChatResult(text="ok", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn")
+
+    monkeypatch.setattr(runner, "chat_with", fake_chat_with)
+    client.post(f"/api/agent/threads/{deal['id']}/messages", json={"content": "hi"})
+
+    assert seen_providers == ["openai"]
+
+
+def test_set_thread_provider_rejects_unknown_provider(client):
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    resp = client.put(f"/api/agent/threads/{deal['id']}/provider", json={"provider": "scripted"})
+    assert resp.status_code == 400
+
+
+def test_set_thread_provider_404s_for_missing_deal(client):
+    resp = client.put("/api/agent/threads/not-a-real-deal/provider", json={"provider": "openai"})
+    assert resp.status_code == 404
