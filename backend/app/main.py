@@ -10,6 +10,7 @@ from app.database import Base, SessionLocal, engine, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
+    agent,
     client_errors,
     comps,
     compute,
@@ -83,6 +84,7 @@ app.add_middleware(
 )
 
 app.include_router(schema.router)
+app.include_router(agent.router)
 app.include_router(deals.router)
 app.include_router(compute.router)
 app.include_router(templates.router)
