@@ -31,6 +31,23 @@ def run_migrations(target_engine=None) -> None:
     _migrate_scenarios_sensitivity(eng)
     _migrate_extraction_unit_mix_proposal(eng)
     _migrate_deals_status(eng)
+    _migrate_documents_deal_id(eng)
+
+
+def _migrate_documents_deal_id(eng) -> None:
+    """Documents gained a deal_id column — pre-existing rows are left NULL
+    (unassigned) rather than guessed at; the list endpoint only returns a
+    NULL row when no dealId filter is given, so nothing already uploaded
+    disappears, but it also won't show up mixed into any specific deal."""
+    inspector = inspect(eng)
+    if "documents" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("documents")}
+    if "deal_id" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE documents ADD COLUMN deal_id VARCHAR"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_documents_deal_id ON documents (deal_id)"))
 
 
 def _migrate_deals_status(eng) -> None:

@@ -565,13 +565,15 @@ export function fetchMarketContext(market: string, submarket: string, assetClass
   return getJson<MarketContext>(`/market-context?${params}`)
 }
 
-export function fetchDocuments() {
-  return getJson<DocumentSummary[]>('/documents')
+export function fetchDocuments(dealId: string) {
+  const params = new URLSearchParams({ dealId })
+  return getJson<DocumentSummary[]>(`/documents?${params}`)
 }
 
-export async function uploadDocument(file: File): Promise<DocumentSummary> {
+export async function uploadDocument(file: File, dealId: string): Promise<DocumentSummary> {
   const form = new FormData()
   form.append('file', file)
+  form.append('dealId', dealId)
   const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res))

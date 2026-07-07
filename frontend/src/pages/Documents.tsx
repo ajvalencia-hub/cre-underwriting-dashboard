@@ -7,6 +7,7 @@ import type { InputSchema } from '../types/schema'
 
 interface DocumentsProps {
   schema: InputSchema
+  dealId: string | null
   /** The active deal's current unitMix rows — drives the replace/merge choice. */
   currentUnitMix?: unknown
   currentCommercialLeases?: unknown
@@ -30,6 +31,7 @@ function confidenceBadge(confidence: number): string {
 
 export default function Documents({
   schema,
+  dealId,
   currentUnitMix,
   currentCommercialLeases,
   onApplyExtraction,
@@ -43,23 +45,28 @@ export default function Documents({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    refresh()
-  }, [])
+    setSelected(new Set())
+    setExtractionResult(null)
+    if (dealId) refresh()
+    else setDocuments([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealId])
 
   function refresh() {
-    fetchDocuments()
+    if (!dealId) return
+    fetchDocuments(dealId)
       .then(setDocuments)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load documents'))
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
-    if (!files || files.length === 0) return
+    if (!files || files.length === 0 || !dealId) return
     setUploading(true)
     setError(null)
     try {
       for (const file of Array.from(files)) {
-        const doc = await uploadDocument(file)
+        const doc = await uploadDocument(file, dealId)
         setDocuments((prev) => [doc, ...prev.filter((d) => d.id !== doc.id)])
       }
     } catch (err) {
@@ -120,10 +127,17 @@ export default function Documents({
     <div className="max-w-4xl">
       <h1 className="text-2xl font-semibold">Documents</h1>
       <p className="mt-1 text-slate-500">
-        Upload Offering Memoranda, rent rolls, or T-12 operating statements. The app classifies each
-        document automatically — confirm or override the type, select documents, then run extraction to
-        pre-fill deal inputs for review. Nothing is applied without your confirmation.
+        Upload Offering Memoranda, rent rolls, or T-12 operating statements for THIS deal — documents are
+        scoped per deal, so other deals never see them. The app classifies each document automatically —
+        confirm or override the type, select documents, then run extraction to pre-fill deal inputs for
+        review. Nothing is applied without your confirmation.
       </p>
+
+      {!dealId && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          Select or create a deal first — documents are tied to a specific deal.
+        </div>
+      )}
 
       <div className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-center">
         <input
@@ -132,7 +146,7 @@ export default function Documents({
           accept=".pdf,.xlsx,.xls,.csv"
           multiple
           onChange={handleFileChange}
-          disabled={uploading}
+          disabled={uploading || !dealId}
           className="text-sm"
         />
         {uploading && <div className="mt-3 text-sm text-slate-500">Uploading &amp; classifying…</div>}

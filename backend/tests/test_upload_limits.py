@@ -38,7 +38,9 @@ def test_document_upload_route_returns_413(monkeypatch):
     monkeypatch.setattr(upload_limit, "MAX_UPLOAD_BYTES", 1024)
     client = TestClient(app)
     resp = client.post(
-        "/api/documents/upload", files={"file": ("big.csv", b"x" * 2048, "text/csv")}
+        "/api/documents/upload",
+        files={"file": ("big.csv", b"x" * 2048, "text/csv")},
+        data={"dealId": "deal-1"},
     )
     assert resp.status_code == 413
 

@@ -6,6 +6,7 @@ export interface DocumentSummary {
   filename: string
   fileHash: string
   fileExt: string
+  dealId: string | null
   documentType: DocumentType
   typeConfidence: number
   typeSource: ClassificationSource

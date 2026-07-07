@@ -631,6 +631,7 @@ function App() {
       <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
         <Documents
           schema={schema}
+          dealId={activeDealId}
           currentUnitMix={formValues.unitMix}
           currentCommercialLeases={formValues.commercialLeases}
           onApplyExtraction={(confirmedValues) => {

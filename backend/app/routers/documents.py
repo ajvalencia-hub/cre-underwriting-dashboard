@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ def _to_summary(doc: Document, reused: bool = False) -> DocumentSummary:
         filename=doc.filename,
         fileHash=doc.file_hash,
         fileExt=doc.file_ext,
+        dealId=doc.deal_id,
         documentType=doc.document_type,
         typeConfidence=doc.type_confidence,
         typeSource=doc.type_source,
@@ -33,13 +34,18 @@ def _to_summary(doc: Document, reused: bool = False) -> DocumentSummary:
 
 
 @router.get("", response_model=list[DocumentSummary])
-def list_documents(db: Session = Depends(get_db)):
-    docs = db.execute(select(Document).order_by(Document.created_at.desc())).scalars().all()
+def list_documents(dealId: str | None = None, db: Session = Depends(get_db)):
+    query = select(Document).order_by(Document.created_at.desc())
+    if dealId is not None:
+        query = query.where(Document.deal_id == dealId)
+    docs = db.execute(query).scalars().all()
     return [_to_summary(d) for d in docs]
 
 
 @router.post("/upload", response_model=DocumentSummary)
-async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
+async def upload_document(
+    file: UploadFile = File(...), dealId: str = Form(...), db: Session = Depends(get_db)
+):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -49,12 +55,18 @@ async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
     file_bytes = await read_upload_limited(file)
     file_hash = compute_file_hash(file_bytes)
 
-    existing = db.execute(select(Document).where(Document.file_hash == file_hash)).scalar_one_or_none()
+    # Dedup is scoped to THIS deal — the same file uploaded to two different
+    # deals (e.g. a shared market report) becomes two separate rows rather
+    # than silently attaching deal A's upload to deal B.
+    existing = db.execute(
+        select(Document).where(Document.file_hash == file_hash, Document.deal_id == dealId)
+    ).scalar_one_or_none()
     if existing is not None:
         return _to_summary(existing, reused=True)
 
     stored_path = DOCUMENTS_DIR / f"{file_hash}{ext}"
-    stored_path.write_bytes(file_bytes)
+    if not stored_path.exists():
+        stored_path.write_bytes(file_bytes)
 
     classification = document_classifier.classify_document(stored_path, file.filename or "document")
 
@@ -63,6 +75,7 @@ async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
         file_hash=file_hash,
         stored_path=str(stored_path),
         file_ext=ext.lstrip("."),
+        deal_id=dealId,
         document_type=classification["documentType"],
         type_confidence=classification["confidence"],
         type_source=classification["source"],
@@ -94,7 +107,15 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     doc = db.get(Document, document_id)
     if doc is None:
         raise HTTPException(404, "Document not found")
-    Path(doc.stored_path).unlink(missing_ok=True)
+    # The physical file is content-addressed (named by hash) and, now that
+    # dedup is per-deal, may be shared by more than one Document row (the
+    # same file uploaded to two different deals) — only remove it from disk
+    # when no other row still references that path.
+    other_ref = db.execute(
+        select(Document.id).where(Document.stored_path == doc.stored_path, Document.id != doc.id)
+    ).first()
+    if other_ref is None:
+        Path(doc.stored_path).unlink(missing_ok=True)
     db.delete(doc)
     db.commit()
     return {"deleted": True}

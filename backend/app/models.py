@@ -164,6 +164,11 @@ class Document(Base):
     file_hash: Mapped[str] = mapped_column(String, index=True)
     stored_path: Mapped[str] = mapped_column(String)
     file_ext: Mapped[str] = mapped_column(String)
+    # Nullable only for rows created before document-deal scoping landed;
+    # every upload from that point on requires one. Without this, every deal
+    # sees every OTHER deal's uploads — extraction from deal A silently
+    # offers deal B's rent roll as a source.
+    deal_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     # offering_memorandum | rent_roll | t12_operating_statement | other
     document_type: Mapped[str] = mapped_column(String)
     type_confidence: Mapped[float] = mapped_column(Float, default=0.0)

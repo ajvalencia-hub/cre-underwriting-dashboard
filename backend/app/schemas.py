@@ -230,6 +230,7 @@ class DocumentSummary(BaseModel):
     filename: str
     fileHash: str
     fileExt: str
+    dealId: str | None = None
     documentType: Literal["offering_memorandum", "rent_roll", "t12_operating_statement", "other"]
     typeConfidence: float
     typeSource: Literal["heuristic", "llm", "manual"]
