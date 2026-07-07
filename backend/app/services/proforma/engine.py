@@ -110,6 +110,12 @@ def compute(inputs: dict) -> dict:
     # BELOW NOI: it hits the cash-flow vectors but never DSCR or the exit cap
     # basis. Zeros for non-lease deals.
     leasing_capital = (ops.get("leasingCapital") or [0.0] * total)[:total]
+    # L1: renovation capex, by month. equity_at_close (default) folds the
+    # total into the acquisition cost basis below (once, at close);
+    # operating_cash draws it from cash flow in the incurring month instead
+    # — see the shared cash-flow loop further down. Zeros when no program.
+    reno_capex_by_month = (ops.get("renoCapex") or [0.0] * total)[:total]
+    reno_funding_source = inputs.get("renoFundingSource") or "equity_at_close"
 
     cost_of_sale = _num(inputs, "costOfSalePct")
     # Component-level exit (H2): when BOTH component caps are provided on a
@@ -164,12 +170,22 @@ def compute(inputs: dict) -> dict:
 
     if deal_type == "acquisition":
         purchase_price = _num(inputs, "purchasePrice")
+        # L1: equity_at_close (default) funds the WHOLE reno program at
+        # close, same treatment as acquisitionFeePct/dayOneCapex above — it
+        # raises required equity and total_cost_basis (so YoC reflects the
+        # full value-add basis) without touching loan sizing (still keyed
+        # off purchase_price, not basis, below). operating_cash mode leaves
+        # this at 0 here; its capex is drawn from cash flow instead, in the
+        # shared loop after both deal-type branches.
+        total_reno_capex = sum(reno_capex_by_month)
+        reno_capex_at_close = total_reno_capex if reno_funding_source != "operating_cash" else 0.0
         basis = (
             purchase_price
             + purchase_price * _num(inputs, "closingCostsPct")
             + purchase_price * _num(inputs, "acquisitionFeePct")
             + _num(inputs, "dueDiligenceCosts")
             + _num(inputs, "dayOneCapex")
+            + reno_capex_at_close
         )
         # ltvOrLtc = 0 is an explicit all-equity request — the DSCR/debt-yield
         # constraints are caps on proceeds, never a source of them.
@@ -235,6 +251,8 @@ def compute(inputs: dict) -> dict:
             ("Day-1 capex", _num(inputs, "dayOneCapex")),
             ("Loan fees", loan_fees),
         ]
+        if reno_capex_at_close:
+            sources_and_uses["uses"].append(("Renovation capex", reno_capex_at_close))
         sources_and_uses["sources"] = [
             ("Senior loan", loan_amount),
             ("Equity", initial_equity),
@@ -386,6 +404,22 @@ def compute(inputs: dict) -> dict:
         if leasing_capital[m - 1]:
             unlevered[m] -= leasing_capital[m - 1]
             levered[m] -= leasing_capital[m - 1]
+        # L1: operating_cash mode draws renovation capex from cash flow in
+        # the incurring month instead of funding it at close (equity_at_close
+        # already folded the whole program into basis above, at month 0 —
+        # never both, that would double-count). A draw that pushes levered
+        # cash flow negative in that month is allowed (warn, don't refuse —
+        # matches every other "insufficient funding" case in this engine)
+        # rather than silently absorbed.
+        if reno_funding_source == "operating_cash" and reno_capex_by_month[m - 1]:
+            unlevered[m] -= reno_capex_by_month[m - 1]
+            levered[m] -= reno_capex_by_month[m - 1]
+            if levered[m] < 0:
+                warnings.append(
+                    f"Renovation capex draw in month {m} (${reno_capex_by_month[m - 1]:,.0f}) "
+                    f"takes levered cash flow negative that month (${levered[m]:,.0f}) — "
+                    "operating cash doesn't cover it."
+                )
 
     unlevered[total] += gross_sale_net_of_costs
     net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
@@ -639,6 +673,12 @@ def compute(inputs: dict) -> dict:
         "lpDistributions": waterfall["lpFlows"],
         "gpDistributions": waterfall["gpFlows"],
     }
+    # L1: only added when a renovation program is actually active, so the
+    # baseline regression fixtures (none of which use one) never see a new
+    # key — avoids an "unexpected new key" baseline break for every deal
+    # that isn't using this feature.
+    if any(reno_capex_by_month):
+        statement["renoCapex"] = [0.0] + reno_capex_by_month
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.

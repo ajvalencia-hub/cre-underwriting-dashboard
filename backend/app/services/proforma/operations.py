@@ -122,6 +122,107 @@ def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
     return (1 + annual_growth) ** ((month_1_based - 1) // 12)
 
 
+def _has_active_renovation_program(inputs: dict) -> bool:
+    program = inputs.get("renovationProgram")
+    return isinstance(program, list) and any(
+        isinstance(r, dict) and _num(r, "unitsToReno") > 0 for r in program
+    )
+
+
+def renovation_schedule(inputs: dict, timeline: Timeline) -> dict:
+    """L1: value-add renovation program, layered ON TOP OF (never modifying)
+    the P2 acquisition lease-up ramp — see DECISIONS.md's L1 entry. Sequences
+    each renovationProgram row's units into reno at unitsPerMonth/month from
+    startMonth; a unit contributes $0 rent (vs. its unitMix rent basis) for
+    downtimeMonthsPerUnit months, then earns rent basis + premiumPerMonth
+    (grown at rentGrowthPct) for the rest of the hold. Returns a per-month
+    EGI dollar delta (this is a REAL dollar adjustment, not a multiplier —
+    the caller applies it AFTER any ramp fraction, never before) and a
+    per-month capex vector. Absent/empty renovationProgram -> all-zero
+    vectors, i.e. a true no-op."""
+    warnings: list[str] = []
+    total_months = timeline.total_months
+    egi_delta = [0.0] * total_months
+    capex = [0.0] * total_months
+
+    if not _has_active_renovation_program(inputs):
+        return {"egiDelta": egi_delta, "capex": capex, "warnings": warnings}
+    program = inputs["renovationProgram"]
+
+    unit_mix_by_type: dict = {
+        row.get("unitType"): row
+        for row in (inputs.get("unitMix") or [])
+        if isinstance(row, dict) and row.get("unitType")
+    }
+    rent_growth = (
+        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
+    )
+
+    for row in program:
+        if not isinstance(row, dict):
+            continue
+        unit_type = row.get("unitType")
+        units_to_reno = _num(row, "unitsToReno")
+        units_per_month = max(0.0, _num(row, "unitsPerMonth"))
+        if units_to_reno <= 0 or units_per_month <= 0:
+            continue
+        cost_per_unit = _num(row, "costPerUnit")
+        premium_per_month = _num(row, "premiumPerMonth")
+        downtime_months = max(0, int(_num(row, "downtimeMonthsPerUnit")))
+        start_month = max(1, int(_num(row, "startMonth", 1)))
+
+        mix_row = unit_mix_by_type.get(unit_type)
+        rent_basis = float((mix_row or {}).get("inPlaceRent") or (mix_row or {}).get("marketRent") or 0)
+        if rent_basis <= 0:
+            warnings.append(
+                f"Renovation program row '{unit_type}': no matching unitMix rent basis found — "
+                "downtime dollars for this row are treated as $0."
+            )
+
+        if start_month > total_months:
+            warnings.append(
+                f"Renovation program row '{unit_type}': startMonth {start_month} is past the "
+                "hold/exit — this row never starts."
+            )
+            continue
+
+        units_started = 0.0
+        month = start_month
+        while units_started < units_to_reno and month <= total_months:
+            batch = min(units_per_month, units_to_reno - units_started)
+
+            capex[month - 1] += batch * cost_per_unit
+
+            for dm in range(downtime_months):
+                dmonth = month + dm
+                if dmonth > total_months:
+                    break
+                egi_delta[dmonth - 1] -= batch * (rent_basis / 12)
+
+            completion_month = month + downtime_months
+            for pm in range(max(completion_month, 1), total_months + 1):
+                operating_month = pm - timeline.construction_months
+                if operating_month < 1:
+                    continue
+                months_since_completion = pm - completion_month
+                grown_premium = batch * premium_per_month * (
+                    (1 + rent_growth) ** (months_since_completion // 12)
+                )
+                egi_delta[pm - 1] += grown_premium
+
+            units_started += batch
+            month += 1
+
+        if units_started < units_to_reno - 1e-9:
+            warnings.append(
+                f"Renovation program row '{unit_type}': pace ({units_per_month}/mo) from month "
+                f"{start_month} only completes {units_started:.0f} of {units_to_reno:.0f} units "
+                "before the hold ends — the remainder are never started."
+            )
+
+    return {"egiDelta": egi_delta, "capex": capex, "warnings": warnings}
+
+
 # Detail-mode (H3) category ids -> the statement's legacy category keys, so
 # the Cash Flow view labels stay consistent across modes.
 _DETAIL_CATEGORY_KEYS = {
@@ -702,9 +803,21 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     _build_lease_noi_vector (extra keys: recoveries, leasingCapital,
     leaseDetail)."""
     if leases.has_leases(inputs) and has_residential(inputs):
-        return _build_mixed_noi_vector(inputs, timeline)
+        result = _build_mixed_noi_vector(inputs, timeline)
+        if _has_active_renovation_program(inputs):
+            result.setdefault("warnings", []).append(
+                "renovationProgram is set but ignored on mixed-use deals in this build — "
+                "L1 wires into the plain-multifamily NOI path only."
+            )
+        return result
     if leases.has_leases(inputs):
-        return _build_lease_noi_vector(inputs, timeline)
+        result = _build_lease_noi_vector(inputs, timeline)
+        if _has_active_renovation_program(inputs):
+            result.setdefault("warnings", []).append(
+                "renovationProgram is set but ignored on commercial-lease deals — "
+                "it only applies to plain multifamily unit-mix deals."
+            )
+        return result
 
     annual_gpr, annual_other, source, warnings = annual_gpr_and_other_income(inputs)
 
@@ -736,6 +849,27 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         # No inPlaceNoi to anchor a ramp shape to -> no ramp of any kind
         # (occupancy stays at its stabilized level below), rather than
         # guessing. leaseUpMonths alone is not enough context.
+
+    # L1: value-add renovation program — computed once, applied per-month
+    # below as a REAL DOLLAR delta AFTER the ramp fraction (never before,
+    # never folded into the ramp itself — see renovation_schedule's
+    # docstring and DECISIONS.md). Acquisition-only: engine.py only wires
+    # renovation capex into the acquisition cost-basis/cash-flow build (a
+    # newly built development has no "renovation" capex distinct from its
+    # development budget) — a development deal with rows set gets a
+    # warning and zero effect rather than silently counting the premium
+    # revenue without its capex cost. No renovationProgram rows -> all zeros.
+    if is_acquisition:
+        reno = renovation_schedule(inputs, timeline)
+    elif _has_active_renovation_program(inputs):
+        reno = {"egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months, "warnings": [
+            "renovationProgram is set but ignored on development deals — it only "
+            "applies to multifamily acquisitions."
+        ]}
+    else:
+        reno = {"egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months, "warnings": []}
+    warnings.extend(reno["warnings"])
+    reno_egi_delta = reno["egiDelta"]
 
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
@@ -795,6 +929,11 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
             ramp_fraction = ramp_start_ratio + (1.0 - ramp_start_ratio) * progress
             egi_month *= max(0.0, min(1.0, ramp_fraction))
 
+        # L1: renovation downtime/premium dollars are known and scheduled —
+        # applied AFTER the ramp's blended/unknown-absorption multiplier, not
+        # discounted by it. Zero when no renovationProgram is set.
+        egi_month += reno_egi_delta[month - 1]
+
         fixed_expenses_month = sum(vec[month - 1] for vec in fixed_by_category.values())
         management_fee_month = egi_month * management_fee_pct
         opex_month = fixed_expenses_month + management_fee_month
@@ -822,6 +961,7 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "fixedOpexByCategory": fixed_by_category,
         "gprSource": source,
         "warnings": warnings,
+        "renoCapex": reno["capex"],
     }
 
 

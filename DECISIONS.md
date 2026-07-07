@@ -3,6 +3,49 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L1 — Value-add renovation program [FIN]
+
+- **Renovation dollars apply to EGI AFTER the existing P2 lease-up ramp's
+  multiplier, never before, and the ramp's own code is untouched.** The
+  ramp models blended, unknown-absorption uncertainty across the whole
+  property; a renovation program is a known, scheduled, unit-level cost/
+  revenue plan. Discounting known reno dollars by an unrelated blended
+  absorption assumption would misstate the economics, and making the ramp
+  "aware" of specific renovated units would require rewriting it (out of
+  scope — "compose with the ramp, don't touch or duplicate it"). This
+  ordering is also what makes "a unit's reno downtime is counted once, not
+  double-discounted by ramp vacancy" true by construction: the ramp only
+  ever scales the non-renovation revenue baseline.
+- **Scoped to plain multifamily acquisitions only — not mixed-use,
+  commercial-lease, or development deals**, even though the schema's
+  `propertyType=multifamily` gate alone would also admit a multifamily
+  development. Mixed-use/lease deals route through a different NOI-build
+  function (`_build_mixed_noi_vector`/`_build_lease_noi_vector`) this pass
+  doesn't wire into; a multifamily development deal would have counted the
+  premium REVENUE (engine-wide in `build_noi_vector`) while silently
+  dropping the capex COST (only wired into the acquisition cost-basis/
+  cash-flow build) — a real "free money" bug, not just a missing feature.
+  Rejected: allowing it and hoping nobody sets it on those deal shapes. All
+  three cases now get an explicit warning and zero effect instead of a
+  silent or incorrect one.
+- **`equity_at_close` (default) folds ALL program capex into the day-0 cost
+  basis, same treatment as `acquisitionFeePct`/`dayOneCapex`** — raises
+  required equity and `total_cost_basis` (so YoC reflects the full
+  value-add basis) without touching loan sizing (still keyed off
+  `purchasePrice`, matching how those existing fees already behave).
+  `operating_cash` draws capex from `unlevered`/`levered` cash flow in the
+  incurring month instead — a shortfall warns ("takes levered cash flow
+  negative...") rather than refusing the compute, matching every other
+  insufficient-funding case in this engine (insurance stress, unstabilized
+  exit, etc.).
+- **New output keys (`statement.renoCapex`, the "Renovation capex" S&U
+  line) are OMITTED entirely when no program is active**, not defaulted to
+  zero/null. The regression baseline's diff fails on any unexpected new
+  key appearing in an existing fixture's payload — keeping new keys
+  conditional means the 7 pinned fixtures need zero baseline regeneration
+  for this feature, which is a stronger byte-identical guarantee than
+  "defaults to zero."
+
 ## K-series — Underwriting Agent (Run 5)
 
 - **Structural privilege split, not a convention.** `propose_input_changes`

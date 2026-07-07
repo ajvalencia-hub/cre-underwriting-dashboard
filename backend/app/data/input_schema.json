@@ -242,7 +242,28 @@
         { "id": "concessionsPct", "label": "Concessions", "type": "percent", "min": 0, "max": 0.3 },
         { "id": "parkingIncome", "label": "Parking Income", "type": "currency", "min": 0 },
         { "id": "rubsIncome", "label": "RUBS Income", "type": "currency", "min": 0 },
-        { "id": "otherFeeIncome", "label": "Other Fee Income", "type": "currency", "min": 0 }
+        { "id": "otherFeeIncome", "label": "Other Fee Income", "type": "currency", "min": 0 },
+        { "id": "renovationProgram", "label": "Renovation Program", "type": "table",
+          "visibleWhen": { "all": [
+            { "field": "propertyType", "equals": "multifamily" },
+            { "field": "dealType", "equals": "acquisition" }
+          ] },
+          "columns": [
+            { "id": "unitType", "label": "Unit Type", "type": "text" },
+            { "id": "unitsToReno", "label": "# Units to Renovate", "type": "number" },
+            { "id": "costPerUnit", "label": "Cost per Unit", "type": "currency" },
+            { "id": "premiumPerMonth", "label": "Rent Premium ($/mo)", "type": "currency" },
+            { "id": "downtimeMonthsPerUnit", "label": "Downtime (months/unit)", "type": "number" },
+            { "id": "unitsPerMonth", "label": "Pace (units/mo)", "type": "number" },
+            { "id": "startMonth", "label": "Start Month", "type": "number" }
+          ] },
+        { "id": "renoFundingSource", "label": "Renovation Funding Source", "type": "select",
+          "options": ["equity_at_close", "operating_cash"], "default": "equity_at_close",
+          "visibleWhen": { "all": [
+            { "field": "propertyType", "equals": "multifamily" },
+            { "field": "dealType", "equals": "acquisition" },
+            { "field": "renovationProgram", "notEmpty": true }
+          ] } }
       ]
     },
     {
