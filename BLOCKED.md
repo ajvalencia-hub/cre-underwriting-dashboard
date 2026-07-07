@@ -11,7 +11,11 @@ convergence guess to the templates' IRR() formulas — LibreOffice's default
 
 ## Pre-existing (not introduced by this run)
 
-- `ANTHROPIC_API_KEY` is unset in backend/.env — LLM extraction fallback and
-  ambiguous-document classification degrade to heuristics (by design).
+- `ANTHROPIC_API_KEY` is unset in backend/.env — LLM extraction fallback,
+  ambiguous-document classification, and the Agent (when
+  `AGENT_PROVIDER=anthropic`, the default) degrade to a clear
+  "unavailable" message rather than erroring (by design).
+- `OPENAI_API_KEY` is unset — the Agent degrades the same way when
+  `AGENT_PROVIDER=openai` (by design).
 - `FRED_API_KEY` is unset — /api/market/rates returns graceful nulls and the
   rates helper text stays hidden (by design).

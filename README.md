@@ -77,6 +77,22 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
   embedded charts (S&U composition, annual levered cash flow, hold-sweep
   line, sensitivity heatmap).
 
+- **Agent** — an in-dashboard underwriting analyst (chat dock + full tab,
+  sharing one conversation) that reads a deal and drives the native engine
+  through typed tools: `compute`, `solve` (goal-seek), `run_sensitivity`,
+  `run_tornado`, `get_market_context`, `list_comps`, plus a handful of
+  one-click "plays" (Screen this deal, explain a metric, stress-test,
+  find-a-target). It can **propose** input changes or a new scenario, but
+  never applies one itself — every proposal renders as a diff card (the
+  same renderer the input-history view uses) that you approve or reject;
+  an approval is recorded in the deal's history with an "Agent-applied"
+  marker, same audit trail as any other edit. Every assistant reply is
+  checked against the tool calls made that turn — a number that doesn't
+  trace back to one is flagged inline as unverified rather than trusted.
+  Anthropic and OpenAI are both wired (`AGENT_PROVIDER=anthropic|openai`,
+  each optional, degrading to a clear "unavailable" message with no key
+  set — nothing crashes and nothing else in the app needs either key).
+
 **Engine conventions are explicit inputs**: waterfall style (`european`
 whole-fund IRR-hurdle, or `american` deal-by-deal ledger), optional GP
 catch-up %, IRR convention (`periodic_monthly` or date-based `xirr`,
@@ -110,7 +126,8 @@ higher one.
 | Area | Endpoints |
 |---|---|
 | Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`), `GET .../{id}/export`, `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
-| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado`, `POST /api/compute/solve` (bisection goal-seek: one input field vs. one output metric) |
+| Agent | `GET /api/agent/threads/{dealId}` (get-or-create + history), `POST .../messages` (`{content}` or `{playId}`, one full non-streaming turn), `GET /api/agent/plays`, `POST /api/agent/proposals/{id}/approve\|reject` |
 | Templates & mapping | `/api/templates*`, `/api/mappings*` |
 | Generate | `POST /api/generate` (xlsx download, X-Generation-* headers), `POST /api/generate/model` (formula-live native Excel model) |
 | Sensitivity | `POST /api/sensitivity` (mode: native \| template) |
@@ -147,9 +164,11 @@ Optional system tools — everything degrades gracefully without them:
   documents ask for manual classification.
 
 Optional API keys (`backend/.env`, see `.env.example`): `ANTHROPIC_API_KEY`
-(LLM extraction/classification fallback), `FRED_API_KEY` (index rates),
-`CENSUS_API_KEY`, `HUD_API_TOKEN`, `BEA_API_KEY`, `BLS_API_KEY`
-(benchmarks). Memo branding: `FIRM_NAME`, `MEMO_BRAND_COLOR`.
+(LLM extraction/classification fallback, and the Agent when
+`AGENT_PROVIDER=anthropic`), `OPENAI_API_KEY` (the Agent when
+`AGENT_PROVIDER=openai`), `FRED_API_KEY` (index rates), `CENSUS_API_KEY`,
+`HUD_API_TOKEN`, `BEA_API_KEY`, `BLS_API_KEY` (benchmarks). Memo branding:
+`FIRM_NAME`, `MEMO_BRAND_COLOR`.
 
 ## Testing
 
@@ -162,7 +181,10 @@ UPDATE_BASELINE=1 pytest tests/regression        # Run-3 payload baseline (EXPAN
 
 cd frontend
 npm test && npm run build && npm run lint
-npm run e2e     # Playwright smoke: boots a scratch-DB backend + Vite, one happy path
+npm run e2e     # Playwright: underwriting smoke + pipeline/comps/history, plus the
+                # Agent's propose/approve happy path and its anti-hallucination gate
+                # (AGENT_PROVIDER=scripted — a deterministic, network-free provider,
+                # never a live model)
 ```
 
 The parity harness is now **three-way**: it diffs the native engine against
@@ -182,5 +204,9 @@ build/lint/test gates on every push/PR.
   financial formula in plain algebra per build run, plus decision/blocked
   deltas and manual QA checklists (SUMMARY4 shows BEFORE/AFTER algebra for
   the Run-4 recovery/rollover/gross-up/allocation/tax refinements).
+- `SUMMARY5.md` — the Underwriting Agent build (no engine formulas
+  changed): tool surface, dual-provider architecture, the structural
+  anti-hallucination/privilege-split guarantees and how they're tested,
+  what was deferred.
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).
