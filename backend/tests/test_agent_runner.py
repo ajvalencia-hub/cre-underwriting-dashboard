@@ -259,3 +259,54 @@ def test_provider_error_does_not_crash(db, thread, monkeypatch):
 
     assert out["text"] == "network timeout"
     assert out["stoppedReason"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# K5 integration: unverified claims flow through to the response + persisted row
+# ---------------------------------------------------------------------------
+
+def test_fabricated_figure_surfaces_as_unverified_claim(db, thread, analytic, monkeypatch):
+    _install(monkeypatch, [
+        ChatResult(
+            text="", tool_calls=[ToolCall(id="c1", name="compute", arguments={"values": analytic})],
+            usage=Usage(1, 1), stop_reason="tool_use",
+        ),
+        ChatResult(
+            text="This deal has a strong DSCR of 1.9, well above lender minimums.",
+            tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn",
+        ),
+    ])
+
+    out = runner.run_turn(db, thread, "how does this deal look?")
+
+    assert len(out["unverifiedClaims"]) == 1
+    assert out["unverifiedClaims"][0]["value"] == 1.9
+
+    assistant_row = db.execute(
+        select(AgentMessage).where(AgentMessage.thread_id == thread.id, AgentMessage.role == "assistant")
+    ).scalars().one()
+    assert assistant_row.unverified_claims == out["unverifiedClaims"]
+
+
+def test_grounded_figures_produce_no_unverified_claims(db, thread, analytic, monkeypatch):
+    _install(monkeypatch, [
+        ChatResult(
+            text="", tool_calls=[ToolCall(id="c1", name="compute", arguments={"values": analytic})],
+            usage=Usage(1, 1), stop_reason="tool_use",
+        ),
+        ChatResult(text="The levered IRR is 11.6%.", tool_calls=[], usage=Usage(1, 1), stop_reason="end_turn"),
+    ])
+
+    out = runner.run_turn(db, thread, "what's the irr?")
+
+    assert out["unverifiedClaims"] == []
+
+
+def test_unavailable_error_text_is_not_run_through_provenance_check(db, thread, monkeypatch):
+    _install(monkeypatch, [
+        ChatResult(text="", tool_calls=[], usage=Usage(0, 0), stop_reason="unavailable", error="no API key set"),
+    ])
+
+    out = runner.run_turn(db, thread, "hi")
+
+    assert out["unverifiedClaims"] == []

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AgentMessage, AgentProposal, AgentThread, AgentToolCall
+from app.services.agent import provenance
 from app.services.agent.providers import chat_with
 from app.services.agent.providers.types import Message as ProviderMessage
 from app.services.agent.tools.registry import ALL_TOOLS, to_tool_specs
@@ -193,6 +194,12 @@ def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
             "finish forming a full response. Ask me to continue if you'd like more."
         )
 
+    # K5: structural anti-hallucination check — skipped only when final_text
+    # is itself an error/unavailable message, not a claim about the deal.
+    unverified_claims: list[dict] = []
+    if stopped_reason not in ("unavailable", "error"):
+        unverified_claims = provenance.check_provenance(final_text, tool_call_log)
+
     db.add(
         AgentMessage(
             id=assistant_message_id,
@@ -201,6 +208,7 @@ def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
             content=final_text,
             tool_calls=tool_call_log,
             proposal_ids=[p.id for p in proposals],
+            unverified_claims=unverified_claims,
             stopped_reason=stopped_reason,
         )
     )
@@ -210,5 +218,6 @@ def run_turn(db: Session, thread: AgentThread, user_text: str) -> dict:
         "text": final_text,
         "toolCalls": tool_call_log,
         "proposals": [_proposal_to_dict(p) for p in proposals],
+        "unverifiedClaims": unverified_claims,
         "stoppedReason": stopped_reason,
     }
