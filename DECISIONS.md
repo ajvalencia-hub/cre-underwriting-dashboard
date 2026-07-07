@@ -3,6 +3,41 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L2 — Loss-to-lease burn-off [FIN]
+
+- **The dynamic per-unit-type model (`unitMix` rows with `annualTurnoverPct`
+  set) SUPERSEDES the flat `lossToLeasePct` haircut — never combines with
+  it.** The original spec never addressed this relationship; leaving it
+  unresolved would let a deal double-count loss-to-lease (once via the flat
+  aggregate discount, again via the dynamic per-unit model). Activation is
+  opt-in per-row (`annualTurnoverPct` unset/0 = inert, matching the
+  existing flat-field-only behavior exactly); when active,
+  `annual_gpr_and_other_income` itself skips the flat term for that
+  compute, with a warning if `lossToLeasePct` was also nonzero. Rejected:
+  applying both (silent double-discount) or making the dynamic model
+  default-on (would silently change every existing deal with
+  `lossToLeasePct` already set — a direct violation of this run's
+  byte-identical-reproduction rule, the same trap flagged for L6 below).
+- **Burn-off is a monotonic, one-way "turned share" stock**
+  (`min(1, turned_share + annualTurnoverPct/12)` per month), not an
+  asymptotic re-turnover simulation — once a unit's captured, it stays
+  captured. Matches "burn-off" framing, is hand-verifiable in a test, and
+  is what the spec's own "no per-unit sim" instruction points toward.
+- **The GPR delta is applied at the SAME pre-vacancy stage the flat field
+  already discounts at** (`gpr_month`, before `vacancyPct`/`creditLossPct`
+  are computed from it) — not at the EGI stage like L1's renovation delta.
+  Loss-to-lease is a rent-roll-level phenomenon; letting vacancy/credit-loss
+  apply proportionally to the LTL-adjusted rent roll (rather than adding it
+  post-vacancy, unaffected by those risks) is the financially correct
+  composition and requires no special ordering decision relative to the P2
+  ramp (which operates at a later stage entirely) or L1's renovation delta.
+- **L1 interaction: units inside an active renovation program (from that
+  row's start month onward — not just its downtime window) are excluded
+  from the turnover-eligible unit count for that unit type.** A unit's rent
+  is governed by the reno premium model once it enters the program, not by
+  the in-place/market LTL blend — modeling it as eligible for both would
+  double-model the same unit's economics two incompatible ways.
+
 ## L1 — Value-add renovation program [FIN]
 
 - **Renovation dollars apply to EGI AFTER the existing P2 lease-up ramp's

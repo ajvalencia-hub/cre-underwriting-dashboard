@@ -91,7 +91,13 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
             rent = row.get("inPlaceRent") or row.get("marketRent") or 0
             monthly += float(count) * float(rent)
         gpr = monthly * 12
-        loss_to_lease = _num(inputs, "lossToLeasePct")
+        # L2: the dynamic per-unit-type loss-to-lease model (any row with
+        # annualTurnoverPct set) SUPERSEDES this flat haircut rather than
+        # combining with it — see loss_to_lease_schedule and DECISIONS.md.
+        dynamic_ltl_active = any(
+            isinstance(r, dict) and _num(r, "annualTurnoverPct") > 0 for r in unit_mix
+        )
+        loss_to_lease = 0.0 if dynamic_ltl_active else _num(inputs, "lossToLeasePct")
         concessions = _num(inputs, "concessionsPct")
         gpr *= max(0.0, 1 - loss_to_lease - concessions)
         other = (
@@ -144,9 +150,17 @@ def renovation_schedule(inputs: dict, timeline: Timeline) -> dict:
     total_months = timeline.total_months
     egi_delta = [0.0] * total_months
     capex = [0.0] * total_months
+    # L2 needs this: cumulative # of units per type that have ENTERED the
+    # program (started, whether still down or already earning premium) as
+    # of each month — used to shrink the loss-to-lease eligible pool
+    # ("reno supersedes LTL" — see DECISIONS.md's L2 entry).
+    renovated_count_by_type: dict[str, list[float]] = {}
 
     if not _has_active_renovation_program(inputs):
-        return {"egiDelta": egi_delta, "capex": capex, "warnings": warnings}
+        return {
+            "egiDelta": egi_delta, "capex": capex, "warnings": warnings,
+            "renovatedCountByType": renovated_count_by_type,
+        }
     program = inputs["renovationProgram"]
 
     unit_mix_by_type: dict = {
@@ -186,12 +200,16 @@ def renovation_schedule(inputs: dict, timeline: Timeline) -> dict:
             )
             continue
 
+        type_renovated_vec = renovated_count_by_type.setdefault(unit_type, [0.0] * total_months)
+
         units_started = 0.0
         month = start_month
         while units_started < units_to_reno and month <= total_months:
             batch = min(units_per_month, units_to_reno - units_started)
 
             capex[month - 1] += batch * cost_per_unit
+            for idx in range(month - 1, total_months):
+                type_renovated_vec[idx] += batch
 
             for dm in range(downtime_months):
                 dmonth = month + dm
@@ -220,7 +238,75 @@ def renovation_schedule(inputs: dict, timeline: Timeline) -> dict:
                 "before the hold ends — the remainder are never started."
             )
 
-    return {"egiDelta": egi_delta, "capex": capex, "warnings": warnings}
+    return {
+        "egiDelta": egi_delta, "capex": capex, "warnings": warnings,
+        "renovatedCountByType": renovated_count_by_type,
+    }
+
+
+def loss_to_lease_schedule(inputs: dict, timeline: Timeline) -> dict:
+    """L2: dynamic per-unit-type loss-to-lease burn-off. Activates ONLY when
+    at least one unitMix row sets annualTurnoverPct — SUPERSEDES (never
+    combines with) the flat lossToLeasePct haircut (which
+    annual_gpr_and_other_income already skips when this is active) to avoid
+    double-discounting; a warning fires if lossToLeasePct was also set.
+    Per row: a monotonic "turned share" burns off linearly
+    (annualTurnoverPct/12 per month, capped at 100%) — once a unit turns,
+    it stays captured (this is the "burn-off", not a re-turnover
+    simulation). Blended rent = turned_share * (in-place + capturePct *
+    gap) + (1 - turned_share) * in-place, both rent tracks grown at
+    rentGrowthPct. Units already inside an L1 renovation program (from
+    that row's start month onward) are excluded from the eligible pool —
+    reno supersedes LTL, no double-modeling a unit both ways. Returns a
+    per-month GPR dollar delta the caller adds to gpr_month (pre-vacancy,
+    same stage the flat field already discounts at) — zero when inactive."""
+    warnings: list[str] = []
+    total_months = timeline.total_months
+    gpr_delta = [0.0] * total_months
+
+    unit_mix = inputs.get("unitMix")
+    if not isinstance(unit_mix, list):
+        return {"gprDelta": gpr_delta, "warnings": warnings}
+
+    active_rows = [r for r in unit_mix if isinstance(r, dict) and _num(r, "annualTurnoverPct") > 0]
+    if not active_rows:
+        return {"gprDelta": gpr_delta, "warnings": warnings}
+
+    if _num(inputs, "lossToLeasePct") > 0:
+        warnings.append(
+            "annualTurnoverPct is set on at least one unitMix row — the dynamic "
+            "loss-to-lease model supersedes the flat lossToLeasePct haircut for "
+            "this compute (ignored, not combined, to avoid double-discounting)."
+        )
+
+    rent_growth = (
+        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
+    )
+    renovated_by_type = renovation_schedule(inputs, timeline)["renovatedCountByType"]
+
+    for row in active_rows:
+        unit_type = row.get("unitType")
+        count = _num(row, "unitCount")
+        in_place_rent = _num(row, "inPlaceRent")
+        market_rent = _num(row, "marketRent")
+        if count <= 0 or in_place_rent <= 0 or market_rent <= 0:
+            continue  # only activates when both rents are present, per spec
+        capture_pct = _num(row, "lossToLeaseCapturePct", 1.0) if "lossToLeaseCapturePct" in row else 1.0
+        turnover_pct = _num(row, "annualTurnoverPct")
+        renovated_vec = renovated_by_type.get(unit_type, [0.0] * total_months)
+
+        turned_share = 0.0
+        for month in range(1, total_months + 1):
+            operating_month = month - timeline.construction_months
+            if operating_month < 1:
+                continue
+            turned_share = min(1.0, turned_share + turnover_pct / 12)
+            eligible_count = max(0.0, count - renovated_vec[month - 1])
+            rent_mult = _growth_multiplier(rent_growth, operating_month)
+            gap = (market_rent - in_place_rent) * rent_mult
+            gpr_delta[month - 1] += eligible_count * turned_share * capture_pct * gap
+
+    return {"gprDelta": gpr_delta, "warnings": warnings}
 
 
 # Detail-mode (H3) category ids -> the statement's legacy category keys, so
@@ -821,6 +907,15 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 
     annual_gpr, annual_other, source, warnings = annual_gpr_and_other_income(inputs)
 
+    # L2: dynamic loss-to-lease burn-off — a real dollar GPR delta, applied
+    # at the SAME pre-vacancy stage the flat lossToLeasePct field already
+    # discounts at (so vacancy%/credit-loss% still apply proportionally to
+    # the adjusted rent roll, same as any other GPR dollar). Zero when no
+    # unitMix row sets annualTurnoverPct.
+    ltl = loss_to_lease_schedule(inputs, timeline)
+    warnings.extend(ltl["warnings"])
+    ltl_gpr_delta = ltl["gprDelta"]
+
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
     )
@@ -862,12 +957,18 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     if is_acquisition:
         reno = renovation_schedule(inputs, timeline)
     elif _has_active_renovation_program(inputs):
-        reno = {"egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months, "warnings": [
-            "renovationProgram is set but ignored on development deals — it only "
-            "applies to multifamily acquisitions."
-        ]}
+        reno = {
+            "egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months,
+            "renovatedCountByType": {}, "warnings": [
+                "renovationProgram is set but ignored on development deals — it only "
+                "applies to multifamily acquisitions."
+            ],
+        }
     else:
-        reno = {"egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months, "warnings": []}
+        reno = {
+            "egiDelta": [0.0] * timeline.total_months, "capex": [0.0] * timeline.total_months,
+            "renovatedCountByType": {}, "warnings": [],
+        }
     warnings.extend(reno["warnings"])
     reno_egi_delta = reno["egiDelta"]
 
@@ -909,7 +1010,7 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 
         rent_mult = _growth_multiplier(rent_growth, operating_month)
 
-        gpr_month = (annual_gpr / 12) * rent_mult
+        gpr_month = (annual_gpr / 12) * rent_mult + ltl_gpr_delta[month - 1]
         other_month = (annual_other / 12) * rent_mult
         # Credit loss applies to collected (occupied) revenue.
         vacancy_loss_month = gpr_month * (1 - occupancy)

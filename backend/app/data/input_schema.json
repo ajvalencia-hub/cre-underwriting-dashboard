@@ -236,9 +236,11 @@
             { "id": "unitCount", "label": "# Units", "type": "number" },
             { "id": "avgSf", "label": "Avg SF", "type": "number" },
             { "id": "inPlaceRent", "label": "In-Place Rent", "type": "currency" },
-            { "id": "marketRent", "label": "Market Rent", "type": "currency" }
+            { "id": "marketRent", "label": "Market Rent", "type": "currency" },
+            { "id": "annualTurnoverPct", "label": "Annual Turnover %", "type": "percent" },
+            { "id": "lossToLeaseCapturePct", "label": "Loss-to-Lease Capture %", "type": "percent" }
           ] },
-        { "id": "lossToLeasePct", "label": "Loss to Lease", "type": "percent", "min": 0, "max": 0.3 },
+        { "id": "lossToLeasePct", "label": "Loss to Lease (flat, legacy)", "type": "percent", "min": 0, "max": 0.3 },
         { "id": "concessionsPct", "label": "Concessions", "type": "percent", "min": 0, "max": 0.3 },
         { "id": "parkingIncome", "label": "Parking Income", "type": "currency", "min": 0 },
         { "id": "rubsIncome", "label": "RUBS Income", "type": "currency", "min": 0 },
