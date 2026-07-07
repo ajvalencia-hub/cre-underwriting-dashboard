@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ScalarInput from './fields/ScalarInput'
 import { confirmExtraction } from '../lib/api'
+import { mapExtractionToQuickScreen, type QuickScreenInputs } from '../lib/quickScreenMath'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import {
   isNonEmptyUnitMix,
@@ -22,6 +23,10 @@ interface ExtractionReviewProps {
   /** Same for the deal's current lease-level commercial rent roll (H1). */
   currentCommercialLeases?: unknown
   onApply: (confirmedValues: Record<string, unknown>) => void
+  /** Optional — seeds the Quick Screen back-of-napkin inputs from the
+   *  currently-accepted fields instead of (or alongside) applying to full
+   *  Deal Inputs. Omitted entirely when the caller doesn't support it. */
+  onSeedQuickScreen?: (values: Partial<QuickScreenInputs>) => void
 }
 
 const LOW_CONFIDENCE_THRESHOLD = 0.6
@@ -42,6 +47,7 @@ export default function ExtractionReview({
   currentUnitMix,
   currentCommercialLeases,
   onApply,
+  onSeedQuickScreen,
 }: ExtractionReviewProps) {
   const fields = flattenFields(schema)
   const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
@@ -75,6 +81,7 @@ export default function ExtractionReview({
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState(false)
+  const [seeded, setSeeded] = useState(false)
   const [failuresAcknowledged, setFailuresAcknowledged] = useState(false)
 
   // With a dedicated unit-mix section, the generic unitMix field row would be
@@ -137,6 +144,21 @@ export default function ExtractionReview({
 
   function handleApply() {
     return applyValues(accepted)
+  }
+
+  /** Seeds the Quick Screen back-of-napkin inputs from the currently
+   *  accepted+edited fields and the (possibly edited) unit-mix proposal —
+   *  reuses the same accepted set the user already reviewed rather than a
+   *  separate selection, so "checked" means the same thing everywhere on
+   *  this screen. */
+  function handleSeedQuickScreen() {
+    const acceptedValues: Record<string, unknown> = {}
+    for (const [fieldId, isAccepted] of Object.entries(accepted)) {
+      if (isAccepted) acceptedValues[fieldId] = editedValues[fieldId]
+    }
+    const rows = includeUnitMix ? mixRows : []
+    onSeedQuickScreen?.(mapExtractionToQuickScreen(acceptedValues, rows))
+    setSeeded(true)
   }
 
   /** The one-click path: mark every >=60%-confidence field accepted (on top of
@@ -578,6 +600,16 @@ export default function ExtractionReview({
           >
             {applying ? 'Applying…' : applied ? 'Applied ✓ — apply again' : `Apply ${acceptedCount} confirmed value(s) as checked`}
           </button>
+          {onSeedQuickScreen && (
+            <button
+              onClick={handleSeedQuickScreen}
+              disabled={acceptedCount === 0}
+              title="Fills in the Quick Screen back-of-napkin tab from the checked fields above — a fast sanity read, separate from Deal Inputs."
+              className="rounded border border-sky-300 px-3 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:opacity-40"
+            >
+              {seeded ? 'Quick Screen seeded ✓ — seed again' : 'Seed Quick Screen from checked fields'}
+            </button>
+          )}
         </div>
       )}
     </div>

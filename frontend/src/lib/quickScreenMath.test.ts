@@ -7,6 +7,7 @@ import {
   computeQuickScreen,
   computeQuickScreenSensitivityGrid,
   deriveOpexRatioFromMargin,
+  mapExtractionToQuickScreen,
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
   parseQuickScreenInputs,
@@ -402,5 +403,61 @@ describe('acquisition mode', () => {
     expect(mapped.totalCostBasis).toBe(r.totalCost)
     expect(mapped).not.toHaveProperty('landCost')
     expect(mapped).not.toHaveProperty('hardCosts')
+  })
+})
+
+describe('mapExtractionToQuickScreen (P2: seed Quick Screen from extracted documents)', () => {
+  const mixRows = [
+    { unitCount: 8, inPlaceRent: 1200, marketRent: 1350 },
+    { unitCount: 4, inPlaceRent: 1600, marketRent: 1800 },
+  ]
+
+  it('derives quantity, acquisition mode, and purchase price per unit from purchasePrice + unit mix', () => {
+    const out = mapExtractionToQuickScreen({ purchasePrice: 2_400_000 }, mixRows)
+    expect(out.sizeMode).toBe('units')
+    expect(out.quantity).toBe(12)
+    expect(out.dealMode).toBe('acquisition')
+    expect(out.purchasePricePerUnit).toBe(Math.round(2_400_000 / 12))
+  })
+
+  it('weights rent by unit count and prefers market (pro-forma) rent over in-place', () => {
+    const out = mapExtractionToQuickScreen({}, mixRows)
+    const expected = Math.round((1350 * 8 + 1800 * 4) / 12)
+    expect(out.rent).toBe(expected)
+  })
+
+  it('falls back to in-place rent for a unit group with no market rent extracted', () => {
+    const out = mapExtractionToQuickScreen({}, [{ unitCount: 10, inPlaceRent: 1000, marketRent: null }])
+    expect(out.rent).toBe(1000)
+  })
+
+  it('derives noiMarginPct from stabilizedNoi / grossPotentialRent', () => {
+    const out = mapExtractionToQuickScreen({ stabilizedNoi: 170_000, grossPotentialRent: 237_459 }, [])
+    expect(out.noiMarginPct).toBeCloseTo(170_000 / 237_459, 6)
+  })
+
+  it('falls back to inPlaceNoi when stabilizedNoi was not extracted', () => {
+    const out = mapExtractionToQuickScreen({ inPlaceNoi: 97_009, grossPotentialRent: 157_980 }, [])
+    expect(out.noiMarginPct).toBeCloseTo(97_009 / 157_980, 6)
+  })
+
+  it('never sets dealMode without a purchase price, even with a unit mix present', () => {
+    const out = mapExtractionToQuickScreen({}, mixRows)
+    expect(out.dealMode).toBeUndefined()
+    expect(out.quantity).toBe(12) // still seeds what it can
+  })
+
+  it('returns an empty object when nothing in fields/unitMix is usable', () => {
+    const out = mapExtractionToQuickScreen({ someUnmappedField: 'x' }, [])
+    expect(out).toEqual({})
+  })
+
+  it('ignores non-numeric field values rather than crashing', () => {
+    const out = mapExtractionToQuickScreen(
+      { purchasePrice: 'not a number' as unknown as number, stabilizedNoi: 170_000, grossPotentialRent: 200_000 },
+      mixRows,
+    )
+    expect(out.purchasePricePerUnit).toBeUndefined()
+    expect(out.noiMarginPct).toBeCloseTo(0.85, 6)
   })
 })

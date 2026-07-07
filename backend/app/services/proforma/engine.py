@@ -77,11 +77,17 @@ def compute(inputs: dict) -> dict:
     if missing:
         raise InsufficientInputsError(missing)
 
+    # Development's "Lease-Up / Absorption Period" and acquisition's
+    # "Value-Add / Lease-Up Period" are distinct schema fields (same concept,
+    # different id per deal type — flattenFields() lists every section's
+    # fields regardless of which dealType is active, so two fields sharing
+    # one id collide as duplicate React keys in the sensitivity driver list).
+    lease_up_field = "leaseUpMonths" if deal_type == "development" else "valueAddMonths"
     timeline, tl_warnings = build_timeline(
         deal_type,
         hold_years,
         construction_months=_num(inputs, "constructionMonths") or None,
-        lease_up_months=_num(inputs, "leaseUpMonths") or None,
+        lease_up_months=_num(inputs, lease_up_field) or None,
         stabilization_month=_num(inputs, "stabilizationMonth") or None,
     )
     warnings.extend(tl_warnings)

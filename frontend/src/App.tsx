@@ -638,6 +638,10 @@ function App() {
             setFormValues((prev) => ({ ...prev, ...confirmedValues }))
             setTab('dashboard')
           }}
+          onSeedQuickScreen={(values) => {
+            setQuickScreenInputs((prev) => ({ ...prev, ...values }))
+            setTab('quickscreen')
+          }}
         />
       </div>
 

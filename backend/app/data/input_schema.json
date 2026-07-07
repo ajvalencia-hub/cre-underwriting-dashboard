@@ -198,7 +198,7 @@
         { "id": "dayOneCapex", "label": "Day-1 Capex / Reno Budget", "type": "currency", "min": 0 },
         { "id": "inPlaceNoi", "label": "In-Place NOI", "type": "currency", "min": 0 },
         { "id": "stabilizedNoi", "label": "Stabilized NOI", "type": "currency", "min": 0 },
-        { "id": "leaseUpMonths", "label": "Value-Add / Lease-Up Period (mo, optional)", "type": "number", "min": 0, "max": 60 }
+        { "id": "valueAddMonths", "label": "Value-Add / Lease-Up Period (mo, optional)", "type": "number", "min": 0, "max": 60 }
       ]
     },
     {

@@ -605,3 +605,68 @@ export function parseQuickScreenInputs(params: URLSearchParams): QuickScreenInpu
   }
   return result
 }
+
+/** Minimal shape needed from a proposed/extracted unit-mix row — deliberately
+ *  not importing ProposedUnitMixRow from unitMixMerge.ts to avoid coupling
+ *  this pure-math module to the extraction-review UI's types. */
+interface ExtractedUnitMixRow {
+  unitCount: number | null
+  inPlaceRent: number | null
+  marketRent: number | null
+}
+
+/** Reverse of mapQuickScreenToDealInputs: seeds Quick Screen inputs from
+ *  accepted extraction fields, so a rent roll/income statement doesn't have
+ *  to be retyped by hand just to get a back-of-napkin read. Deliberately
+ *  partial and additive — only returns keys it has real evidence for, so
+ *  callers should merge onto the user's current inputs rather than replace
+ *  them, and nothing here is applied without the same explicit user action
+ *  ("assistive, never authoritative") the rest of extraction follows.
+ *
+ *  `fields` is the accepted-and-edited scalar map from ExtractionReview
+ *  (fieldId -> value, same shape as confirmedValues); `unitMixRows` is the
+ *  proposed/edited unit-mix table, if any. */
+export function mapExtractionToQuickScreen(
+  fields: Record<string, unknown>,
+  unitMixRows: ExtractedUnitMixRow[] = [],
+): Partial<QuickScreenInputs> {
+  const num = (key: string): number | null => {
+    const v = fields[key]
+    return typeof v === 'number' && Number.isFinite(v) ? v : null
+  }
+
+  const purchasePrice = num('purchasePrice')
+  const grossPotentialRent = num('grossPotentialRent')
+  const stabilizedNoi = num('stabilizedNoi') ?? num('inPlaceNoi')
+
+  const totalUnits = unitMixRows.reduce((sum, r) => sum + (r.unitCount ?? 0), 0)
+  // Pro-forma (market) rent is the forward-looking basis Quick Screen wants;
+  // fall back to in-place only when no market figure was extracted.
+  const rentUnits = unitMixRows.reduce((sum, r) => {
+    const rent = r.marketRent ?? r.inPlaceRent
+    return rent != null ? sum + (r.unitCount ?? 0) : sum
+  }, 0)
+  const weightedRent = unitMixRows.reduce((sum, r) => {
+    const rent = r.marketRent ?? r.inPlaceRent
+    return rent != null ? sum + rent * (r.unitCount ?? 0) : sum
+  }, 0)
+
+  const out: Partial<QuickScreenInputs> = {}
+
+  if (totalUnits > 0) {
+    out.sizeMode = 'units'
+    out.quantity = totalUnits
+    if (purchasePrice != null) {
+      out.dealMode = 'acquisition'
+      out.purchasePricePerUnit = Math.round(purchasePrice / totalUnits)
+    }
+  }
+  if (rentUnits > 0) {
+    out.rent = Math.round(weightedRent / rentUnits)
+  }
+  if (stabilizedNoi != null && grossPotentialRent != null && grossPotentialRent > 0) {
+    out.noiMarginPct = Math.max(0, Math.min(1, stabilizedNoi / grossPotentialRent))
+  }
+
+  return out
+}

@@ -213,7 +213,7 @@ def test_acquisition_ramp_starts_near_in_place_and_reaches_stabilized():
         # itself never reads the stabilizedNoi field directly.
         "inPlaceNoi": 80_000,
         "stabilizedNoi": 160_000,
-        "leaseUpMonths": 12,
+        "valueAddMonths": 12,  # not read directly by build_noi_vector -- kept for fixture readability
     }
     tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
     ops = build_noi_vector(inputs, tl)
@@ -250,7 +250,7 @@ def test_acquisition_ramp_year1_is_between_in_place_and_stabilized():
         # itself never reads the stabilizedNoi field directly.
         "inPlaceNoi": 80_000,
         "stabilizedNoi": 160_000,
-        "leaseUpMonths": 12,
+        "valueAddMonths": 12,  # not read directly by build_noi_vector -- kept for fixture readability
     }
     tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
     year1_noi = sum(build_noi_vector(inputs, tl)["noi"][0:12])
@@ -270,7 +270,7 @@ def test_acquisition_without_in_place_noi_falls_back_to_stabilized():
         "managementFeePct": 0.0,
         "rentGrowthMode": "flat",
         "expenseGrowthMode": "flat",
-        "leaseUpMonths": 12,
+        "valueAddMonths": 12,  # not read directly by build_noi_vector -- kept for fixture readability
     }
     tl, _ = build_timeline("acquisition", 5, lease_up_months=12)
     ops = build_noi_vector(inputs, tl)

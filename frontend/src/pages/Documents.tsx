@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ExtractionReview from '../components/ExtractionReview'
 import { deleteDocument, fetchDocuments, runExtraction, updateDocumentType, uploadDocument } from '../lib/api'
+import type { QuickScreenInputs } from '../lib/quickScreenMath'
 import { DOCUMENT_TYPE_LABELS, type DocumentSummary, type DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
@@ -12,6 +13,7 @@ interface DocumentsProps {
   currentUnitMix?: unknown
   currentCommercialLeases?: unknown
   onApplyExtraction: (confirmedValues: Record<string, unknown>) => void
+  onSeedQuickScreen?: (values: Partial<QuickScreenInputs>) => void
 }
 
 const DOCUMENT_TYPES: DocumentType[] = [
@@ -35,6 +37,7 @@ export default function Documents({
   currentUnitMix,
   currentCommercialLeases,
   onApplyExtraction,
+  onSeedQuickScreen,
 }: DocumentsProps) {
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -229,6 +232,7 @@ export default function Documents({
           currentUnitMix={currentUnitMix}
           currentCommercialLeases={currentCommercialLeases}
           onApply={onApplyExtraction}
+          onSeedQuickScreen={onSeedQuickScreen}
         />
       )}
     </div>
