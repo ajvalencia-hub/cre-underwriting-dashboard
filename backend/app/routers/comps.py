@@ -64,6 +64,7 @@ def _model_for(kind: str):
     return model
 
 
+
 def _to_out(comp, kind: str) -> dict:
     out = {"id": comp.id, "kind": kind, "createdAt": comp.created_at}
     for json_field, attr in _KIND_ATTRS[kind].items():
@@ -163,11 +164,12 @@ def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
 
     model = _model_for(kind)
     query = select(model).order_by(model.created_at.desc())
+    comps = db.execute(query).scalars()
     if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
+        comps = [c for c in comps if comps_service.market_matches(c.market, market)]
     points: list[dict] = []
     warnings: list[str] = []
-    for comp in db.execute(query).scalars():
+    for comp in comps:
         if not comp.address:
             warnings.append(f"{comp.name}: no address — not mapped.")
             continue
@@ -215,9 +217,10 @@ async def import_csv_file(
 def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
     query = select(model).order_by(model.created_at.desc())
+    comps = db.execute(query).scalars()
     if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
-    return [_to_out(c, kind) for c in db.execute(query).scalars()]
+        comps = [c for c in comps if comps_service.market_matches(c.market, market)]
+    return [_to_out(c, kind) for c in comps]
 
 
 @router.post("/{kind}")

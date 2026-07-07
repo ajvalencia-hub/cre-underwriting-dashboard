@@ -254,8 +254,20 @@ EXIT_CAP_CAUTION_BPS = 0.005  # subject exit cap below comps median by >50/>100b
 EXIT_CAP_WARNING_BPS = 0.010
 
 
-def _market_filter(query, model, market: str):
-    return query.where(model.market.ilike(f"%{market.strip()}%")) if market.strip() else query
+def market_matches(comp_market: str | None, search: str) -> bool:
+    """Bidirectional substring match, case-insensitive: a comp market of
+    "North Miami" matches a deal market search of "Miami" (comp CONTAINS
+    search), and — the direction plain `ILIKE '%search%'` missed — a comp
+    market of "Miami" also matches a deal market search of "North Miami"
+    (search CONTAINS comp). Without the reverse direction, comps stored
+    under the more general market name silently vanish whenever a deal's
+    own market string happens to be the more specific one."""
+    if not search.strip():
+        return True
+    if not comp_market:
+        return False
+    comp_norm, search_norm = comp_market.strip().lower(), search.strip().lower()
+    return search_norm in comp_norm or comp_norm in search_norm
 
 
 def _type_ok(comp_type: str, asset_class: str) -> bool:
@@ -366,8 +378,8 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
 
     rent_rows = [
         c
-        for c in db.execute(_market_filter(select(RentComp), RentComp, market)).scalars()
-        if _type_ok(c.property_type, asset_class)
+        for c in db.execute(select(RentComp)).scalars()
+        if market_matches(c.market, market) and _type_ok(c.property_type, asset_class)
     ]
     comparison = _rent_comparison(rent_rows, subject)
     if comparison is not None:
@@ -404,8 +416,8 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
     if isinstance(exit_cap, (int, float)) and exit_cap > 0:
         sale_rows = [
             c
-            for c in db.execute(_market_filter(select(SaleComp), SaleComp, market)).scalars()
-            if _type_ok(c.property_type, asset_class)
+            for c in db.execute(select(SaleComp)).scalars()
+            if market_matches(c.market, market) and _type_ok(c.property_type, asset_class)
         ]
         caps = [c.cap_rate_pct for c in sale_rows if c.cap_rate_pct]
         if len(caps) >= MIN_COMPS_FOR_FLAG:

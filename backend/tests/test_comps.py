@@ -68,6 +68,23 @@ def test_sale_comp_crud_round_trip(client):
     assert client.delete(f"/api/comps/sale/{created['id']}").status_code == 404
 
 
+def test_market_search_matches_bidirectionally(client):
+    """A comp stored under the more GENERAL market name ("Miami") must still
+    surface when the deal searches under a more SPECIFIC name ("North
+    Miami") — plain `column ILIKE '%search%'` only catches the opposite
+    direction (comp contains search), silently hiding comps whenever the
+    deal's own market string happens to be the more specific one."""
+    client.post("/api/comps/sale", json={"name": "General Miami Comp", "market": "Miami", "price": 1})
+    client.post("/api/comps/sale", json={"name": "Specific Comp", "market": "North Miami", "price": 1})
+    client.post("/api/comps/sale", json={"name": "Unrelated Comp", "market": "Austin", "price": 1})
+
+    by_specific = client.get("/api/comps/sale", params={"market": "North Miami"}).json()
+    assert {c["name"] for c in by_specific} == {"General Miami Comp", "Specific Comp"}
+
+    by_general = client.get("/api/comps/sale", params={"market": "Miami"}).json()
+    assert {c["name"] for c in by_general} == {"General Miami Comp", "Specific Comp"}
+
+
 def test_unknown_kind_rejected(client):
     assert client.get("/api/comps/bogus").status_code == 400
 
@@ -247,6 +264,24 @@ def test_benchmark_flags_from_comps(session_factory):
         assert by_metric["rent_vs_comps"]["benchmarkValue"] == pytest.approx(2_000)
         # Exit cap 110bps inside the 5.5% comps median -> warning.
         assert by_metric["exit_cap_vs_comps"]["verdict"] == "warning"
+
+
+def test_benchmark_flags_match_market_bidirectionally(session_factory):
+    """Comps stored under the general "Miami" market must still feed the
+    benchmark flags when the DEAL's own market is the more specific
+    "North Miami" — this is the actual real-world shape (comps entered
+    broadly, deals addressed to a named submarket/neighborhood)."""
+    with session_factory() as db:
+        for rent in (1_800, 2_000, 2_200):
+            db.add(RentComp(name=f"R{rent}", market="Miami", avg_rent=rent,
+                            property_type="Multifamily"))
+        db.commit()
+
+        flags = comps_service.benchmark_flags(
+            db, "North Miami", "multifamily", {"avgRentMonthly": 2_600}
+        )
+        by_metric = {f["metric"]: f for f in flags}
+        assert by_metric["rent_vs_comps"]["benchmarkValue"] == pytest.approx(2_000)
 
         # In line -> ok verdicts.
         flags = comps_service.benchmark_flags(
