@@ -332,7 +332,12 @@ export default function ExtractionReview({
                 onChange={(e) => setIncludeUnitMix(e.target.checked)}
               />
               PROPOSED UNIT MIX ({mixRows.length} type{mixRows.length === 1 ? '' : 's'}, grouped by{' '}
-              {proposal.groupedBy === 'bedBath' ? 'parsed bed/bath' : 'unit-type label'})
+              {proposal.groupedBy === 'bedBath'
+                ? 'parsed bed/bath'
+                : proposal.groupedBy === 'sf'
+                  ? 'square footage'
+                  : 'unit-type label'}
+              )
             </label>
             {existingMixIsNonEmpty && includeUnitMix && (
               <div className="flex items-center gap-2 text-xs text-slate-600">

@@ -18,7 +18,7 @@ export interface ProposedUnitMixRow extends UnitMixRow {
 
 export interface UnitMixProposal {
   rows: ProposedUnitMixRow[]
-  groupedBy: 'label' | 'bedBath'
+  groupedBy: 'label' | 'bedBath' | 'sf'
   warnings: string[]
 }
 

@@ -208,6 +208,51 @@ def build_stacking_plan_pdf(path) -> None:
     )
 
 
+def build_combined_rent_roll_and_income_statement(path) -> None:
+    """A small broker workbook shaped exactly like a real-world failure mode
+    (traced from an actual deal package): ONE sheet stacking a rent roll —
+    with NO Unit Type column at all, "Unit N" ids, and vacant units marked
+    only in the unit LABEL ("Unit 3 - Vacant") while the tenant column still
+    carries a generic "Residential" placeholder — directly above a simple
+    two-column "label: value" income statement with a CURRENT IN-PLACE
+    section and a PRO-FORMA section repeating several of the same expense
+    labels at different amounts, plus an "Asking Price:" aside sharing a row
+    with an unrelated expense line. Exercises: rent-roll table-boundary
+    detection (the income-statement rows below must not become phantom
+    units), vacant-by-label inference, the no-unit-type multifamily
+    fallback, SF-based unit-mix grouping, and the label/value
+    operating-statement parser's section-priority + same-bucket summing."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Unit #", "Tenant", "SF", "Monthly Rent"])
+    ws.append(["Unit 1", "Residential", 400, 1200])
+    ws.append(["Unit 2", "Residential", 400, 1250])
+    ws.append(["Unit 3 - Vacant", "Residential", 400, None])
+    ws.append(["Unit 4", "Residential", 600, 1600])
+    ws.append(["TOTAL:", None, 1800, 4050])
+    ws.append(["AVERAGE:", None, 450, None])
+    ws.append([])
+    ws.append(["Notes"])
+    ws.append(["Figures are approximate."])
+    ws.append([])
+    ws.append(["CURRENT IN-PLACE"])
+    ws.append(["Gross Annual Income", 61200])
+    ws.append(["Property Taxes", 8000, None, "Asking Price:", 900000])
+    ws.append(["Electric", 600])
+    ws.append(["Water/Sewer", 900])
+    ws.append(["IN-PLACE NET OPERATING INCOME:", 43700])
+    ws.append([])
+    ws.append(["PRO-FORMA"])
+    ws.append(["Gross Annual Income", 76800])
+    ws.append(["Property Taxes", 8200])
+    ws.append(["Electric", 600])
+    ws.append(["Water/Sewer", 900])
+    ws.append(["PRO FORMA NET OPERATING INCOME: ", 58900])
+    ws.append(["PRO-FORMA NOI @ 100% OCCUPANCY w/ 3rd Party Management: ", 61000])
+    wb.save(path)
+
+
 def build_broker_om_pdf(path) -> None:
     styles = getSampleStyleSheet()
     header = ["Unit", "Tenant", "SF", "Rent"]
