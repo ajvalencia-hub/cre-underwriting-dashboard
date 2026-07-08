@@ -126,6 +126,15 @@ export default function ScalarInput({ type, value, onChange, options, min, max, 
           onChange={(e) => onChange(e.target.value)}
         />
       )
+    case 'textarea':
+      return (
+        <textarea
+          rows={3}
+          className={baseClass + ' border-slate-300'}
+          value={(value as string) ?? ''}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )
     case 'number':
     case 'currency':
     case 'percent':

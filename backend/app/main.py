@@ -80,6 +80,7 @@ app.add_middleware(
         "X-Generation-Warnings",
         "X-Generation-Written-Count",
         "X-Generation-Outputs",
+        "X-Deck-Skipped",
         "Content-Disposition",
     ],
 )

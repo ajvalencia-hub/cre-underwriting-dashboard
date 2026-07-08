@@ -1,5 +1,6 @@
 export type FieldType =
   | 'text'
+  | 'textarea'
   | 'number'
   | 'currency'
   | 'percent'

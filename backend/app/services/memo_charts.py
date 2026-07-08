@@ -115,6 +115,72 @@ def sources_uses_bars(sources_and_uses: dict | None) -> bytes | None:
     return _to_png(fig)
 
 
+def demographics_bars(demographics: dict | None) -> bytes | None:
+    """J14: a compact bar of headline demographic indicators (population,
+    median HH income, etc.) when the ACS panel is available."""
+    if not demographics:
+        return None
+    acs = demographics.get("acs") or demographics
+    candidates = [
+        ("Population", acs.get("population")),
+        ("Median HH income", acs.get("medianHouseholdIncome")),
+        ("Median rent", acs.get("medianGrossRent")),
+        ("Renter %", acs.get("renterOccupiedPct")),
+    ]
+    bars = [(label, float(v)) for label, v in candidates if isinstance(v, (int, float)) and v]
+    if not bars:
+        return None
+    # Each indicator is on its own scale — one horizontal bar per row, value
+    # annotated (never a shared axis that would flatten small values).
+    fig, axes = plt.subplots(len(bars), 1, figsize=(4.6, 0.55 * len(bars) + 0.4))
+    if len(bars) == 1:
+        axes = [axes]
+    for ax, (label, value) in zip(axes, bars):
+        ax.barh([0], [value], color=_BRAND, height=0.5)
+        ax.set_yticks([0])
+        ax.set_yticklabels([label], fontsize=8)
+        ax.set_xticks([])
+        pretty = (
+            f"{value * 100:.0f}%" if "%" in label
+            else f"${value:,.0f}" if "income" in label or "rent" in label.lower()
+            else f"{value:,.0f}"
+        )
+        ax.annotate(pretty, xy=(value, 0), xytext=(4, 0), textcoords="offset points",
+                    va="center", fontsize=8)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+    fig.suptitle("Market demographics", fontsize=9)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
+def tornado_bars(tornado: dict | None) -> bytes | None:
+    """J14: the tornado's top drivers by swing (fallback risk view when no
+    Monte Carlo run is saved)."""
+    bars = (tornado or {}).get("bars") or []
+    bars = [b for b in bars if b.get("impact")]
+    if not bars:
+        return None
+    bars = bars[:5][::-1]  # top 5, largest at the top of the horizontal chart
+    labels = [b["label"] for b in bars]
+    base = (tornado or {}).get("base") or 0.0
+    lows = [(b.get("low") if b.get("low") is not None else base) - base for b in bars]
+    highs = [(b.get("high") if b.get("high") is not None else base) - base for b in bars]
+
+    fig, ax = plt.subplots(figsize=(6, 0.5 * len(bars) + 0.8))
+    for i, (lo, hi) in enumerate(zip(lows, highs)):
+        left, width = min(lo, hi), abs(hi - lo)
+        ax.barh(i, width, left=left, color=_BRAND, height=0.6)
+    ax.axvline(0, color="#94a3b8", linewidth=0.8)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=7)
+    ax.set_title(f"Sensitivity of {(tornado or {}).get('metric', 'metric')} (± swing)", fontsize=9)
+    ax.xaxis.set_major_formatter(lambda v, _: f"{v * 100:+.1f}%")
+    ax.tick_params(labelsize=7)
+    fig.tight_layout()
+    return _to_png(fig)
+
+
 def hold_sweep_line(sweep: dict | None) -> bytes | None:
     rows = (sweep or {}).get("rows") or []
     rows = [r for r in rows if r.get("leveredIrr") is not None]

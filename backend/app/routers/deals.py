@@ -362,6 +362,80 @@ def deal_deck(deal_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{deal_id}/ic-deck.pptx")
+def deal_ic_deck(deal_id: str, scenario_id: str | None = None, db: Session = Depends(get_db)):
+    """J14: the full 8-slide IC deck. Optional scenario_id supplies saved
+    sensitivity + Monte Carlo runs (their slides skip without it). Market
+    context/demographics are best-effort (external sources; skip when
+    offline). Skipped slide keys ride the X-Deck-Skipped response header."""
+    from app.models import Scenario as _Scenario
+    from app.services import benchmarks as _benchmarks
+    from app.services import demographics as _demographics
+    from app.services import tornado_service
+
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    inputs = deal.inputs or {}
+    try:
+        result = engine.compute(inputs)
+    except engine.InsufficientInputsError as exc:
+        raise HTTPException(
+            422, f"Deck needs a computable deal — missing inputs: {', '.join(exc.missing)}."
+        ) from exc
+
+    sensitivity = monte_carlo = None
+    if scenario_id:
+        scenario = db.get(_Scenario, scenario_id)
+        if scenario is not None:
+            sensitivity = scenario.sensitivity
+            monte_carlo = scenario.monte_carlo
+
+    tornado = None
+    try:
+        tornado = tornado_service.run_tornado(inputs, "leveredIrr")
+    except (engine.InsufficientInputsError, ValueError):
+        tornado = None
+
+    benchmark_data = demographic_data = None
+    market = str(inputs.get("market") or "")
+    address = str(inputs.get("address") or "")
+    if market or address:
+        try:
+            benchmark_data = _benchmarks.build_benchmarks(
+                address, market, str(inputs.get("submarket") or ""),
+                str(inputs.get("propertyType") or ""),
+                {"rentGrowthPct": _num_or_none(inputs.get("rentGrowthPct"))},
+            )
+        except Exception:  # noqa: BLE001 - external sources must not fail the deck
+            benchmark_data = None
+        try:
+            demographic_data = _demographics.get_demographic_trends(
+                market, str(inputs.get("submarket") or ""), address
+            )
+        except Exception:  # noqa: BLE001
+            demographic_data = None
+
+    content, skipped = deck_service.build_ic_deck(
+        deal.name, inputs, result,
+        sensitivity=sensitivity, monte_carlo=monte_carlo,
+        benchmarks=benchmark_data, demographics=demographic_data, tornado=tornado,
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", deal.name).strip()[:60] or "deal"
+    return Response(
+        content=content,
+        media_type=PPTX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}-ic-deck.pptx"',
+            "X-Deck-Skipped": ",".join(skipped),
+        },
+    )
+
+
+def _num_or_none(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 @router.get("/{deal_id}/export")
 def export_deal(deal_id: str, db: Session = Depends(get_db)):
     """Versioned, self-contained JSON bundle for one deal: inputs (incl. the

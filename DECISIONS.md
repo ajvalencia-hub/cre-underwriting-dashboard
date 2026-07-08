@@ -3,6 +3,34 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J14 — Full IC deck (Run 5)
+
+- **Extends the H12 renderer's absolute rule**: zero financial math in
+  the deck — every slide is a formatted pass-through of a fresh engine
+  compute plus saved-analysis payloads. New `build_ic_deck` returns
+  (bytes, skipped[]); the eight slide keys are title, summary, market,
+  returns, sensitivity, debt, waterfall, risk.
+- **Slides skip cleanly and report what they dropped** (X-Deck-Skipped
+  header): market skips without benchmark flags OR demographics;
+  sensitivity needs a saved 2-driver run; debt needs a sized loan;
+  waterfall needs an equity split or GP economics. Title/summary/
+  returns/risk always render. A sparse all-equity deal with no saved
+  runs produces a 4-slide deck, not a broken 8.
+- **Investment thesis is a new `investmentThesis` textarea** on the deal
+  (engine-inert input key — baseline untouched; needed the frontend
+  `textarea` field type, added to the schema union + ScalarInput).
+- **Risk slide prefers a saved Monte Carlo run, else the tornado
+  top-5** (computed live in the endpoint) — so the slide is useful even
+  before the user opens the Risk tab; only a deal where the tornado
+  can't move the metric shows the empty-state note.
+- **Market context / demographics are gathered best-effort** in the
+  endpoint (external sources wrapped in try/except → None), so an
+  offline run degrades to a skipped market slide rather than a 500.
+  Saved sensitivity + Monte Carlo come from an optional `scenario_id`
+  query param.
+- Two new memo_charts renderers (demographics_bars, tornado_bars)
+  follow the existing bytes-or-None contract.
+
 ## J13 — Global search (Run 5)
 
 - **SQLite LIKE over indexed columns, no FTS.** /api/search hits

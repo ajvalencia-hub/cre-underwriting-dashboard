@@ -426,6 +426,13 @@ export default function PipelinePage({
                     >
                       Deck
                     </a>
+                    <a
+                      href={`/api/deals/${deal.id}/ic-deck.pptx`}
+                      title="Full 8-slide IC deck (PowerPoint)"
+                      className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
+                    >
+                      IC deck
+                    </a>
                     <button
                       onClick={() => onOpenDeal(deal.id)}
                       className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
