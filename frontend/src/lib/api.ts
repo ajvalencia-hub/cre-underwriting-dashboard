@@ -15,7 +15,7 @@ import type {
   AgentThreadState,
   AgentTurnResult,
 } from '../types/agent'
-import type { ProviderHealthMap, SettingEntry } from '../types/settings'
+import type { ProviderHealthMap, SettingEntry, UsageSummary } from '../types/settings'
 
 const API_BASE = '/api'
 
@@ -758,4 +758,9 @@ export async function deleteSetting(key: string): Promise<SettingEntry> {
 
 export function fetchProviderHealth() {
   return getJson<ProviderHealthMap>('/agent/providers/health')
+}
+
+export function fetchUsageSummary(dealId?: string) {
+  const query = dealId ? `?dealId=${encodeURIComponent(dealId)}` : ''
+  return getJson<UsageSummary>(`/settings/usage${query}`)
 }

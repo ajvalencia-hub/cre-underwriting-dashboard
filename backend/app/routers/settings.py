@@ -18,6 +18,16 @@ def list_settings():
     return settings_service.list_settings()
 
 
+@router.get("/usage")
+def get_usage(dealId: str | None = None):
+    """M5: registered BEFORE /{key} — otherwise "usage" would be swallowed
+    as a (nonexistent) setting key, since FastAPI matches path routes in
+    registration order and /{key} would match "/usage" first."""
+    from app.services.agent import model_router
+
+    return model_router.get_usage_summary(dealId)
+
+
 @router.get("/{key}")
 def get_setting(key: str):
     try:

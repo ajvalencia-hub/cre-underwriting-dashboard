@@ -151,6 +151,11 @@ def run_turn(
     chat path); a "play" (K8) passes a restricted subset so a canned
     workflow gets a more focused turn."""
     start = time.monotonic()
+    # M5: computed ONCE per turn (not per tool-call) — a full-table scan is
+    # cheap at this data volume but no need to repeat it several times in
+    # one turn. Read tools (get_deal, compute, etc.) still run normally
+    # over budget; only WRITE tool calls degrade, below.
+    budget_hard_stopped = model_router.is_budget_hard_stopped()
 
     provider_messages = _load_history_as_provider_messages(db, thread.id)
     provider_messages.append(ProviderMessage(role="user", content=user_text))
@@ -236,32 +241,43 @@ def run_turn(
                         payload = {"error": f"Tool call failed: {exc}"}
             else:  # write
                 privilege = "write"
-                try:
-                    proposal = tool_def.fn(**call.arguments)
-                    row = AgentProposal(
-                        thread_id=thread.id,
-                        deal_id=thread.deal_id,
-                        tool_call_id=call.id,
-                        kind=proposal.kind,
-                        changes=proposal.changes,
-                        rationale=proposal.rationale,
-                        scenario_name=proposal.scenarioName,
-                        preview=proposal.preview,
-                        warnings=proposal.warnings,
-                    )
-                    db.add(row)
-                    db.flush()
-                    proposals.append(row)
+                if budget_hard_stopped:
+                    # M5: degrade to read-only — the turn still runs (read
+                    # tools/text keep working), but a write suggestion is
+                    # never silently dropped OR silently created; the model
+                    # (and the transparency log) sees exactly why nothing
+                    # was proposed.
                     payload = {
-                        "proposalId": row.id,
-                        "kind": row.kind,
-                        "changes": row.changes,
-                        "preview": row.preview,
-                        "warnings": row.warnings,
-                        "note": "Proposal created for user review — not applied.",
+                        "error": "Monthly AI budget exceeded — this suggestion was NOT saved. "
+                        "Raise the budget in Settings > Usage to re-enable proposals.",
                     }
-                except Exception as exc:  # noqa: BLE001 — same contract as the read branch
-                    payload = {"error": f"Tool call failed: {exc}"}
+                else:
+                    try:
+                        proposal = tool_def.fn(**call.arguments)
+                        row = AgentProposal(
+                            thread_id=thread.id,
+                            deal_id=thread.deal_id,
+                            tool_call_id=call.id,
+                            kind=proposal.kind,
+                            changes=proposal.changes,
+                            rationale=proposal.rationale,
+                            scenario_name=proposal.scenarioName,
+                            preview=proposal.preview,
+                            warnings=proposal.warnings,
+                        )
+                        db.add(row)
+                        db.flush()
+                        proposals.append(row)
+                        payload = {
+                            "proposalId": row.id,
+                            "kind": row.kind,
+                            "changes": row.changes,
+                            "preview": row.preview,
+                            "warnings": row.warnings,
+                            "note": "Proposal created for user review — not applied.",
+                        }
+                    except Exception as exc:  # noqa: BLE001 — same contract as the read branch
+                        payload = {"error": f"Tool call failed: {exc}"}
 
             db.add(
                 AgentToolCall(

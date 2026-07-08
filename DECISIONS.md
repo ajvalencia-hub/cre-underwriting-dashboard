@@ -3,6 +3,58 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## M5 — Cost & usage view [FIN]; agent streaming DEFERRED (not built)
+
+- **Agent streaming was NOT built this pass — a real, further scope
+  reduction beyond the plan's own SSE→polling correction, made and
+  disclosed here rather than left unstated.** The approved plan already
+  scoped "streaming" down to L7's background-thread + polling pattern.
+  Implementing even that would mean converting `POST .../messages`'s
+  response contract from synchronous-full-result to
+  `{runId}`-then-poll — which isn't an isolated addition: it's a change to
+  the wire contract the K4-K8 agent chat already depends on, requiring (a)
+  a parallel rewrite of `useAgentThread.ts` and every component consuming
+  it, and (b) updating the LARGE existing test surface that currently
+  asserts synchronously on `client.post(...).json()["proposals"]`/
+  `["text"]`/etc. directly (many functions, across `test_agent_router.py`,
+  `test_agent_security.py`, `test_agent_tools.py`,
+  `test_agent_scripted_provider.py`, plus the K11 Playwright acceptance
+  spec). Judged that a same-session, large, under-verified rewrite of a
+  currently-solid, extensively-tested feature was the wrong risk to take
+  in the tail of an already long session — shipping an ORPHANED job-polling
+  backend nobody calls would itself violate "no half-finished
+  implementations" worse than not building it at all. The backend pattern
+  (L7's Monte Carlo job) is proven and ready to reuse whenever this becomes
+  its own dedicated pass; flagged explicitly in the M-phase checkpoint
+  report, not silently dropped.
+- **`LlmUsageEvent` has no `thread_id` column — "this thread" usage is
+  approximated as "this deal."** `AgentThread` is already effectively
+  one-thread-per-deal in this build (`_get_or_create_thread` reuses the
+  newest thread for a deal rather than ever creating a second one), so
+  `deal_id` (already captured, M3) is the closest available proxy without
+  a schema migration for a column that would carry the same information
+  in practice.
+- **The price table (`app/services/cost.py`) is a static, approximate,
+  hand-maintained dict** — not a live-pricing API call (would be another
+  outbound dependency for a number that only needs to be roughly right)
+  and not something to over-engineer given provider pricing changes
+  independently of this codebase. An unrecognized model returns `None`
+  (unknown cost) from `estimate_cost()`, never silently `$0` — "unknown"
+  and "known zero" (Ollama, always free) are different facts, and
+  `get_usage_summary()` tracks `unknownCostCalls` separately so the
+  Usage panel can say so rather than quietly under-reporting spend.
+  Real bug caught while wiring this: `LlmUsageEvent.created_at` round-trips
+  through SQLite as a NAIVE datetime even though `_now()` always writes UTC
+  — the exact same normalization `deal_history.py` already has to do for
+  the same reason, applied here too (comparing an aware "today start"
+  bound against naive stored timestamps raised `TypeError` before the fix).
+- **The budget hard-stop degrades WRITE tool calls only, computed ONCE per
+  turn (not per tool-call)** — read tools (`get_deal`, `compute`, etc.)
+  and plain text responses keep working over budget; only proposal
+  creation stops, with an explicit error string in that tool call's result
+  (never a silently-dropped proposal, never a 500) so both the user and
+  the model see exactly why nothing was created.
+
 ## M4 — Settings UI [FIN]
 
 - **No jsdom/React-Testing-Library component tests added.** Confirmed

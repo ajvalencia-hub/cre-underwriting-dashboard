@@ -95,6 +95,9 @@ SETTINGS_CATALOG: dict[str, SettingDef] = {
     "hudApiToken": SettingDef("publicData", "HUD API Token", True, "HUD_API_TOKEN"),
     # --- Map / geocoding --------------------------------------------------
     "geocodeUserAgent": SettingDef("map", "Geocode User-Agent", False, "GEOCODE_USER_AGENT"),
+    # --- Usage (M5) --------------------------------------------------------
+    # "0"/unset = no budget (soft-warn/hard-stop never trigger).
+    "monthlyBudgetUsd": SettingDef("usage", "Monthly AI Budget (USD)", False, default="0"),
 }
 
 

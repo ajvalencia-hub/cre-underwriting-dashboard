@@ -13,12 +13,14 @@ than model-tier tuning on the rare path that fires.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import LlmUsageEvent
-from app.services import settings as settings_service
+from app.services import cost, settings as settings_service
 from app.services.agent.providers import chat_with
 from app.services.agent.providers.types import ChatResult, Message, ToolSpec, Usage
 
@@ -70,18 +72,19 @@ def record_usage(
     own commit, no separate DB round-trip. Callers with no session in scope
     (document_classifier.py, llm_extraction.py) leave it unset and get a
     short-lived one of their own, committed immediately."""
+    cost_usd = cost.estimate_cost(provider, model, usage)
     if db is not None:
         db.add(LlmUsageEvent(
             task=task, provider=provider, model=model,
             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            deal_id=deal_id,
+            cost_usd=cost_usd, deal_id=deal_id,
         ))
         return
     with SessionLocal() as own_db:
         own_db.add(LlmUsageEvent(
             task=task, provider=provider, model=model,
             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-            deal_id=deal_id,
+            cost_usd=cost_usd, deal_id=deal_id,
         ))
         own_db.commit()
 
@@ -104,3 +107,66 @@ def run_task(
     )
     record_usage(task, provider_used, model_used, result.usage, deal_id)
     return result, provider_used, model_used
+
+
+def _bucket(rows: list[LlmUsageEvent]) -> dict:
+    known_costs = [r.cost_usd for r in rows if r.cost_usd is not None]
+    return {
+        "calls": len(rows),
+        "inputTokens": sum(r.input_tokens for r in rows),
+        "outputTokens": sum(r.output_tokens for r in rows),
+        "costUsd": sum(known_costs) if known_costs else 0.0,
+        "unknownCostCalls": sum(1 for r in rows if r.cost_usd is None),
+    }
+
+
+def get_usage_summary(deal_id: str | None = None) -> dict:
+    """M5: aggregates LlmUsageEvent by today/this-month (+ optionally "this
+    deal", the closest available proxy for "this thread" — LlmUsageEvent
+    has no thread_id column, only deal_id, since AgentThread is already
+    effectively one-thread-per-deal in this build), broken down by task,
+    plus budget status against the monthlyBudgetUsd setting."""
+    now = datetime.now(timezone.utc)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    with SessionLocal() as db:
+        rows = db.execute(select(LlmUsageEvent)).scalars().all()
+
+    # SQLite drops tzinfo on round-trip — created_at comes back naive even
+    # though _now() always writes UTC (same normalization deal_history.py
+    # already does for the same reason).
+    for row in rows:
+        if row.created_at.tzinfo is None:
+            row.created_at = row.created_at.replace(tzinfo=timezone.utc)
+
+    today_rows = [r for r in rows if r.created_at >= today_start]
+    month_rows = [r for r in rows if r.created_at >= month_start]
+    deal_rows = [r for r in rows if deal_id is not None and r.deal_id == deal_id]
+
+    by_task = {task: _bucket([r for r in month_rows if r.task == task]) for task in TASKS}
+
+    monthly_budget_raw = settings_service.resolve_setting("monthlyBudgetUsd")[0]
+    monthly_budget = float(monthly_budget_raw) if monthly_budget_raw else 0.0
+    month_cost = _bucket(month_rows)["costUsd"]
+    budget = {
+        "monthlyBudgetUsd": monthly_budget if monthly_budget > 0 else None,
+        "spentUsd": month_cost,
+        "softWarn": monthly_budget > 0 and month_cost >= monthly_budget * 0.8,
+        "hardStopped": monthly_budget > 0 and month_cost >= monthly_budget,
+    }
+
+    return {
+        "thisDeal": _bucket(deal_rows) if deal_id is not None else None,
+        "today": _bucket(today_rows),
+        "thisMonth": _bucket(month_rows),
+        "byTask": by_task,
+        "budget": budget,
+    }
+
+
+def is_budget_hard_stopped() -> bool:
+    """A cheap, standalone check for the agent runner to call before every
+    turn — doesn't need the full aggregation get_usage_summary() builds
+    for the Settings > Usage view."""
+    return get_usage_summary()["budget"]["hardStopped"]
