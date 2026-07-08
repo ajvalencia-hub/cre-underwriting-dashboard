@@ -3,6 +3,59 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L7 — Monte Carlo [FIN]
+
+- **Correlation method: a Gaussian copula via Cholesky decomposition, not
+  hand-rolled Iman-Conover rank correlation.** `numpy` was already
+  transitively installed (via `matplotlib`) but never a direct dependency —
+  relying on a transitive-only import for new direct code is fragile
+  packaging practice, so it's now pinned explicitly in `requirements.txt`
+  (`numpy==2.5.0`, matching the installed version). Draw correlated standard
+  normals (`numpy.random.default_rng(seed)` for determinism), then map each
+  driver through its OWN inverse CDF: `'normal'` drivers use the standard-
+  normal column directly (`mean + stdDev*Z`); `'triangular'`/`'uniform'`
+  drivers go through `Phi(Z)` (via `math.erf`, vectorized — no `scipy`
+  dependency needed) into their own closed-form inverse CDF. Rejected:
+  Iman-Conover — more code, harder to verify correct, no real benefit given
+  numpy was already in the install closure.
+- **Job execution: a plain `threading.Thread`, no task-queue
+  infrastructure** (no Celery/Redis/etc. exists anywhere in this codebase,
+  and 2000 draws at native-engine speed is well within a reasonable poll
+  window — confirmed directly: 50 draws with 2 drivers completed in well
+  under a second on a live dev-server run). `POST` returns `{runId}`
+  immediately; `GET .../{runId}` polls `{status, progress, result}`. An
+  in-memory dict (bounded to the last 50 runs, same eviction pattern as
+  `compute_cache`) is enough since jobs don't need to survive a restart.
+- **`inputPath` is a flat top-level input key** (e.g. `"vacancyPct"`,
+  `"exitCapRatePct"`), not a dotted/nested path into tables like `unitMix`.
+  Every driver a tornado/sensitivity analysis would reasonably want to
+  stress (rent, cap rate, vacancy, rate, costs) is already a top-level
+  scalar field on this schema; supporting arbitrary nested-table paths for
+  v1 would be meaningfully more code for a case that doesn't come up in
+  practice yet.
+- **Each draw calls `compute_cache.cached_compute` directly** (not a
+  stripped-down outputs-only path) — `peakNegativeCashFlow` needs the full
+  statement vector (`min` of the levered cash-flow series), and the cache is
+  expected to mostly MISS during a sweep (different inputs every draw) —
+  that's fine, not a regression, just no speedup here.
+- **Excel export gets NO new refusal-list entry.** Monte Carlo is a
+  separate compute MODE (N deterministic single-engine evaluations over
+  sampled inputs) — nothing about it makes any *single* input combination
+  newly unexportable, and it never touches `excel_model_export.py` or its
+  callers at all (verified directly, and by a dedicated regression test).
+  This corrects the original operating-rules text, which expected the
+  refusal list to grow by L7 too.
+- **No frontend Risk panel built in this pass** — same scoping call as
+  L1-L6 (schema-driven UI only; this feature has its own dedicated request
+  shape anyway, `POST/GET /api/compute/monte-carlo`, not a schema field, so
+  there's nothing for the generic dynamic form to pick up automatically).
+  The API is fully functional and was verified end-to-end against the live
+  dev server (a real 50-draw, 2-driver run: sane IRR/equity-multiple
+  distributions, a `peakNegativeCashFlow` correctly invariant at the
+  fixture's initial equity outflow since no driver here touches operating
+  cash flow, `probabilityIrrBelowZero` computed correctly). Deferred, not
+  forgotten.
+
 ## L6 — Replacement reserves + escrows [FIN]
 
 - **The reserves-default correction (the second real conflict with

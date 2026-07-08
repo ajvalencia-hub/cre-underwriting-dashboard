@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.services import compute_cache, compute_solver, tornado_service
+from app.services import compute_cache, compute_solver, monte_carlo, tornado_service
 from app.services.proforma import engine, hold
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
@@ -28,6 +28,21 @@ class SolveRequest(BaseModel):
     upperBound: float
     tolerance: float = 1e-4
     maxIterations: int = 50
+
+
+class MonteCarloDriver(BaseModel):
+    inputPath: str
+    distribution: str
+    params: dict[str, float] = {}
+
+
+class MonteCarloRequest(BaseModel):
+    inputs: dict[str, Any]
+    drivers: list[MonteCarloDriver]
+    correlations: list[list[float]] | None = None
+    n: int = 500
+    seed: int = 0
+    hurdlePct: float | None = None
 
 
 @router.post("/hold-sweep")
@@ -102,3 +117,37 @@ def compute(payload: ComputeRequest, detail: bool = False):
         # The period-level statement: the engine's own vectors, no recompute.
         response["statement"] = result["statement"]
     return response
+
+
+@router.post("/monte-carlo")
+def monte_carlo_start(payload: MonteCarloRequest):
+    try:
+        # A quick base compute up front — the same InsufficientInputsError
+        # contract as every other endpoint here, checked BEFORE spawning the
+        # background thread rather than surfacing as a same-shaped error
+        # buried in every failed draw.
+        engine.compute(payload.inputs)
+    except engine.InsufficientInputsError as exc:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "missing": exc.missing}
+        )
+    try:
+        run_id = monte_carlo.start_run(
+            payload.inputs,
+            [d.model_dump() for d in payload.drivers],
+            payload.correlations,
+            payload.n,
+            payload.seed,
+            payload.hurdlePct,
+        )
+    except monte_carlo.MonteCarloValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"runId": run_id}
+
+
+@router.get("/monte-carlo/{run_id}")
+def monte_carlo_status(run_id: str):
+    job = monte_carlo.get_job(run_id)
+    if job is None:
+        raise HTTPException(404, "Unknown Monte Carlo run id.")
+    return job
