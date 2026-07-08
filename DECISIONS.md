@@ -3,6 +3,52 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## M2 — Ollama provider adapter [FIN]
+
+- **Weak local models tool-calling less reliably is a known, accepted
+  risk — and the reason it's safe is structural, already built, and
+  unchanged by this milestone.** K3's read/propose privilege split means a
+  tool-calling model of ANY quality can only ever PROPOSE a write (a
+  pending `AgentProposal` row a human reviews and explicitly approves) —
+  it structurally cannot apply one, no matter how confidently or
+  incorrectly it calls the tool. K5's provenance checker runs over the
+  final assembled text regardless of which provider produced it (verified
+  directly: `check_provenance(text: str, tool_call_log: list[dict])` has
+  no provider-shaped parameter at all), so a weak model's hallucinated
+  number in prose gets flagged exactly the same way a strong model's
+  would. A less capable local model is safe to route agent traffic to NOT
+  because it's less likely to say something wrong, but because the
+  system was already built (in the K-run) to assume ANY model might.
+- **Ollama's native `/api/chat` tool_calls carry no `id` field**
+  (confirmed against Ollama's own docs before writing the adapter, not
+  assumed) — unlike Anthropic/OpenAI, which correlate a tool result back
+  to a specific call by id. `ollama_provider.py` synthesizes a per-response
+  positional id (`"call_0"`, `"call_1"`, ...) so it can still satisfy the
+  vendor-neutral `ToolCall.id` field the K4 runner's within-turn round-trip
+  relies on — and drops that synthetic id again when translating history
+  back into Ollama's own wire format, since Ollama never expects it.
+- **`tool_calls[].function.arguments` is used directly with no
+  `json.loads`** — confirmed the native API already returns a parsed JSON
+  object here (unlike OpenAI's Chat Completions API, which returns a JSON
+  *string*, requiring `openai_provider.py`'s explicit `json.loads`/
+  `JSONDecodeError` handling). Getting this wrong (assuming a string) would
+  have silently broken on the very first real tool call.
+- **"unavailable" vs "error" is reactive for Ollama, not proactive.**
+  Anthropic/OpenAI check for a configured key BEFORE attempting any call
+  ("unavailable" = misconfigured, checked first). Ollama has no key to
+  check — the reachability check IS the availability check, so a
+  connection-level failure (host unreachable/timeout — Ollama isn't
+  running) degrades to `"unavailable"`, while a response FROM a reachable
+  Ollama server that still fails (bad HTTP status, malformed body) is
+  `"error"` — the call was attempted, something specific went wrong,
+  mirroring the other two adapters' broad-except convention.
+- **`GET /api/agent/providers/health` is deliberately asymmetric by
+  provider**: Ollama gets a real reachability probe (`GET /api/tags` —
+  free, local); Anthropic/OpenAI health is key-presence only, never a live
+  API call, since pinging a real paid endpoint on every Settings-page load
+  would burn real money for no diagnostic benefit beyond what `hasKey`
+  already tells the UI.
+
 ## M1 — Settings backend (DB-backed, secret-safe) [FIN]
 
 - **No "seed once from env" migration.** The original spec asked for a

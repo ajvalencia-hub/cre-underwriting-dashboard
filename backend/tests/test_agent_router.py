@@ -251,16 +251,18 @@ def test_post_message_no_content_and_no_play_id_is_400(client):
 # In-dashboard provider switching
 # ---------------------------------------------------------------------------
 
-def test_list_providers_returns_anthropic_and_openai_with_key_flags(client):
+def test_list_providers_returns_anthropic_openai_and_ollama_with_key_flags(client):
     resp = client.get("/api/agent/providers")
     assert resp.status_code == 200
     body = resp.json()
     ids = {p["id"] for p in body}
-    assert ids == {"anthropic", "openai"}
+    assert ids == {"anthropic", "openai", "ollama"}
     assert "scripted" not in ids  # e2e-only, never a user-facing option
     for p in body:
         assert set(p) == {"id", "label", "hasKey"}
         assert isinstance(p["hasKey"], bool)
+    # M2: Ollama needs no key — always selectable, unlike the cloud providers.
+    assert next(p for p in body if p["id"] == "ollama")["hasKey"] is True
 
 
 def test_set_thread_provider_switches_and_persists(client):

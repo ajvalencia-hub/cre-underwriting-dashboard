@@ -24,7 +24,10 @@ def _selectable_providers() -> list[dict]:
     deterministic stub) is deliberately excluded; it's reachable solely via
     the AGENT_PROVIDER env var, never through the UI. M1: hasKey is resolved
     live via settings (DB override or env) on every call, not cached at
-    import — a key entered through the Settings UI is reflected immediately."""
+    import — a key entered through the Settings UI is reflected immediately.
+    M2: Ollama's hasKey is always True — it's local and needs no key (the
+    spec's own security note); GET /providers/health is the separate,
+    real reachability probe."""
     return [
         {
             "id": "anthropic", "label": "Anthropic (Claude)",
@@ -34,6 +37,7 @@ def _selectable_providers() -> list[dict]:
             "id": "openai", "label": "OpenAI",
             "hasKey": bool(settings_service.resolve_setting("openaiApiKey")[0]),
         },
+        {"id": "ollama", "label": "Ollama (local)", "hasKey": True},
     ]
 
 
@@ -117,6 +121,34 @@ def list_providers():
     boolean, so it can gray out an option instead of letting the user pick
     a provider that will just come back "unavailable"."""
     return _selectable_providers()
+
+
+@router.get("/providers/health")
+def provider_health():
+    """M2: a REAL reachability probe, deliberately asymmetric by provider —
+    Anthropic/OpenAI health is key-presence only (a live API ping would
+    burn real money on every page load); Ollama health is an actual local
+    HTTP check (GET /api/tags), since that's free and is the only way to
+    know whether the local server is actually running right now, not just
+    configured."""
+    import httpx
+
+    ollama_base_url = settings_service.resolve_setting("ollamaBaseUrl")[0]
+    ollama_reachable = False
+    ollama_detail = None
+    try:
+        resp = httpx.get(f"{ollama_base_url}/api/tags", timeout=3.0)
+        ollama_reachable = resp.status_code == 200
+        if not ollama_reachable:
+            ollama_detail = f"HTTP {resp.status_code}"
+    except Exception as exc:  # noqa: BLE001 — unreachable is a normal, expected state here
+        ollama_detail = str(exc)
+
+    return {
+        "anthropic": {"reachable": bool(settings_service.resolve_setting("anthropicApiKey")[0]), "detail": None},
+        "openai": {"reachable": bool(settings_service.resolve_setting("openaiApiKey")[0]), "detail": None},
+        "ollama": {"reachable": ollama_reachable, "detail": ollama_detail},
+    }
 
 
 class SetProviderRequest(BaseModel):

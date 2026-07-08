@@ -8,12 +8,13 @@ CALL time (not baked into a dict at import), same reasoning as the API-key
 resolution inside each adapter — a DB override takes effect immediately."""
 
 from app.services import settings as settings_service
-from app.services.agent.providers import anthropic_provider, openai_provider, scripted_provider
+from app.services.agent.providers import anthropic_provider, ollama_provider, openai_provider, scripted_provider
 from app.services.agent.providers.types import ChatResult, Message, ToolSpec, Usage
 
 _PROVIDER_MODULES = {
     "anthropic": anthropic_provider,
     "openai": openai_provider,
+    "ollama": ollama_provider,
     # K11: deterministic, network-free — only ever selected by explicitly
     # setting AGENT_PROVIDER=scripted (the Playwright e2e config does this).
     "scripted": scripted_provider,
@@ -24,6 +25,7 @@ _PROVIDER_MODULES = {
 _DEFAULT_MODEL_SETTING = {
     "anthropic": "anthropicAgentModel",
     "openai": "openaiAgentModel",
+    "ollama": "ollamaAgentModel",
     "scripted": None,
 }
 

@@ -67,3 +67,9 @@ OPENAI_AGENT_MODEL = os.environ.get("OPENAI_AGENT_MODEL", "gpt-5.1")
 # agent works out of the box once a key is set.
 AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
 ANTHROPIC_AGENT_MODEL = os.environ.get("ANTHROPIC_AGENT_MODEL", "claude-sonnet-5")
+
+# Ollama (M2) — local, no key required (the spec's own security note: local
+# needs no key). Defaults to the standard local install; override if Ollama
+# runs elsewhere (a remote box, a different port).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_AGENT_MODEL = os.environ.get("OLLAMA_AGENT_MODEL", "llama3.1")

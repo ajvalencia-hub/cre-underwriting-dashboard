@@ -62,6 +62,9 @@ SETTINGS_CATALOG: dict[str, SettingDef] = {
     "openaiApiKey": SettingDef("aiProviders", "OpenAI API Key", True, "OPENAI_API_KEY"),
     "openaiAgentModel": SettingDef("aiProviders", "OpenAI Agent Model", False, "OPENAI_AGENT_MODEL"),
     "agentProvider": SettingDef("aiProviders", "Default Agent Provider", False, "AGENT_PROVIDER"),
+    # M2: local, no key required.
+    "ollamaBaseUrl": SettingDef("aiProviders", "Ollama Base URL", False, "OLLAMA_BASE_URL"),
+    "ollamaAgentModel": SettingDef("aiProviders", "Ollama Agent Model", False, "OLLAMA_AGENT_MODEL"),
     # --- Branding -----------------------------------------------------------
     "firmName": SettingDef("branding", "Firm Name", False, "FIRM_NAME"),
     "memoBrandColor": SettingDef("branding", "Memo Brand Color", False, "MEMO_BRAND_COLOR"),
