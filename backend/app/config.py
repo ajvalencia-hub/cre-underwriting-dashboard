@@ -5,16 +5,20 @@ from dotenv import load_dotenv
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_ROOT / ".env")
-STORAGE_ROOT = BACKEND_ROOT / "storage"
+# J16: CRE_STORAGE_ROOT lets the Docker image mount a persistent volume
+# (e.g. /data) for the DB + uploads without moving the code. Defaults to the
+# in-repo storage dir for local dev.
+STORAGE_ROOT = Path(os.environ.get("CRE_STORAGE_ROOT") or BACKEND_ROOT / "storage")
 TEMPLATES_DIR = STORAGE_ROOT / "templates"
 GENERATED_DIR = STORAGE_ROOT / "generated"
 DOCUMENTS_DIR = STORAGE_ROOT / "documents"
 DB_DIR = STORAGE_ROOT / "db"
+BACKUPS_DIR = STORAGE_ROOT / "backups"
 # CRE_DB_PATH override exists for test harnesses (e.g. the Playwright smoke
 # boots the API against a scratch database).
 DB_PATH = Path(os.environ.get("CRE_DB_PATH") or DB_DIR / "app.sqlite3")
 
-for d in (TEMPLATES_DIR, GENERATED_DIR, DOCUMENTS_DIR, DB_DIR):
+for d in (TEMPLATES_DIR, GENERATED_DIR, DOCUMENTS_DIR, DB_DIR, BACKUPS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 DATA_DIR = BACKEND_ROOT / "app" / "data"

@@ -1,0 +1,30 @@
+# J16: one `docker compose up` brings up the whole app (SPA + API) on :8000
+# with a persistent named volume for the DB, uploads, and rotating backups.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - cre-data:/data
+    environment:
+      # Data + backups live on the mounted volume.
+      CRE_STORAGE_ROOT: /data
+      CRE_ENABLE_BACKUP_SCHEDULER: "1"
+      # Optional free public-data API keys (all degrade gracefully if unset).
+      # See backend/.env.example for signup links.
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      CENSUS_API_KEY: ${CENSUS_API_KEY:-}
+      BEA_API_KEY: ${BEA_API_KEY:-}
+      HUD_API_TOKEN: ${HUD_API_TOKEN:-}
+      # IC memo/deck branding.
+      FIRM_NAME: ${FIRM_NAME:-Acme Real Estate Partners}
+      MEMO_BRAND_COLOR: ${MEMO_BRAND_COLOR:-1F3B57}
+      # Optional Anthropic key for LLM extraction/classification fallback.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  cre-data:

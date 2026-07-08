@@ -151,6 +151,47 @@ Optional API keys (`backend/.env`, see `.env.example`): `ANTHROPIC_API_KEY`
 `CENSUS_API_KEY`, `HUD_API_TOKEN`, `BEA_API_KEY`, `BLS_API_KEY`
 (benchmarks). Memo branding: `FIRM_NAME`, `MEMO_BRAND_COLOR`.
 
+## Docker quickstart
+
+One command builds the SPA, bakes in LibreOffice + Tesseract + Poppler, and
+serves the whole app (UI + API) on `http://localhost:8000`:
+
+```bash
+docker compose up --build
+```
+
+The SQLite database, uploads, and rotating backups live on the named volume
+`cre-data` (mounted at `/data` in the container), so they survive rebuilds.
+Set optional API keys in a `.env` beside `docker-compose.yml` (compose reads
+`FRED_API_KEY`, `CENSUS_API_KEY`, `ANTHROPIC_API_KEY`, `FIRM_NAME`, etc.).
+
+Environment variables of note:
+
+- `CRE_STORAGE_ROOT` — where the DB, uploads, and backups live (the image
+  sets `/data`; local dev defaults to `backend/storage`).
+- `CRE_FRONTEND_DIST` — directory of the built SPA the backend serves (set in
+  the image; unset in dev, where Vite serves the frontend).
+- `CRE_ENABLE_BACKUP_SCHEDULER=1` — turns on the in-process daily backup loop
+  (on in the image; off in dev/tests).
+
+### Backups & restore
+
+- **Automatic:** a daily SQLite snapshot (online-backup API, safe during
+  writes) under `/data/backups/daily/`, promoted to a weekly snapshot on the
+  first run of each ISO week. Rotation keeps the last **7 daily** and **4
+  weekly**. Each snapshot is a timestamped directory with `app.sqlite3` plus a
+  `manifest.json` listing uploads by name/hash (upload bytes are **not**
+  copied — they already share the data volume; the manifest lets you confirm
+  none went missing after a restore).
+- **On demand:** `POST /api/admin/backups/run`; list with
+  `GET /api/admin/backups`.
+- **Restore:** `POST /api/admin/backups/restore` with `{"kind","name"}`
+  overwrites the live DB from that snapshot, then **restart the backend** so
+  SQLAlchemy reopens the file. The response returns the uploads manifest so
+  you can verify every referenced file is still present on the volume. (To
+  restore into a fresh volume, copy the snapshot dir into `/data/backups/…`
+  first, then call restore.)
+
 ## Testing
 
 ```bash

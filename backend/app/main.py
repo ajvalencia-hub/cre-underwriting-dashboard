@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import uuid
 
@@ -10,6 +11,7 @@ from app.database import Base, SessionLocal, engine, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
+    admin,
     client_errors,
     comps,
     compute,
@@ -43,6 +45,13 @@ run_migrations()
 sweep_generated_files()
 with SessionLocal() as _db:
     seed_presets(_db)
+
+# J16: the daily backup scheduler is opt-in (the Docker image sets the flag)
+# so local dev and the test suite don't spawn a background backup thread.
+if os.environ.get("CRE_ENABLE_BACKUP_SCHEDULER") == "1":
+    from app.services import backup_service
+
+    backup_service.start_scheduler()
 
 app = FastAPI(title="CRE Underwriting Dashboard API")
 
@@ -105,9 +114,21 @@ app.include_router(demographics.router)
 app.include_router(presets.router)
 app.include_router(portfolio.router)
 app.include_router(search.router)
+app.include_router(admin.router)
 app.include_router(client_errors.router)
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# J16: in the Docker image the backend serves the built SPA. CRE_FRONTEND_DIST
+# points at the Vite `dist/`; mounted LAST so every /api route wins, with
+# html=True giving SPA fallback for client-side routes. Absent in dev (Vite
+# serves the frontend), so this is a no-op there.
+_frontend_dist = os.environ.get("CRE_FRONTEND_DIST")
+if _frontend_dist and os.path.isdir(_frontend_dist):
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="spa")

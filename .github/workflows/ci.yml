@@ -49,6 +49,17 @@ jobs:
         working-directory: frontend
         run: npm test
 
+  # J16: catch Dockerfile / compose rot — validate the compose file and build
+  # the image (build only; we don't run the container in CI).
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose config
+        run: docker compose config
+      - name: Build the image
+        run: docker build -t cre-dashboard:ci .
+
   # Separate job so unit-test feedback stays fast — one chromium happy path
   # through the real stack (scratch-DB backend + Vite dev server).
   frontend-e2e:

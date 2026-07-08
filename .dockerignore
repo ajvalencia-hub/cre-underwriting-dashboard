@@ -1,0 +1,14 @@
+# Keep the build context small and reproducible.
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+backend/storage
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+.git
+.github
+**/.pytest_cache
+**/.mypy_cache
+*.md

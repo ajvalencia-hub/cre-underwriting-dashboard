@@ -3,6 +3,36 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J16 — Docker + backup (Run 5)
+
+- **One image serves the whole app.** A multi-stage Dockerfile builds the
+  SPA (node stage) and copies the dist into the Python runtime, which
+  serves it via StaticFiles mounted LAST (every /api route wins;
+  html=True gives SPA fallback). LibreOffice, Tesseract, and Poppler are
+  baked in so every server-side path (parity recalc, memo PDF, OCR, PDF
+  rasterize) works in the container. Rejected: a separate nginx frontend
+  container — a second service and a proxy hop for a single-user tool.
+- **Storage is volume-relocatable via `CRE_STORAGE_ROOT`** (image sets
+  `/data`; dev defaults to `backend/storage`), so the DB, uploads, and
+  backups all live on one named volume that survives rebuilds.
+- **[safety] Backups use SQLite's online-backup API, never a file copy**
+  — a copy taken mid-write can be torn. Each snapshot is a timestamped
+  dir with `app.sqlite3` + a `manifest.json`; rotation keeps 7 daily / 4
+  weekly. Upload BYTES are not copied (they share the volume and would
+  multiply its size every snapshot) — the manifest records name/hash so
+  a restore can flag a missing file. Documented in the README.
+- **The scheduler is opt-in** (`CRE_ENABLE_BACKUP_SCHEDULER=1`, set only
+  in the image) so dev and the test suite never spawn a background
+  backup thread; the daily loop promotes the first run of each ISO week
+  to a weekly snapshot.
+- **Restore overwrites the live DB and requires a restart** (SQLAlchemy
+  holds the old handle) — the endpoint says so and returns the uploads
+  manifest so the operator can verify the volume still has every file.
+- CI gains a `docker` job: `docker compose config` + `docker build`
+  (build only — the container isn't run in CI) to catch Dockerfile rot.
+- The pure `prune_names` rotation helper is unit-tested; the backup/
+  restore round-trip runs against a scratch SQLite DB.
+
 ## J15 — Portfolio roll-up (Run 5)
 
 - **Roll-up computes each non-dead deal live through the pure LRU-cached
