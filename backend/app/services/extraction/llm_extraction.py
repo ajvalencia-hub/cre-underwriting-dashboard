@@ -17,8 +17,6 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from app.services import settings as settings_service
-
 _MAX_TEXT_CHARS = 15000
 
 
@@ -123,17 +121,16 @@ def extract_with_llm(
 ) -> dict:
     """Returns a dict with either the validated extraction (under "result") or
     an "error"/"unavailable" note — callers check for "result" before using it.
+
+    M3: routed through model_router's "extraction" task (local-first,
+    cloud-fallback per Settings) instead of constructing an Anthropic client
+    directly — a plain one-shot completion, no tools/system prompt needed.
     """
-    api_key = settings_service.resolve_setting("anthropicApiKey")[0]
-    if not api_key:
-        return {
-            "result": None,
-            "note": "LLM extraction unavailable — set ANTHROPIC_API_KEY in backend/.env.",
-        }
     if not text.strip():
         return {"result": None, "note": "No extractable text to send to the LLM."}
 
-    import anthropic
+    from app.services.agent import model_router
+    from app.services.agent.providers.types import Message
 
     field_list = "\n".join(f"- {f['id']} ({f['label']}, type={f['type']})" for f in schema_fields)
     prompt = (
@@ -144,20 +141,23 @@ def extract_with_llm(
         f"Document excerpt:\n{text[:_MAX_TEXT_CHARS]}"
     )
 
+    result = model_router.run_task("extraction", [Message(role="user", content=prompt)], [], "")[0]
+    if result.stop_reason == "unavailable":
+        return {
+            "result": None,
+            "note": "LLM extraction unavailable — configure a local (Ollama) or cloud AI "
+            "provider in Settings.",
+        }
+    if result.stop_reason != "end_turn":
+        return {"result": None, "note": f"LLM extraction call failed: {result.error}"}
+
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        model = settings_service.resolve_setting("anthropicExtractionModel")[0]
-        response = client.messages.create(
-            model=model,
-            max_tokens=8000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = _strip_code_fences(response.content[0].text)
+        raw = _strip_code_fences(result.text)
         parsed = json.loads(raw)
         validated = LlmExtractionResponse.model_validate(parsed)
     except (json.JSONDecodeError, ValidationError) as exc:
         return {"result": None, "note": f"LLM response failed validation, discarded: {exc}"}
-    except Exception as exc:  # noqa: BLE001 - network/API errors etc.
+    except Exception as exc:  # noqa: BLE001 - unexpected shape, never let it raise past this module
         return {"result": None, "note": f"LLM extraction call failed: {exc}"}
 
     result = validated.model_dump()

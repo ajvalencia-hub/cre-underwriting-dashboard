@@ -50,7 +50,7 @@ def _get_or_create_thread(db: Session, deal_id: str) -> AgentThread:
         select(AgentThread).where(AgentThread.deal_id == deal_id).order_by(AgentThread.created_at.desc())
     ).scalars().first()
     if thread is None:
-        default_provider = settings_service.resolve_setting("agentProvider")[0]
+        default_provider = settings_service.resolve_setting("routing.agent.provider")[0]
         thread = AgentThread(deal_id=deal_id, provider=default_provider)
         db.add(thread)
         db.commit()

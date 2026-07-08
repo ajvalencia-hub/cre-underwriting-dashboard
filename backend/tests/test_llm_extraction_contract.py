@@ -7,13 +7,18 @@ import json
 import anthropic
 import pytest
 
+from app.services import settings as settings_service
 from app.services.extraction import llm_extraction
 
 _MINIMAL_REPLY = json.dumps({"documentType": "other"})
 
 
 class _StubClient:
-    """Stands in for anthropic.Anthropic: records the prompt, returns a fixed reply."""
+    """Stands in for anthropic.Anthropic: records the prompt, returns a fixed
+    reply. Shaped to match what anthropic_provider.chat() (the real K2
+    adapter this now routes through, since M3) actually reads off a
+    response: content blocks need `.type == "text"`, and `.usage` must
+    exist (accessed directly, not via a safe getattr-with-default)."""
 
     last_prompt: str | None = None
 
@@ -22,20 +27,28 @@ class _StubClient:
 
     def create(self, **kwargs):
         _StubClient.last_prompt = kwargs["messages"][0]["content"]
-        block = type("Block", (), {"text": _MINIMAL_REPLY})()
-        return type("Resp", (), {"content": [block]})()
+        block = type("Block", (), {"type": "text", "text": _MINIMAL_REPLY})()
+        usage = type("Usage", (), {"input_tokens": 10, "output_tokens": 5})()
+        return type("Resp", (), {"content": [block], "usage": usage})()
 
 
 @pytest.fixture
 def stubbed_llm(monkeypatch):
     _StubClient.last_prompt = None
     monkeypatch.setattr(anthropic, "Anthropic", _StubClient)
-    # M1: llm_extraction resolves its key/model via settings_service at call
-    # time now, not a module-level ANTHROPIC_API_KEY constant — stub the
-    # resolver directly rather than depending on any real/test DB state.
+    # M3: llm_extraction routes through model_router's "extraction" task now
+    # (local-first, cloud-fallback per Settings), not a direct Anthropic
+    # client construction — force routing to "anthropic" with no fallback so
+    # this stubbed client is definitely what answers, and stub the key it
+    # reads along the way.
+    overrides = {
+        "routing.extraction.provider": "anthropic",
+        "routing.extraction.model": "test-model",
+        "routing.extraction.fallback": "none",
+        "anthropicApiKey": "test-key",
+    }
     monkeypatch.setattr(
-        llm_extraction.settings_service, "resolve_setting",
-        lambda key: ("test-key" if key == "anthropicApiKey" else "test-model", "db"),
+        settings_service, "resolve_setting", lambda key: (overrides.get(key, ""), "db")
     )
 
 

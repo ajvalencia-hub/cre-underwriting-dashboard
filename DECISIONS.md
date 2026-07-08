@@ -3,6 +3,59 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## M3 — Per-task model routing [FIN]
+
+- **Fallback uses the fallback provider's OWN default model setting, never
+  a per-task "fallback model" setting.** Avoids an N-provider × M-task
+  model-settings matrix; fallback is rare, and correctness (falling back at
+  all) matters more than model-tier tuning on the path that fires.
+- **The agent runner does NOT call `model_router.chat_with_fallback`
+  directly — it duplicates the primary/fallback attempt inline, calling
+  the LOCAL `chat_with` name `runner.py` already imports.** This repo's
+  existing tests monkeypatch `runner.chat_with` directly (there are many,
+  across several files); `model_router.py` holds its own separately-bound
+  reference to the same underlying function, so routing through it would
+  have silently bypassed every one of those monkeypatches instead of
+  intercepting both the primary and fallback attempt. A few lines of
+  duplication was the right price for not rewriting a large slice of the
+  existing K4 test suite.
+- **The thread's own explicit provider choice (K1-era per-conversation
+  UX — the dropdown in the agent chat UI) stays the PRIMARY for that
+  thread, always** — `routing.agent.provider` only seeds the default for
+  BRAND-NEW threads (superseding the M1 "agentProvider" setting, now
+  removed from the catalog) and supplies the ONE fallback attempt when the
+  thread's chosen provider comes back unavailable/erroring.
+- **Two real bugs found and fixed while wiring this, both worth recording:**
+  1. **A shared-connection SQLite trap.** Test fixtures using
+     `poolclass=StaticPool` give every `Session` built from that engine the
+     SAME underlying physical connection. `runner.run_turn()` holds an
+     UNCOMMITTED transaction open for the whole turn (one user-message
+     insert before the loop, one final commit after); mid-turn, a SEPARATE
+     bare `settings_service.SessionLocal()` call (opened to resolve
+     `routing.agent.fallback`) would `close()` — which, on a Session
+     sharing that same physical connection, rolls back the OTHER session's
+     still-pending insert too. Reproduced directly (a minimal repro
+     without the shared engine did NOT show the bug), then fixed by making
+     `settings_service`/`model_router`'s bare sessions use a genuinely
+     SEPARATE engine from any given test's `Depends(get_db)` override —
+     `tests/conftest.py`'s new autouse fixture provides this by default,
+     and the two router-test files that used to (harmfully) point
+     `settings_service.SessionLocal` at their own request-scoped engine
+     had that specific line removed.
+  2. **A real-network-call test leak.** `routing.*.provider` defaults to
+     `"ollama"`, and this repo's own dev machine has a real local Ollama
+     instance reachable — so once classification/extraction routed through
+     `model_router` (this milestone), any test exercising them WITHOUT
+     explicit stubbing made a genuine network call instead of failing fast,
+     violating this repo's own established "no live network calls in
+     tests" discipline and adding multiple seconds of real I/O to unrelated
+     tests (measured directly: several document-upload tests got 2-4s
+     slower). Fixed with a second `conftest.py` autouse fixture that blocks
+     `httpx.post`/`httpx.get` by default (raising a connection error);
+     tests that want real (mocked) HTTP behavior, like
+     `test_ollama_provider.py`, already monkeypatch those themselves, which
+     simply overrides this default for that specific test.
+
 ## M2 — Ollama provider adapter [FIN]
 
 - **Weak local models tool-calling less reliably is a known, accepted

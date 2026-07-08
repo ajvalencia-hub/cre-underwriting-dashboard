@@ -21,9 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AgentMessage, AgentProposal, AgentThread, AgentToolCall
+from app.services import settings as settings_service
 from app.services.agent import context as agent_context
-from app.services.agent import provenance
+from app.services.agent import model_router, provenance
 from app.services.agent.providers import chat_with
+from app.services.agent.providers.types import ChatResult, ToolSpec
 from app.services.agent.providers.types import Message as ProviderMessage
 from app.services.agent.tools.registry import ALL_TOOLS, to_tool_specs
 
@@ -110,6 +112,38 @@ def _load_history_as_provider_messages(db: Session, thread_id: str) -> list[Prov
     return [ProviderMessage(role=m.role, content=m.content) for m in rows]
 
 
+def _default_model_for(provider: str) -> str:
+    try:
+        return settings_service.resolve_setting(f"{provider}AgentModel")[0]
+    except KeyError:
+        return ""  # e.g. "scripted" (K11's test-only stub) has no catalog entry
+
+
+def _chat_with_agent_fallback(
+    provider: str, messages: list[ProviderMessage], tools: list[ToolSpec], system: str,
+) -> tuple[ChatResult, str, str]:
+    """M3: the thread's own provider choice (K1-era per-conversation UX,
+    set via the agent UI's provider dropdown) is ALWAYS the primary here —
+    routing.agent.provider only seeds a brand-new thread's default (see
+    _get_or_create_thread in routers/agent.py); routing.agent.fallback
+    supplies the one retry attempt if the thread's provider comes back
+    unavailable/erroring.
+
+    Deliberately calls the LOCAL `chat_with` name rather than
+    model_router.chat_with_fallback: this repo's existing tests monkeypatch
+    `runner.chat_with` directly (there are many), and model_router.py holds
+    its own separately-bound reference to the same underlying function —
+    routing through it here would silently bypass every one of those
+    monkeypatches instead of intercepting both the primary and fallback
+    attempt, which is what those tests actually need."""
+    fallback = settings_service.resolve_setting("routing.agent.fallback")[0]
+    result = chat_with(provider, messages, tools, system)
+    if result.stop_reason in ("unavailable", "error") and fallback and fallback not in ("none", provider):
+        result = chat_with(fallback, messages, tools, system)
+        return result, fallback, _default_model_for(fallback)
+    return result, provider, _default_model_for(provider)
+
+
 def run_turn(
     db: Session, thread: AgentThread, user_text: str, tool_names: list[str] | None = None
 ) -> dict:
@@ -148,7 +182,15 @@ def run_turn(
             stopped_reason = f"tool-call limit ({MAX_TOOL_CALLS_PER_TURN}) reached"
             break
 
-        result = chat_with(thread.provider, provider_messages, tool_specs, system_prompt)
+        result, provider_used, model_used = _chat_with_agent_fallback(
+            thread.provider, provider_messages, tool_specs, system_prompt
+        )
+        # M3: one usage event per actual LLM call (a tool-call round with
+        # 3 provider round-trips logs 3 rows) — reuses THIS turn's own db
+        # session/commit boundary rather than opening a separate one.
+        model_router.record_usage(
+            "agent", provider_used, model_used, result.usage, deal_id=thread.deal_id, db=db,
+        )
         thread.total_input_tokens += result.usage.input_tokens
         thread.total_output_tokens += result.usage.output_tokens
 

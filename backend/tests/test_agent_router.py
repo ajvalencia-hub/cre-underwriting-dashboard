@@ -9,13 +9,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.services import settings as settings_service
 from app.services.agent import runner
 from app.services.agent.providers.types import ChatResult, ToolCall, Usage
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client():
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -30,12 +29,17 @@ def client(monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = _override
-    # M1: settings.py opens its own short-lived session (non-request code
-    # like the provider adapters has no Depends(get_db) session to reuse) —
-    # point it at this test's isolated engine too, so agent.py's new
-    # settings-backed reads (hasKey, default thread provider) never touch
-    # the real dev database.
-    monkeypatch.setattr(settings_service, "SessionLocal", TestSession)
+    # M1/M3: settings.py/model_router.py open their own short-lived session
+    # (non-request code — the provider adapters, mid-turn routing reads —
+    # has no Depends(get_db) session to reuse). Deliberately NOT pointed at
+    # THIS fixture's own StaticPool engine: a StaticPool connection is
+    # shared by every Session built from it, so a second session opening
+    # and closing (settings_service's bare SessionLocal(), read mid-turn)
+    # would roll back THIS request's still-uncommitted AgentMessage insert
+    # out from under it (confirmed by reproducing it directly). The
+    # conftest.py autouse fixture already gives settings/model_router their
+    # own SEPARATE isolated engine, which is all that's needed here — never
+    # the real dev DB — without sharing a connection with this one.
     yield TestClient(app)
     app.dependency_overrides.pop(get_db)
     engine.dispose()
@@ -267,9 +271,11 @@ def test_list_providers_returns_anthropic_openai_and_ollama_with_key_flags(clien
 
 def test_set_thread_provider_switches_and_persists(client):
     deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
-    # default thread provider comes from AGENT_PROVIDER (anthropic in tests)
+    # M3: new-thread default now comes from routing.agent.provider
+    # (local-first by default: "ollama"), not the old flat AGENT_PROVIDER
+    # env var / "agentProvider" setting (superseded, see DECISIONS.md).
     initial = client.get(f"/api/agent/threads/{deal['id']}").json()
-    assert initial["provider"] == "anthropic"
+    assert initial["provider"] == "ollama"
 
     resp = client.put(f"/api/agent/threads/{deal['id']}/provider", json={"provider": "openai"})
     assert resp.status_code == 200

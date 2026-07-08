@@ -23,7 +23,6 @@ from pathlib import Path
 import openpyxl
 import pdfplumber
 
-from app.services import settings as settings_service
 from app.services.extraction import ocr
 
 DOCUMENT_TYPES = ("offering_memorandum", "rent_roll", "t12_operating_statement", "other")
@@ -180,14 +179,17 @@ def _best_two(scores: dict[str, float]) -> list[tuple[str, float]]:
 
 
 def _llm_classify(source_text: str) -> dict | None:
-    api_key = settings_service.resolve_setting("anthropicApiKey")[0]
-    if not api_key or not source_text.strip():
+    """M3: routed through model_router's "classification" task (local-first,
+    cloud-fallback per Settings) instead of constructing an Anthropic client
+    directly — this is a plain one-shot completion, no tools/system prompt
+    needed, so an empty tools list and system string round-trip fine through
+    every provider adapter."""
+    if not source_text.strip():
         return None
 
-    import anthropic
+    from app.services.agent import model_router
+    from app.services.agent.providers.types import Message
 
-    client = anthropic.Anthropic(api_key=api_key)
-    model = settings_service.resolve_setting("anthropicClassifierModel")[0]
     prompt = (
         "Classify this commercial real estate document. Respond with JSON only, "
         'no other text, matching exactly: {"documentType": "offering_memorandum" '
@@ -195,14 +197,16 @@ def _llm_classify(source_text: str) -> dict | None:
         '"rationale": "one short sentence"}\n\n'
         f"Document excerpt:\n{source_text[:4000]}"
     )
+    result, _provider_used, _model_used = model_router.run_task(
+        "classification", [Message(role="user", content=prompt)], [], "",
+    )
+    if result.stop_reason == "unavailable":
+        return None
+    if result.stop_reason != "end_turn":
+        return {"error": result.error or "LLM classification call failed."}
+
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text.strip()
-        raw = re.sub(r"^```(json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+        raw = re.sub(r"^```(json)?|```$", "", result.text.strip(), flags=re.MULTILINE).strip()
         parsed = json.loads(raw)
         if parsed.get("documentType") not in DOCUMENT_TYPES:
             return None
@@ -266,10 +270,10 @@ def classify_document(path: Path, filename: str) -> dict:
         }
 
     note = (
-        "LLM classification unavailable — set ANTHROPIC_API_KEY for better accuracy on "
-        "ambiguous documents."
-        if not settings_service.resolve_setting("anthropicApiKey")[0]
-        else f"LLM classification failed ({llm_result.get('error') if llm_result else 'no response'})."
+        f"LLM classification failed ({llm_result['error']})."
+        if llm_result and "error" in llm_result
+        else "LLM classification unavailable — configure a local (Ollama) or cloud AI "
+        "provider in Settings for better accuracy on ambiguous documents."
     )
     return {
         "documentType": top_type if top_score > 0 else "other",

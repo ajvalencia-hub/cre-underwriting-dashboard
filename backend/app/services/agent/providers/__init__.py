@@ -31,11 +31,19 @@ _DEFAULT_MODEL_SETTING = {
 
 
 def chat_with(
-    provider_name: str, messages: list[Message], tools: list[ToolSpec], system: str
+    provider_name: str, messages: list[Message], tools: list[ToolSpec], system: str,
+    model: str | None = None,
 ) -> ChatResult:
-    """Dispatch to the named provider's default model. Unknown provider names
-    return an "unavailable" result rather than raising — a bad AGENT_PROVIDER
-    value should degrade the same way a missing key does, not 500."""
+    """Dispatch to the named provider. Unknown provider names return an
+    "unavailable" result rather than raising — a bad provider value should
+    degrade the same way a missing key does, not 500.
+
+    M3: `model` is an optional override — when omitted (every pre-M3
+    caller, e.g. the K4 runner's default path), the provider's own default
+    model setting is resolved as before; when given (model_router.py's
+    per-task routing), it's used directly. This keeps every existing call
+    site's behavior byte-identical while letting per-task routing pick a
+    specific model without needing its own copy of the factory dispatch."""
     module = _PROVIDER_MODULES.get(provider_name)
     if module is None:
         return ChatResult(
@@ -45,6 +53,9 @@ def chat_with(
                 f"Valid options: {', '.join(_PROVIDER_MODULES)}."
             ),
         )
-    setting_key = _DEFAULT_MODEL_SETTING[provider_name]
-    model = settings_service.resolve_setting(setting_key)[0] if setting_key else "scripted-v1"
-    return module.chat(messages, tools, system, model)
+    if model:
+        resolved_model = model
+    else:
+        setting_key = _DEFAULT_MODEL_SETTING[provider_name]
+        resolved_model = settings_service.resolve_setting(setting_key)[0] if setting_key else "scripted-v1"
+    return module.chat(messages, tools, system, resolved_model)

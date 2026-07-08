@@ -223,8 +223,13 @@ def test_health_endpoint_never_makes_a_live_call_for_cloud_providers(monkeypatch
 # ----------------------------------------------------------------------
 
 @pytest.fixture
-def client(monkeypatch):
-    """Mirrors test_agent_router.py's isolated-engine client fixture."""
+def client():
+    """Mirrors test_agent_router.py's isolated-engine client fixture —
+    including NOT pointing settings_service.SessionLocal at this same
+    StaticPool engine (see that file's fixture for why: a shared connection
+    lets a second session's close() roll back this request's still-
+    uncommitted AgentMessage insert mid-turn). conftest.py's autouse
+    fixture already gives settings/model_router their own separate one."""
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -239,7 +244,6 @@ def client(monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = _override
-    monkeypatch.setattr(settings_service, "SessionLocal", TestSession)
     yield TestClient(app)
     app.dependency_overrides.pop(get_db)
     engine.dispose()

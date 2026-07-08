@@ -266,6 +266,28 @@ class Setting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class LlmUsageEvent(Base):
+    """M3: one LLM call, across every task (classification/extraction/
+    agent) and provider — the per-call ledger AgentThread's running totals
+    (K10) don't provide (those are a per-CONVERSATION cumulative sum with
+    no task/model/timestamp dimension). Written at the single chokepoint
+    every task routes through (app/services/agent/model_router.py), on
+    EVERY attempt including a both-unavailable/local-$0 one, so the usage
+    trail exists from turn one even before M5's aggregation view lands."""
+
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    task: Mapped[str] = mapped_column(String, index=True)  # classification | extraction | agent
+    provider: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String, default="")
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deal_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+
+
 class AgentProposal(Base):
     """K4: a WRITE tool's output, persisted for user review. Applying one
     still goes through the ordinary PUT /api/deals/{id} (K7) — this row is

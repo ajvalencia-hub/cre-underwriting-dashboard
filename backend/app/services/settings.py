@@ -61,10 +61,25 @@ SETTINGS_CATALOG: dict[str, SettingDef] = {
     ),
     "openaiApiKey": SettingDef("aiProviders", "OpenAI API Key", True, "OPENAI_API_KEY"),
     "openaiAgentModel": SettingDef("aiProviders", "OpenAI Agent Model", False, "OPENAI_AGENT_MODEL"),
-    "agentProvider": SettingDef("aiProviders", "Default Agent Provider", False, "AGENT_PROVIDER"),
     # M2: local, no key required.
     "ollamaBaseUrl": SettingDef("aiProviders", "Ollama Base URL", False, "OLLAMA_BASE_URL"),
     "ollamaAgentModel": SettingDef("aiProviders", "Ollama Agent Model", False, "OLLAMA_AGENT_MODEL"),
+    # --- Model routing (M3): one {provider, model, fallback} triple per
+    # routable task. LOCAL-FIRST by default (ollama primary, anthropic
+    # fallback) — see DECISIONS.md. Supersedes the M1 "agentProvider"
+    # setting (removed) as the default provider seed for brand-new agent
+    # threads; a thread's own explicit provider choice (set via the agent
+    # UI's provider dropdown) still always wins as that thread's primary —
+    # routing.agent.* only supplies the NEW-thread default and the fallback.
+    "routing.classification.provider": SettingDef("modelRouting", "Classification Provider", False, default="ollama"),
+    "routing.classification.model": SettingDef("modelRouting", "Classification Model", False, default="llama3.1"),
+    "routing.classification.fallback": SettingDef("modelRouting", "Classification Fallback", False, default="anthropic"),
+    "routing.extraction.provider": SettingDef("modelRouting", "Extraction Provider", False, default="ollama"),
+    "routing.extraction.model": SettingDef("modelRouting", "Extraction Model", False, default="llama3.1"),
+    "routing.extraction.fallback": SettingDef("modelRouting", "Extraction Fallback", False, default="anthropic"),
+    "routing.agent.provider": SettingDef("modelRouting", "Agent Provider", False, default="ollama"),
+    "routing.agent.model": SettingDef("modelRouting", "Agent Model", False, default="llama3.1"),
+    "routing.agent.fallback": SettingDef("modelRouting", "Agent Fallback", False, default="anthropic"),
     # --- Branding -----------------------------------------------------------
     "firmName": SettingDef("branding", "Firm Name", False, "FIRM_NAME"),
     "memoBrandColor": SettingDef("branding", "Memo Brand Color", False, "MEMO_BRAND_COLOR"),
