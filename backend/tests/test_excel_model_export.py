@@ -50,6 +50,35 @@ def test_unsupported_features_refuse_with_the_full_list(analytic):
         assert fragment in text, fragment
 
 
+def test_unsupported_features_refuse_with_l_phase_blockers(analytic):
+    # L1/L3/L4/L5/L6 each added their own native-only blocker (asserted
+    # individually in their own test files too) -- this combined case
+    # confirms they all surface together in one refusal, matching the
+    # pre-existing 4-fragment pattern above. L7 (Monte Carlo) deliberately
+    # has NO entry here -- it's a separate compute mode, never touches this
+    # module (see test_monte_carlo.py's dedicated regression test).
+    hostile = {
+        **analytic,
+        "renovationProgram": [{"unitType": "1BR", "unitsToReno": 10, "costPerUnit": 5000}],
+        "assetMgmtFeePct": 0.02,
+        "juniorTrancheKind": "mezz",
+        "juniorTrancheAmount": 100_000,
+        "rateMode": "floating",
+        "rateCurrentIndexPct": 0.05,
+        "replacementReservesPerUnit": 300,
+        "reservesConvention": "below_noi",
+        "monthsOfTaxesAndInsurance": 6,
+    }
+    with pytest.raises(UnsupportedModelFeatures) as excinfo:
+        build_model_workbook(hostile)
+    text = str(excinfo.value)
+    for fragment in (
+        "renovation", "management fee", "junior tranche", "floating-rate",
+        "replacement reserves", "escrow",
+    ):
+        assert fragment.lower() in text.lower(), fragment
+
+
 def test_development_sold_before_stabilization_refuses():
     dev = {
         "dealType": "development",
