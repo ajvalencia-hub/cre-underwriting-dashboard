@@ -8,6 +8,7 @@ import anthropic
 import openai
 import pytest
 
+from app.services import settings as settings_service
 from app.services.agent.providers import anthropic_provider, openai_provider
 from app.services.agent.providers import chat_with
 from app.services.agent.providers.types import Message, ToolCall, ToolSpec
@@ -54,16 +55,29 @@ class _StubAnthropicClient:
 
 
 @pytest.fixture
-def stub_anthropic(monkeypatch):
+def settings_overrides(monkeypatch):
+    """M1: providers resolve keys/models via settings_service at call time
+    now, not module-level constants. A single shared dict backs the stubbed
+    resolver so stub_anthropic and stub_openai (both depending on this
+    fixture) compose instead of clobbering each other's monkeypatch."""
+    overrides: dict[str, str] = {}
+    monkeypatch.setattr(
+        settings_service, "resolve_setting", lambda key: (overrides.get(key, ""), "db")
+    )
+    return overrides
+
+
+@pytest.fixture
+def stub_anthropic(monkeypatch, settings_overrides):
     monkeypatch.setattr(anthropic, "Anthropic", _StubAnthropicClient)
-    monkeypatch.setattr(anthropic_provider, "ANTHROPIC_API_KEY", "test-key")
+    settings_overrides["anthropicApiKey"] = "test-key"
     _StubAnthropicClient.raises = False
     _StubAnthropicClient.captured_kwargs = None
     yield _StubAnthropicClient
 
 
-def test_anthropic_missing_key_is_unavailable(monkeypatch):
-    monkeypatch.setattr(anthropic_provider, "ANTHROPIC_API_KEY", "")
+def test_anthropic_missing_key_is_unavailable(settings_overrides):
+    settings_overrides["anthropicApiKey"] = ""
     result = anthropic_provider.chat([Message(role="user", content="hi")], [], "system", "model")
     assert result.stop_reason == "unavailable"
     assert result.error
@@ -172,16 +186,16 @@ class _StubOpenAIClient:
 
 
 @pytest.fixture
-def stub_openai(monkeypatch):
+def stub_openai(monkeypatch, settings_overrides):
     monkeypatch.setattr(openai, "OpenAI", _StubOpenAIClient)
-    monkeypatch.setattr(openai_provider, "OPENAI_API_KEY", "test-key")
+    settings_overrides["openaiApiKey"] = "test-key"
     _StubOpenAIClient.raises = False
     _StubOpenAIClient.captured_kwargs = None
     yield _StubOpenAIClient
 
 
-def test_openai_missing_key_is_unavailable(monkeypatch):
-    monkeypatch.setattr(openai_provider, "OPENAI_API_KEY", "")
+def test_openai_missing_key_is_unavailable(settings_overrides):
+    settings_overrides["openaiApiKey"] = ""
     result = openai_provider.chat([Message(role="user", content="hi")], [], "system", "model")
     assert result.stop_reason == "unavailable"
     assert result.error

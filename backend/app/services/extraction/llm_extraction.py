@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from app.config import ANTHROPIC_API_KEY, ANTHROPIC_EXTRACTION_MODEL
+from app.services import settings as settings_service
 
 _MAX_TEXT_CHARS = 15000
 
@@ -124,7 +124,8 @@ def extract_with_llm(
     """Returns a dict with either the validated extraction (under "result") or
     an "error"/"unavailable" note — callers check for "result" before using it.
     """
-    if not ANTHROPIC_API_KEY:
+    api_key = settings_service.resolve_setting("anthropicApiKey")[0]
+    if not api_key:
         return {
             "result": None,
             "note": "LLM extraction unavailable — set ANTHROPIC_API_KEY in backend/.env.",
@@ -144,9 +145,10 @@ def extract_with_llm(
     )
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(api_key=api_key)
+        model = settings_service.resolve_setting("anthropicExtractionModel")[0]
         response = client.messages.create(
-            model=ANTHROPIC_EXTRACTION_MODEL,
+            model=model,
             max_tokens=8000,
             messages=[{"role": "user", "content": prompt}],
         )

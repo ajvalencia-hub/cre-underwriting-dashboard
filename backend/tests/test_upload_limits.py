@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import upload_limit
+from app.services import settings as settings_service
 
 
 class _StubUpload:
@@ -35,7 +36,11 @@ def test_over_limit_raises_413_without_buffering_everything():
 
 
 def test_document_upload_route_returns_413(monkeypatch):
-    monkeypatch.setattr(upload_limit, "MAX_UPLOAD_BYTES", 1024)
+    # M1: the default cap is settings-backed now, not the module constant.
+    monkeypatch.setattr(
+        settings_service, "resolve_setting",
+        lambda key: ("1024" if key == "maxUploadBytes" else "", "db"),
+    )
     client = TestClient(app)
     resp = client.post(
         "/api/documents/upload",
@@ -46,7 +51,10 @@ def test_document_upload_route_returns_413(monkeypatch):
 
 
 def test_template_upload_route_returns_413(monkeypatch):
-    monkeypatch.setattr(upload_limit, "MAX_UPLOAD_BYTES", 1024)
+    monkeypatch.setattr(
+        settings_service, "resolve_setting",
+        lambda key: ("1024" if key == "maxUploadBytes" else "", "db"),
+    )
     client = TestClient(app)
     resp = client.post(
         "/api/templates/upload",

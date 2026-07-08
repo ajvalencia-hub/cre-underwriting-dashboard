@@ -27,6 +27,7 @@ from app.routers import (
     schema,
     scenarios,
     sensitivity,
+    settings,
     templates,
 )
 
@@ -101,6 +102,7 @@ app.include_router(comps.router)
 app.include_router(demographics.router)
 app.include_router(presets.router)
 app.include_router(client_errors.router)
+app.include_router(settings.router)
 
 
 @app.get("/api/health")

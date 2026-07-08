@@ -9,12 +9,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.services import settings as settings_service
 from app.services.agent import runner
 from app.services.agent.providers.types import ChatResult, ToolCall, Usage
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -29,6 +30,12 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = _override
+    # M1: settings.py opens its own short-lived session (non-request code
+    # like the provider adapters has no Depends(get_db) session to reuse) —
+    # point it at this test's isolated engine too, so agent.py's new
+    # settings-backed reads (hasKey, default thread provider) never touch
+    # the real dev database.
+    monkeypatch.setattr(settings_service, "SessionLocal", TestSession)
     yield TestClient(app)
     app.dependency_overrides.pop(get_db)
     engine.dispose()

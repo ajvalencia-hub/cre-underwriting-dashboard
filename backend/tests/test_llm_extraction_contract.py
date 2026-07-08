@@ -30,7 +30,13 @@ class _StubClient:
 def stubbed_llm(monkeypatch):
     _StubClient.last_prompt = None
     monkeypatch.setattr(anthropic, "Anthropic", _StubClient)
-    monkeypatch.setattr(llm_extraction, "ANTHROPIC_API_KEY", "test-key")
+    # M1: llm_extraction resolves its key/model via settings_service at call
+    # time now, not a module-level ANTHROPIC_API_KEY constant — stub the
+    # resolver directly rather than depending on any real/test DB state.
+    monkeypatch.setattr(
+        llm_extraction.settings_service, "resolve_setting",
+        lambda key: ("test-key" if key == "anthropicApiKey" else "test-model", "db"),
+    )
 
 
 def test_contract_pins_percent_scale_as_decimal_fraction():

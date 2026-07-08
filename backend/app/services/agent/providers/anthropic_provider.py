@@ -1,9 +1,13 @@
 """K2: Anthropic adapter — same client-construction/error-handling shape as
 the existing document_classifier.py / llm_extraction.py call sites (deferred
 import, api_key from config, broad except that never raises past this
-module), extended with tools= and non-streaming tool-call support."""
+module), extended with tools= and non-streaming tool-call support.
 
-from app.config import ANTHROPIC_API_KEY
+M1: the API key is resolved via app.services.settings at CALL time (not
+imported once at module load) so a DB override set through the Settings UI
+takes effect immediately, without a server restart."""
+
+from app.services import settings as settings_service
 from app.services.agent.providers.types import ChatResult, Message, ToolCall, ToolSpec, Usage
 
 
@@ -45,7 +49,8 @@ def _to_anthropic_messages(messages: list[Message]) -> list[dict]:
 
 
 def chat(messages: list[Message], tools: list[ToolSpec], system: str, model: str) -> ChatResult:
-    if not ANTHROPIC_API_KEY:
+    api_key = settings_service.resolve_setting("anthropicApiKey")[0]
+    if not api_key:
         return ChatResult(
             text="", tool_calls=[], usage=Usage(), stop_reason="unavailable",
             error="ANTHROPIC_API_KEY is not set — see backend/.env.example.",
@@ -54,7 +59,7 @@ def chat(messages: list[Message], tools: list[ToolSpec], system: str, model: str
     import anthropic
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=model,
             max_tokens=4096,

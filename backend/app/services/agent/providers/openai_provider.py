@@ -1,10 +1,13 @@
 """K2: OpenAI adapter (Chat Completions, non-streaming, function-calling).
 Mirrors anthropic_provider.py's shape exactly — same key-missing/error
-handling contract — so the runner (K4) treats both providers identically."""
+handling contract — so the runner (K4) treats both providers identically.
+
+M1: the API key is resolved via app.services.settings at CALL time, same
+as anthropic_provider.py — see that module's docstring."""
 
 import json
 
-from app.config import OPENAI_API_KEY
+from app.services import settings as settings_service
 from app.services.agent.providers.types import ChatResult, Message, ToolCall, ToolSpec, Usage
 
 
@@ -41,7 +44,8 @@ def _to_openai_messages(messages: list[Message], system: str) -> list[dict]:
 
 
 def chat(messages: list[Message], tools: list[ToolSpec], system: str, model: str) -> ChatResult:
-    if not OPENAI_API_KEY:
+    api_key = settings_service.resolve_setting("openaiApiKey")[0]
+    if not api_key:
         return ChatResult(
             text="", tool_calls=[], usage=Usage(), stop_reason="unavailable",
             error="OPENAI_API_KEY is not set — see backend/.env.example.",
@@ -50,7 +54,7 @@ def chat(messages: list[Message], tools: list[ToolSpec], system: str, model: str
     import openai
 
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model=model,
             messages=_to_openai_messages(messages, system),

@@ -3,6 +3,61 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## M1 — Settings backend (DB-backed, secret-safe) [FIN]
+
+- **No "seed once from env" migration.** The original spec asked for a
+  first-load migration that copies current env values into the DB once.
+  Rejected: this would let a stale DB copy silently outlive a later `.env`
+  edit, since the DB row would then always win over the (now different) env
+  value — a developer who changes their `.env` after the app has run once
+  would see the settings system silently ignore the change with no visible
+  cause. **Resolution:** resolution happens at READ time
+  (`resolve_setting()`: DB row if present, else `app.config`'s already-
+  resolved value, else the catalog default) — env keeps working exactly as
+  it always has until a user explicitly overrides a key through the
+  Settings API/UI, at which point (and only then) the DB row takes over.
+  No seeding needed or performed.
+- **Each settings helper opens its own short-lived DB session
+  (`database.SessionLocal()`), not a request-scoped `Depends(get_db)`
+  session.** Non-request code (the Anthropic/OpenAI provider adapters,
+  `document_classifier.py`, `llm_extraction.py`) needs to resolve settings
+  too, and none of those call chains carry a FastAPI DB dependency —
+  threading `db: Session` through the entire provider-adapter call chain
+  (`runner.py` → `chat_with()` → `anthropic_provider.chat()`) just to reach
+  one settings lookup would be a much larger, more invasive change than the
+  key/model-resolution swap this milestone is actually about.
+  **Test-isolation consequence, and how it's handled:** this repo's existing
+  DB-touching tests isolate via `app.dependency_overrides[get_db]` pointing
+  at a scratch in-memory engine — that mechanism does NOT cover a bare
+  `SessionLocal()` call, so without a fix, settings reads/writes inside
+  those tests would silently hit the real dev-machine SQLite file (a real
+  risk: a test calling `set_setting("anthropicApiKey", ...)` could clobber
+  a developer's actual configured key). Fixed by importing `SessionLocal`
+  as a plain module-level name into `app/services/settings.py` (monkeypatch-
+  friendly, same pattern this repo already uses for
+  `anthropic_provider.ANTHROPIC_API_KEY`-style stubbing) and updating every
+  settings-touching test (`test_settings.py`, and `test_agent_router.py`'s
+  shared `client` fixture) to monkeypatch `settings_service.SessionLocal`
+  to the test's own isolated engine, exactly mirroring the existing
+  `get_db` override.
+- **Provider adapters and the provider factory now resolve their API key
+  and default model via `settings.resolve_setting()` at CALL time, not at
+  import time.** Previously `ANTHROPIC_API_KEY`/`ANTHROPIC_AGENT_MODEL` etc.
+  were read once into module-level constants when `app.config` first
+  loaded; a key entered through the (future, M4) Settings UI would then
+  never take effect without a full server restart. Fixed by moving the
+  `app.config` reads inside `anthropic_provider.chat()`/`openai_provider.
+  chat()` and the factory's `chat_with()`, so a DB override is live on the
+  very next request.
+- **`document_classifier.py`/`llm_extraction.py` get the SAME key/model
+  settings-resolution swap in this milestone, but keep constructing their
+  own `anthropic.Anthropic()` client directly for now** — routing them
+  through the K2 provider abstraction/factory is M3's job (per-task model
+  routing), a bigger refactor than "make the key/model values settings-
+  aware." Splitting this way keeps M1 scoped to "values are live-
+  configurable" and defers "call mechanism is provider-routed" to M3,
+  rather than touching the same two files twice for unrelated reasons.
+
 ## L7 — Monte Carlo [FIN]
 
 - **Correlation method: a Gaussian copula via Cholesky decomposition, not

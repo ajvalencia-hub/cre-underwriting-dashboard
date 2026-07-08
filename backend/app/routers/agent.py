@@ -9,23 +9,36 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import AGENT_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY
 from app.database import get_db
 from app.models import AgentMessage, AgentProposal, AgentThread, Deal
 from app.routers.deals import _to_out as _deal_to_out
 from app.services import deal_history
+from app.services import settings as settings_service
 from app.services.agent import plays, runner
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
-# User-selectable providers only — "scripted" (K11's e2e-only deterministic
-# stub) is deliberately excluded from this list; it's reachable solely via
-# the AGENT_PROVIDER env var, never through the UI.
-_SELECTABLE_PROVIDERS = [
-    {"id": "anthropic", "label": "Anthropic (Claude)", "hasKey": bool(ANTHROPIC_API_KEY)},
-    {"id": "openai", "label": "OpenAI", "hasKey": bool(OPENAI_API_KEY)},
-]
-_SELECTABLE_PROVIDER_IDS = {p["id"] for p in _SELECTABLE_PROVIDERS}
+
+def _selectable_providers() -> list[dict]:
+    """User-selectable providers only — "scripted" (K11's e2e-only
+    deterministic stub) is deliberately excluded; it's reachable solely via
+    the AGENT_PROVIDER env var, never through the UI. M1: hasKey is resolved
+    live via settings (DB override or env) on every call, not cached at
+    import — a key entered through the Settings UI is reflected immediately."""
+    return [
+        {
+            "id": "anthropic", "label": "Anthropic (Claude)",
+            "hasKey": bool(settings_service.resolve_setting("anthropicApiKey")[0]),
+        },
+        {
+            "id": "openai", "label": "OpenAI",
+            "hasKey": bool(settings_service.resolve_setting("openaiApiKey")[0]),
+        },
+    ]
+
+
+def _selectable_provider_ids() -> set[str]:
+    return {p["id"] for p in _selectable_providers()}
 
 
 def _get_or_create_thread(db: Session, deal_id: str) -> AgentThread:
@@ -33,7 +46,8 @@ def _get_or_create_thread(db: Session, deal_id: str) -> AgentThread:
         select(AgentThread).where(AgentThread.deal_id == deal_id).order_by(AgentThread.created_at.desc())
     ).scalars().first()
     if thread is None:
-        thread = AgentThread(deal_id=deal_id, provider=AGENT_PROVIDER)
+        default_provider = settings_service.resolve_setting("agentProvider")[0]
+        thread = AgentThread(deal_id=deal_id, provider=default_provider)
         db.add(thread)
         db.commit()
         db.refresh(thread)
@@ -102,7 +116,7 @@ def list_providers():
     configured server-side — the UI never sees the key itself, only this
     boolean, so it can gray out an option instead of letting the user pick
     a provider that will just come back "unavailable"."""
-    return _SELECTABLE_PROVIDERS
+    return _selectable_providers()
 
 
 class SetProviderRequest(BaseModel):
@@ -116,9 +130,10 @@ def set_thread_provider(deal_id: str, payload: SetProviderRequest, db: Session =
     runner already reads thread.provider per turn rather than a fixed
     global. History from the previous provider is untouched; only future
     turns use the new one."""
-    if payload.provider not in _SELECTABLE_PROVIDER_IDS:
+    provider_ids = _selectable_provider_ids()
+    if payload.provider not in provider_ids:
         raise HTTPException(
-            400, f"Unknown provider '{payload.provider}'. Valid options: {', '.join(sorted(_SELECTABLE_PROVIDER_IDS))}."
+            400, f"Unknown provider '{payload.provider}'. Valid options: {', '.join(sorted(provider_ids))}."
         )
     if db.get(Deal, deal_id) is None:
         raise HTTPException(404, "Deal not found")

@@ -23,7 +23,7 @@ from pathlib import Path
 import openpyxl
 import pdfplumber
 
-from app.config import ANTHROPIC_API_KEY, ANTHROPIC_CLASSIFIER_MODEL
+from app.services import settings as settings_service
 from app.services.extraction import ocr
 
 DOCUMENT_TYPES = ("offering_memorandum", "rent_roll", "t12_operating_statement", "other")
@@ -180,12 +180,14 @@ def _best_two(scores: dict[str, float]) -> list[tuple[str, float]]:
 
 
 def _llm_classify(source_text: str) -> dict | None:
-    if not ANTHROPIC_API_KEY or not source_text.strip():
+    api_key = settings_service.resolve_setting("anthropicApiKey")[0]
+    if not api_key or not source_text.strip():
         return None
 
     import anthropic
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=api_key)
+    model = settings_service.resolve_setting("anthropicClassifierModel")[0]
     prompt = (
         "Classify this commercial real estate document. Respond with JSON only, "
         'no other text, matching exactly: {"documentType": "offering_memorandum" '
@@ -195,7 +197,7 @@ def _llm_classify(source_text: str) -> dict | None:
     )
     try:
         response = client.messages.create(
-            model=ANTHROPIC_CLASSIFIER_MODEL,
+            model=model,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -266,7 +268,7 @@ def classify_document(path: Path, filename: str) -> dict:
     note = (
         "LLM classification unavailable — set ANTHROPIC_API_KEY for better accuracy on "
         "ambiguous documents."
-        if not ANTHROPIC_API_KEY
+        if not settings_service.resolve_setting("anthropicApiKey")[0]
         else f"LLM classification failed ({llm_result.get('error') if llm_result else 'no response'})."
     )
     return {

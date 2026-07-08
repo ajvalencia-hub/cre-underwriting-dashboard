@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -248,6 +248,22 @@ class AgentToolCall(Base):
     arguments: Mapped[dict] = mapped_column(JSON, default=dict)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Setting(Base):
+    """M1: a DB override for a config value, layered ABOVE app.config's
+    env/code default (see app/services/settings.py's SETTINGS_CATALOG and
+    resolve_setting()). Secrets are stored as plaintext — this is a local
+    single-user desktop app, the same trust model the .env file itself
+    already has — but NEVER serialized in full over HTTP; GET responses
+    return {isSet, last4} for is_secret rows, never the raw value."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String)
+    is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
 class AgentProposal(Base):
