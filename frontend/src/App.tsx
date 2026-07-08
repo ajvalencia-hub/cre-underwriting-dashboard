@@ -49,6 +49,7 @@ import {
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
+import CommandPalette from './components/CommandPalette'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
 import GoalSeekModal from './components/GoalSeekModal'
@@ -111,6 +112,8 @@ function App() {
   const [omWizardOpen, setOmWizardOpen] = useState(false)
   // J11: critical-dates editor visibility.
   const [datesEditorOpen, setDatesEditorOpen] = useState(false)
+  // J13: Cmd+K command palette.
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -195,6 +198,18 @@ function App() {
         setState({ status: 'error', message: err.message })
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // J13: Cmd/Ctrl+K opens the global search palette.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   // Debounced autosave of the whole working state into the active deal.
@@ -690,6 +705,20 @@ function App() {
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
         />
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNavigate={(item, kind) => {
+          // Deals/tenants/notes deep-link to their deal's dashboard; comps
+          // (global, no dealId) open the Comps tab.
+          if (item.dealId) {
+            void switchDeal(item.dealId).then(() => setTab('dashboard'))
+          } else if (kind === 'comps') {
+            setTab('comps')
+          }
+        }}
+      />
 
       {datesEditorOpen && (
         <CriticalDatesEditor

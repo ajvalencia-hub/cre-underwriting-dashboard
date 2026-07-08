@@ -26,6 +26,7 @@ from app.routers import (
     property_tax,
     schema,
     scenarios,
+    search,
     sensitivity,
     templates,
 )
@@ -100,6 +101,7 @@ app.include_router(property_tax.router)
 app.include_router(comps.router)
 app.include_router(demographics.router)
 app.include_router(presets.router)
+app.include_router(search.router)
 app.include_router(client_errors.router)
 
 

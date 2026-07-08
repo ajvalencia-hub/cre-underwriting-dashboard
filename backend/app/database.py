@@ -33,6 +33,24 @@ def run_migrations(target_engine=None) -> None:
     _migrate_extraction_unit_mix_proposal(eng)
     _migrate_deals_status(eng)
     _migrate_documents_deal_id(eng)
+    _migrate_search_indexes(eng)
+
+
+def _migrate_search_indexes(eng) -> None:
+    """J13: LIKE-search support indexes (prefix matches use them; infix
+    scans are fine at this table size)."""
+    inspector = inspect(eng)
+    tables = set(inspector.get_table_names())
+    with eng.begin() as conn:
+        if "deals" in tables:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_deals_name ON deals (name)"))
+        if "sale_comps" in tables:
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_sale_comps_address ON sale_comps (address)")
+            )
+            conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_sale_comps_name ON sale_comps (name)")
+            )
 
 
 def _migrate_documents_deal_id(eng) -> None:

@@ -3,6 +3,28 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J13 — Global search (Run 5)
+
+- **SQLite LIKE over indexed columns, no FTS.** /api/search hits
+  deals.name, sale_comps.name/address/market, and deal-blob
+  address/market via json_extract; migration adds ix_deals_name,
+  ix_sale_comps_name, ix_sale_comps_address. Full-text search (FTS5) was
+  rejected — a local single-user tool's tables are small, and LIKE keeps
+  the query dependency-free and the migration trivial.
+- **Tenants are a Python scan over deal lease rolls**, not an indexed
+  column — tenant names live inside JSON arrays where no useful index
+  exists; documented as an accepted trade-off at this table size.
+  Tenant hits deep-link to their DEAL (there is no per-tenant page).
+- **Ranking: prefix > substring, then alphabetical**, per group, each
+  group capped at 8. Grouping order is fixed (deals, tenants, comps,
+  notes) so the palette layout is stable across queries.
+- **Keyboard navigation is a pure ring helper** (`nextIndex`,
+  `flattenGroups` in searchNav.ts) so arrow-key wrap and Enter-to-open
+  are unit-tested without a DOM; the palette component is a thin shell
+  over it. Cmd/Ctrl+K toggles from a single window keydown listener.
+- Minimum query length is 2 chars (a 1-char LIKE would match nearly
+  everything) — the endpoint returns empty groups below that.
+
 ## J12 — Deal file cabinet + notes (Run 5)
 
 - **Attachments generalize the Document model** (nullable deal_id +

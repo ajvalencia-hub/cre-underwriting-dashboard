@@ -717,6 +717,26 @@ export function getExtraction(resultId: string) {
   return getJson<ExtractionResult>(`/extraction/${resultId}`)
 }
 
+// ---- J13: global search ----
+
+export interface SearchItem {
+  id: string
+  title: string
+  subtitle: string
+  dealId?: string
+}
+
+export interface SearchGroup {
+  kind: 'deals' | 'tenants' | 'comps' | 'notes'
+  items: SearchItem[]
+}
+
+export function globalSearch(q: string) {
+  return getJson<{ query: string; groups: SearchGroup[] }>(
+    `/search?q=${encodeURIComponent(q)}`,
+  )
+}
+
 // ---- J12: deal file cabinet + notes ----
 
 export interface DealAttachment {
