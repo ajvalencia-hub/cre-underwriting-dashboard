@@ -101,6 +101,38 @@ restore preview, pipeline bulk actions + saved views + CSV, comps dedupe/
 staleness/map, batch screening decks, and the widened Excel export
 (developments + opex detail, still three-way parity-gated) ride on top.
 
+**Run-5 additions — every engine input defaults to exact Run-4 behavior**
+(pinned by the same byte-level regression baseline, now including a
+value-add multifamily fixture):
+
+- **Value-add inputs.** A **renovation program** (per-unit-type cohort
+  sequencing: cost, rent premium, downtime, pace, start month; funded by
+  equity-at-close or operating cash) and **loss-to-lease burn-off** (per-unit
+  turnover blend toward market at capture rate). Both are display/​behavior
+  layers over scheduled rent; absent inputs leave the engine byte-identical.
+- **Capital stack.** **GP fee economics** (acquisition / developer / asset-
+  management fees + promote split-out), a **mezzanine / preferred-equity
+  tranche** (fixed or fill-to-LTC sizing, current or accrued/PIK pay, ranked
+  after senior and before equity, combined-leverage outputs), **floating-rate
+  senior debt** (SOFR forward curve as a step function, floor, rate cap with
+  strike-DSCR stress and premium; seed the index from FRED), and
+  **replacement reserves + tax/insurance escrows** (below-NOI or
+  above-NOI-underwritten convention; escrows as pure close/exit cash timing).
+- **Analytics tools.** **Goal-seek** (solve any numeric input for a target
+  metric; bracket-scan + bisection, no monotonicity assumption), **Monte
+  Carlo** (≤6 correlated drivers via a Gaussian copula, seeded/reproducible,
+  P5–P95 + tail probabilities, histogram, saved to a scenario and into the
+  memo's risk section), and **per-year operating break-evens** (occupancy and
+  rent level at zero levered cash flow, analytic).
+- **Workflow.** An **OM-to-deal wizard** (upload → confirm types → extract →
+  the existing review gate → a new deal with provenance rows; resumable
+  draft), **critical dates** (deadline strip + header chips + share),
+  a **file cabinet + notes** timeline per deal, **global search** (Cmd+K over
+  deals / tenants / comps / notes), a **full 8-slide IC deck**, a
+  **portfolio roll-up** (equity-weighted blended returns, exposure and
+  concentration, CSV), and **Docker packaging with automated SQLite backups**
+  (see the Docker quickstart below).
+
 The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
@@ -214,14 +246,26 @@ percent ±1bp, multiples ±0.001, IRR ±2bp). Drop real firm templates into
 `backend/tests/parity/corpus/dropin/` (gitignored) to check them ad hoc.
 
 CI (`.github/workflows/ci.yml`) runs the full backend suite (with
-LibreOffice + Tesseract installed), the parity CLI, and the frontend
-build/lint/test gates on every push/PR.
+LibreOffice + Tesseract installed), the parity CLI, the frontend
+build/lint/test gates, a Playwright e2e job, and a Docker job (`docker
+compose config` + image build) on every push/PR.
+
+## Run 5 defaults-compatibility statement
+
+Every engine input added in Run 5 (J1–J6: renovation program, loss-to-lease,
+GP/AM fees, junior tranche, floating-rate debt, reserves + escrows) defaults
+to reproducing Run-4 outputs **byte-for-byte** (1e-9), enforced by the
+`backend/tests/regression/` baseline across six fixtures. Turn a feature on
+only by supplying its inputs; leave them at defaults and the pro forma is
+identical to before. See `SUMMARY5.md` for the per-feature before/after
+algebra and the complete Excel-export refusal list.
 
 ## Project documentation
 
-- `SUMMARY.md` / `SUMMARY2.md` / `SUMMARY3.md` / `SUMMARY4.md` — every
-  financial formula in plain algebra per build run, plus decision/blocked
-  deltas and manual QA checklists (SUMMARY4 shows BEFORE/AFTER algebra for
-  the Run-4 recovery/rollover/gross-up/allocation/tax refinements).
+- `SUMMARY.md` / `SUMMARY2.md` / `SUMMARY3.md` / `SUMMARY4.md` /
+  `SUMMARY5.md` — every financial formula in plain algebra per build run,
+  plus decision/blocked deltas and manual QA checklists (SUMMARY5 shows
+  BEFORE/AFTER algebra for the Run-5 value-add + capital-stack features and
+  the complete Excel-export refusal list).
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).
