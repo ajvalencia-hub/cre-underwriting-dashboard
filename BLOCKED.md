@@ -23,11 +23,15 @@ convergence guess to the templates' IRR() formulas — LibreOffice's default
 
 ## Pre-existing (not introduced by this run)
 
-- `ANTHROPIC_API_KEY` is unset in backend/.env — LLM extraction fallback,
-  ambiguous-document classification, and the Agent (when
-  `AGENT_PROVIDER=anthropic`, the default) degrade to a clear
+- `ANTHROPIC_API_KEY` is unset in backend/.env — LLM extraction/
+  classification/agent tasks now default to local-first routing (M3:
+  `routing.<task>.provider = "ollama"`, `.fallback = "anthropic"`), so
+  they degrade to Ollama first and only reach for this key as a fallback;
+  with it unset, the fallback itself also degrades to a clear
   "unavailable" message rather than erroring (by design).
-- `OPENAI_API_KEY` is unset — the Agent degrades the same way when
-  `AGENT_PROVIDER=openai` (by design).
+- `OPENAI_API_KEY` is unset — never a routing default in this build, only
+  reachable via an explicit per-thread provider switch or a manual
+  `routing.*.provider`/`.fallback` override in Settings; degrades the same
+  way when selected without a key (by design).
 - `FRED_API_KEY` is unset — /api/market/rates returns graceful nulls and the
   rates helper text stays hidden (by design).
