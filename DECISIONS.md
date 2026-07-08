@@ -3,6 +3,39 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## M4 — Settings UI [FIN]
+
+- **No jsdom/React-Testing-Library component tests added.** Confirmed
+  before writing any UI code: this frontend's entire existing vitest setup
+  (`vitest.config`, `package.json` devDependencies) is pure-logic testing
+  only — zero DOM-rendering capability configured anywhere (no `jsdom`/
+  `happy-dom`, no `@testing-library/react`). Adding that infrastructure for
+  one feature would be a real new-dependency + config addition, bigger than
+  what "vitest tests" implied at planning time. **Resolution:** rely on the
+  phase's own mandatory real-browser verification instead (arguably
+  stronger than a jsdom simulation) — confirmed live: page renders all six
+  category sections with real data, `SecretField`'s Set→Edit→Save→Cancel/
+  Clear cycle round-trips correctly through the actual API (verified the
+  network response body directly: saving `sk-ant-test1234` returns
+  `{isSet: true, last4: "1234"}`, never the raw value), "Test connection"
+  correctly reported the real local Ollama as reachable and both cloud
+  providers as not (no key configured), zero console errors. TypeScript
+  build and the existing 115 pure-logic vitest tests stayed green
+  throughout — no regression risk to what test infrastructure DOES exist.
+- **`SecretField`/`SettingRow` never persist on blur or on change — only an
+  explicit Save button.** Matches the plan's own stated goal (a half-typed
+  key must never get persisted by accident) and mirrors the masked-value
+  convention already established by K1-era `AgentProviderInfo.hasKey`
+  (presence-only, never the value itself).
+- **Model-routing rows (`routing.<task>.provider`/`.fallback`) render as
+  plain text inputs, not dropdowns constrained to valid provider names.**
+  A v1 simplification — the backend already validates nothing client-side
+  needs to duplicate (an invalid provider name degrades to "unavailable"
+  server-side, the same safe behavior as a bad `AGENT_PROVIDER` env value
+  always has), and hardcoding the valid-options list into the frontend
+  would need to stay in sync with the backend's `_PROVIDER_MODULES` dict by
+  hand. Deferred as a UX polish item, not a correctness gap.
+
 ## M3 — Per-task model routing [FIN]
 
 - **Fallback uses the fallback provider's OWN default model setting, never

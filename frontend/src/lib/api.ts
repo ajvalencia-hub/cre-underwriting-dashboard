@@ -15,6 +15,7 @@ import type {
   AgentThreadState,
   AgentTurnResult,
 } from '../types/agent'
+import type { ProviderHealthMap, SettingEntry } from '../types/settings'
 
 const API_BASE = '/api'
 
@@ -734,4 +735,27 @@ export interface TornadoResponse {
 
 export function fetchTornado(values: Record<string, unknown>, metric: string) {
   return postJson<TornadoResponse>('/compute/tornado', { values, metric }, 'POST')
+}
+
+// M4: Settings — mirrors the getJson/postJson helpers above. DELETE returns
+// the reverted entry's body (unlike del(), which assumes an empty response),
+// so it's fetched directly rather than reusing that helper.
+export function fetchSettings() {
+  return getJson<SettingEntry[]>('/settings')
+}
+
+export function updateSetting(key: string, value: string) {
+  return postJson<SettingEntry>(`/settings/${key}`, { value }, 'PUT')
+}
+
+export async function deleteSetting(key: string): Promise<SettingEntry> {
+  const res = await fetch(`${API_BASE}/settings/${encodeURIComponent(key)}`, { method: 'DELETE' })
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res))
+  }
+  return res.json() as Promise<SettingEntry>
+}
+
+export function fetchProviderHealth() {
+  return getJson<ProviderHealthMap>('/agent/providers/health')
 }

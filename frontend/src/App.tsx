@@ -13,6 +13,7 @@ import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
+import SettingsPage from './pages/SettingsPage'
 import TemplateUpload from './pages/TemplateUpload'
 import { useAgentThread } from './lib/useAgentThread'
 import {
@@ -70,6 +71,7 @@ type Tab =
   | 'scenarios'
   | 'comps'
   | 'agent'
+  | 'settings'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -606,6 +608,7 @@ function App() {
             ['scenarios', '6. Scenarios'],
             ['comps', '7. Comps'],
             ['agent', 'Agent'],
+            ['settings', 'Settings'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -767,6 +770,10 @@ function App() {
           onApprove={handleApproveProposal}
           onReject={handleRejectProposal}
         />
+      </div>
+
+      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+        <SettingsPage />
       </div>
       </Layout>
 
