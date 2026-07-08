@@ -3,6 +3,28 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## J15 — Portfolio roll-up (Run 5)
+
+- **Roll-up computes each non-dead deal live through the pure LRU-cached
+  engine**, not a persisted-outputs store. "Stale-compute" is
+  operationalized as "can't produce returns" — a deal whose
+  engine.compute raises InsufficientInputsError is EXCLUDED from every
+  total and blend and listed with the missing fields. Rejected: a
+  separate stored-outputs table with a dirty flag — a second source of
+  truth to keep synced, when the engine is cheap and pure.
+- **Blends are equity-weighted on committed equity** (−levered[0], the
+  cash in at close); a deal only weights a blend for a metric it
+  actually has. Straight averaging was rejected — a $400k screening
+  deal shouldn't move the book IRR as much as a $40M closing.
+- **Dead deals are dropped entirely** (not part of the live book);
+  every other status rolls up. Totals by status, exposure by market and
+  asset class, and a concentration table (top markets by equity share)
+  all sum the same committed-equity figure.
+- **CSV lists every computed deal + a PORTFOLIO footer + the excluded
+  set** so the export is honest about what the blend omitted.
+- Pure `build_portfolio(deals)` core (thin router over it) so the
+  aggregation, weighting, and exclusion are unit-tested without HTTP.
+
 ## J14 — Full IC deck (Run 5)
 
 - **Extends the H12 renderer's absolute rule**: zero financial math in

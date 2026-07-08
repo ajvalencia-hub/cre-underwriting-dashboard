@@ -9,6 +9,7 @@ import PresetsPanel from './components/PresetsPanel'
 import HistoryDrawer from './components/HistoryDrawer'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
+import PortfolioPage from './pages/PortfolioPage'
 import RiskPanel from './pages/RiskPanel'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
@@ -74,6 +75,7 @@ type Tab =
   | 'risk'
   | 'scenarios'
   | 'comps'
+  | 'portfolio'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -665,6 +667,7 @@ function App() {
             ['risk', '5b. Risk'],
             ['scenarios', '6. Scenarios'],
             ['comps', '7. Comps'],
+            ['portfolio', 'Portfolio'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -843,6 +846,10 @@ function App() {
           }}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
+      </div>
+
+      <div style={{ display: tab === 'portfolio' ? 'block' : 'none' }}>
+        <PortfolioPage active={tab === 'portfolio'} />
       </div>
 
       <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>

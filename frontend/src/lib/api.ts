@@ -717,6 +717,29 @@ export function getExtraction(resultId: string) {
   return getJson<ExtractionResult>(`/extraction/${resultId}`)
 }
 
+// ---- J15: portfolio roll-up ----
+
+export interface PortfolioRollup {
+  dealCount: number
+  excludedCount: number
+  totals: { equity: number; totalCost: number; units: number; sf: number }
+  byStatus: { status: string; count: number; equity: number; totalCost: number; units: number; sf: number }[]
+  exposureByMarket: { market: string; equity: number }[]
+  exposureByAssetClass: { assetClass: string; equity: number }[]
+  blendedLeveredIrr: number | null
+  blendedEquityMultiple: number | null
+  concentration: { market: string; equity: number; sharePct: number }[]
+  deals: {
+    id: string; name: string; status: string; market: string; assetClass: string
+    equity: number; leveredIrr: number | null; equityMultiple: number | null
+  }[]
+  excluded: { id: string; name: string; reason: string }[]
+}
+
+export function fetchPortfolio() {
+  return getJson<PortfolioRollup>('/portfolio')
+}
+
 // ---- J13: global search ----
 
 export interface SearchItem {
