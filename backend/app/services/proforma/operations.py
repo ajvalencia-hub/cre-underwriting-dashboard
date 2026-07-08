@@ -879,6 +879,66 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     }
 
 
+def replacement_reserves_schedule(inputs: dict, timeline: Timeline) -> dict:
+    """L6: the NEW per-unit/PSF replacement reserves line. Returns
+    {"aboveNoiByMonth", "belowNoiByMonth", "warnings"} — exactly one of the
+    two vectors is nonzero, gated by `reservesConvention`. Completely
+    independent of the OLD flat `replacementReserves` field (which stays
+    permanently above-the-line, ignoring this convention toggle — see
+    DECISIONS.md); a deal with both set gets both effects (a warning, not a
+    block, since summing them is a legitimate if unusual modeling choice)."""
+    total = timeline.total_months
+    zero = {"aboveNoiByMonth": [0.0] * total, "belowNoiByMonth": [0.0] * total, "warnings": []}
+
+    per_unit_amount = _num(inputs, "replacementReservesPerUnit")
+    if per_unit_amount <= 0:
+        return zero
+
+    basis = inputs.get("reservesBasis") or "per_unit"
+    if basis == "psf":
+        units_basis = _num(inputs, "rentableSf")
+        basis_label = "rentableSf"
+    else:
+        rows = inputs.get("unitMix") or []
+        units_basis = sum(_num(r, "unitCount") for r in rows if isinstance(r, dict))
+        basis_label = "unitMix total unit count"
+    if units_basis <= 0:
+        return {
+            **zero,
+            "warnings": [
+                f"replacementReservesPerUnit is set but {basis_label} is 0/missing — "
+                "the new reserves line has zero effect."
+            ],
+        }
+
+    warnings: list[str] = []
+    if _num(inputs, "replacementReserves") > 0:
+        warnings.append(
+            "Both the legacy flat replacementReserves field and the new "
+            "replacementReservesPerUnit field are set — they are independent and "
+            "BOTH apply (the old field always stays in opex regardless of "
+            "reservesConvention); clear one if this isn't intentional."
+        )
+
+    annual_amount = per_unit_amount * units_basis
+    expense_growth = (
+        _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
+    )
+    convention = inputs.get("reservesConvention") or "below_noi"
+    above = [0.0] * total
+    below = [0.0] * total
+    for month in range(1, total + 1):
+        operating_month = month - timeline.construction_months
+        if operating_month < 1:
+            continue
+        amount = (annual_amount / 12) * _growth_multiplier(expense_growth, operating_month)
+        if convention == "above_noi_underwritten":
+            above[month - 1] = amount
+        else:
+            below[month - 1] = amount
+    return {"aboveNoiByMonth": above, "belowNoiByMonth": below, "warnings": warnings}
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
@@ -895,12 +955,22 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
                 "renovationProgram is set but ignored on mixed-use deals in this build — "
                 "L1 wires into the plain-multifamily NOI path only."
             )
+        if _num(inputs, "replacementReservesPerUnit") > 0:
+            result.setdefault("warnings", []).append(
+                "replacementReservesPerUnit is set but ignored on mixed-use deals in this "
+                "build — L6 wires into the plain-multifamily NOI path only."
+            )
         return result
     if leases.has_leases(inputs):
         result = _build_lease_noi_vector(inputs, timeline)
         if _has_active_renovation_program(inputs):
             result.setdefault("warnings", []).append(
                 "renovationProgram is set but ignored on commercial-lease deals — "
+                "it only applies to plain multifamily unit-mix deals."
+            )
+        if _num(inputs, "replacementReservesPerUnit") > 0:
+            result.setdefault("warnings", []).append(
+                "replacementReservesPerUnit is set but ignored on commercial-lease deals — "
                 "it only applies to plain multifamily unit-mix deals."
             )
         return result
@@ -972,6 +1042,16 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     warnings.extend(reno["warnings"])
     reno_egi_delta = reno["egiDelta"]
 
+    # L6: the NEW per-unit/PSF reserves line — independent of the legacy
+    # flat replacementReserves field (already inside fixed_by_category
+    # above, untouched). above_noi_underwritten joins opex here;
+    # below_noi is returned separately for engine.py to deduct from cash
+    # flow AFTER NOI/DSCR are computed.
+    reserves = replacement_reserves_schedule(inputs, timeline)
+    warnings.extend(reserves["warnings"])
+    reserves_above_noi = reserves["aboveNoiByMonth"]
+    reserves_below_noi = reserves["belowNoiByMonth"]
+
     gpr_vec: list[float] = []
     egi_vec: list[float] = []
     opex_vec: list[float] = []
@@ -1037,7 +1117,9 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
 
         fixed_expenses_month = sum(vec[month - 1] for vec in fixed_by_category.values())
         management_fee_month = egi_month * management_fee_pct
-        opex_month = fixed_expenses_month + management_fee_month
+        opex_month = (
+            fixed_expenses_month + management_fee_month + reserves_above_noi[month - 1]
+        )
 
         gpr_vec.append(gpr_month)
         egi_vec.append(egi_month)
@@ -1063,6 +1145,7 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "gprSource": source,
         "warnings": warnings,
         "renoCapex": reno["capex"],
+        "belowNoiReserves": reserves_below_noi,
     }
 
 

@@ -3,6 +3,57 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## L6 — Replacement reserves + escrows [FIN]
+
+- **The reserves-default correction (the second real conflict with
+  byte-identical reproduction, after L2):** the original spec's literal
+  wording would have made `'below_noi'` the default treatment for reserves
+  generally. But the EXISTING flat `replacementReserves` field already
+  behaves as `'above_noi_underwritten'` today (in opex, inside NOI — its
+  own docstring already says so). Defaulting a global toggle to
+  `'below_noi'` would have silently moved reserves out of NOI for every
+  deal that already has the flat field set — a direct violation of this
+  run's top-priority rule. **Resolution:** `reservesConvention` only has
+  any effect when the NEW `replacementReservesPerUnit` field is ALSO
+  set — the OLD flat field ignores the toggle entirely and keeps behaving
+  exactly as it does today, forever (verified with a direct regression-guard
+  test, not just implied). A deal with BOTH fields set gets both effects
+  (warned, not blocked — summing an old flat estimate with a new per-unit
+  one is a legitimate, if unusual, modeling choice the user should make
+  deliberately).
+- **`reservesConvention` defaults to `'below_noi'` for the NEW field
+  specifically** (not `'above_noi_underwritten'`) — since the new field is
+  itself fully opt-in (inert until `replacementReservesPerUnit` is set),
+  defaulting its own convention to the richer/more-conservative treatment
+  the spec actually wanted causes zero byte-identical-reproduction risk;
+  only the OLD field's default behavior needed protecting.
+- **`'below_noi'` reserves are a capital-cost line — subtracted from BOTH
+  cash-flow vectors (unlevered and levered), exactly like `leasing_capital`
+  — but never NOI/DSCR/the exit cap basis**, which are all computed
+  upstream and untouched (verified directly: `minDscr`/`yieldOnCost` are
+  bit-for-bit identical with the line on or off). The new
+  `lenderUwDscrOnNoiLessReserves` output is a SUPPLEMENTAL, more
+  conservative view for lenders who want to see reserves-adjusted coverage
+  without redefining the deal's primary NOI.
+- **Basis resolution: `per_unit` sums `unitMix` row `unitCount`s; `psf` uses
+  the existing `rentableSf` field** — no new "total units" field needed
+  (would have duplicated data `unitMix` already carries for multifamily
+  deals). A deal with the basis set but the underlying count/SF at 0 gets a
+  warning, not silent zero effect passed off as intentional.
+- **The T&I escrow is pure cash-timing** — funded at close (an equity
+  outflow, `unlevered`/`levered[0]` both, added to `sourcesAndUses`, but
+  deliberately NOT folded into `basis`/`total_cost_basis`, since an escrow
+  isn't a "cost" for LTC/leverage-sizing purposes) and released
+  dollar-for-dollar at exit. Verified with a direct test:
+  `totalProfit` is unchanged with the escrow on vs. off (proving zero income
+  effect), while `leveredIrr` still moves (proving the timing effect is
+  real, not a no-op). Sized off the input annual T&I dollars AT CLOSE, not
+  grown — matches the escrow's real-world nature as a point-in-time lender
+  sizing requirement, not an ongoing operating expense.
+- **`lenderUwDscrOnNoiLessReserves` and the `belowNoiReserves`/
+  `escrowCashFlow` statement vectors are OMITTED (not zero) when inactive**
+  — same opt-in-omission convention as every other L-phase feature this run.
+
 ## L5 — Floating-rate debt + rate caps [FIN]
 
 - **Floating applies to the PERMANENT loan only — construction-phase

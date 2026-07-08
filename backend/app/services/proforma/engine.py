@@ -116,6 +116,13 @@ def compute(inputs: dict) -> dict:
     # — see the shared cash-flow loop further down. Zeros when no program.
     reno_capex_by_month = (ops.get("renoCapex") or [0.0] * total)[:total]
     reno_funding_source = inputs.get("renoFundingSource") or "equity_at_close"
+    # L6: the NEW per-unit/PSF reserves line in 'below_noi' mode — a capital
+    # cost below NOI (same treatment as leasing_capital above: hits both
+    # cash-flow vectors, never NOI/DSCR/the exit cap basis). Zero unless
+    # replacementReservesPerUnit is set AND reservesConvention is
+    # 'below_noi' (the default); 'above_noi_underwritten' is already inside
+    # NOI via operations.py and never appears here.
+    reserves_below_noi_by_month = (ops.get("belowNoiReserves") or [0.0] * total)[:total]
 
     cost_of_sale = _num(inputs, "costOfSalePct")
     # Component-level exit (H2): when BOTH component caps are provided on a
@@ -469,6 +476,21 @@ def compute(inputs: dict) -> dict:
                 "is repaid from sale proceeds."
             )
 
+    # L6: a tax & insurance escrow — pure cash-timing, funded at close and
+    # released dollar-for-dollar at exit, with zero NOI/opex effect (it
+    # never touches the reserves machinery above). Sized off the input
+    # annual T&I dollars at close (not grown), matching the escrow's own
+    # nature as a point-in-time lender requirement, not an ongoing expense.
+    escrow_months = _num(inputs, "monthsOfTaxesAndInsurance")
+    escrow_amount = (
+        (_num(inputs, "realEstateTaxes") + _num(inputs, "insurance")) / 12 * escrow_months
+        if escrow_months > 0 else 0.0
+    )
+    if escrow_amount:
+        unlevered[0] -= escrow_amount
+        levered[0] -= escrow_amount
+        sources_and_uses["uses"].append(("T&I escrow funding", escrow_amount))
+
     # L3: acquisition/developer fees already existed (uses/YoC-basis, both
     # branches above, unchanged); captured here just for gpTotalComp below.
     acquisition_fee_paid = (
@@ -501,6 +523,9 @@ def compute(inputs: dict) -> dict:
         if leasing_capital[m - 1]:
             unlevered[m] -= leasing_capital[m - 1]
             levered[m] -= leasing_capital[m - 1]
+        if reserves_below_noi_by_month[m - 1]:
+            unlevered[m] -= reserves_below_noi_by_month[m - 1]
+            levered[m] -= reserves_below_noi_by_month[m - 1]
         if am_fee_by_month[m]:
             levered[m] -= am_fee_by_month[m]
         # L1: operating_cash mode draws renovation capex from cash flow in
@@ -539,6 +564,12 @@ def compute(inputs: dict) -> dict:
                 f"Junior tranche exit repayment (${junior_exit_repayment:,.0f}) exceeds "
                 "residual sale proceeds after senior debt payoff — levered exit flow is negative."
             )
+    # L6: the T&I escrow releases back dollar-for-dollar at exit — a pure
+    # cash-timing round-trip (funded above), never income or a capital gain.
+    if escrow_amount:
+        unlevered[total] += escrow_amount
+        levered[total] += escrow_amount
+        sources_and_uses["sources"].append(("T&I escrow release", escrow_amount))
 
     # ------------------------------------------------------------------
     # Metrics
@@ -641,6 +672,19 @@ def compute(inputs: dict) -> dict:
         dscrs = [n / s.payment for n, s in service_months]
         put("minDscr", min(dscrs))
         put("avgDscr", sum(dscrs) / len(dscrs))
+        # L6: a supplemental, more conservative DSCR view — NOI net of the
+        # new below-NOI reserves line. Never touches minDscr/avgDscr above
+        # (those stay computed on NOI exactly as before, by construction —
+        # 'below_noi' reserves are defined to leave primary NOI untouched).
+        # Omitted (not computed) unless the reserves line is actually active.
+        if any(reserves_below_noi_by_month):
+            dscrs_less_reserves = [
+                (noi[m - 1] - reserves_below_noi_by_month[m - 1]) / debt_service[m].payment
+                for m in range(1, total + 1)
+                if debt_service[m] is not None and debt_service[m].payment > 0
+            ]
+            if dscrs_less_reserves:
+                put("lenderUwDscrOnNoiLessReserves", min(dscrs_less_reserves))
         annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate_for_perm, amort_years)
         if io_months >= total - takeout_month + 1:
             annual_service = perm_loan * interest_rate_for_perm  # never leaves IO
@@ -846,6 +890,15 @@ def compute(inputs: dict) -> dict:
     # reasoning as renoCapex/juniorInterest above.
     if floating_rate_schedule is not None:
         statement["seniorRate"] = [0.0] + floating_rate_schedule
+    # L6: only added when the new below-NOI reserves line is active — same
+    # baseline-churn-avoidance reasoning as the vectors above.
+    if any(reserves_below_noi_by_month):
+        statement["belowNoiReserves"] = [0.0] + reserves_below_noi_by_month
+    if escrow_amount:
+        escrow_vec = [0.0] * (total + 1)
+        escrow_vec[0] = -escrow_amount
+        escrow_vec[total] = escrow_amount
+        statement["escrowCashFlow"] = escrow_vec
     # Insurance stress (H3): categorical stress exists only in expense-detail
     # mode; each scenario is a full engine re-compute with the insurance
     # line(s) bumped, so recoveries/mgmt-fee knock-ons are exact.
