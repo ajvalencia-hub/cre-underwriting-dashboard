@@ -122,7 +122,7 @@ def render_share_html(deal_name: str, status: str, inputs: dict, result: dict | 
     )
 
     if result is None:
-        body = head + f"<div class='error' style='margin-top:1rem'>{_esc(error or 'This deal could not be computed.')}</div>"
+        body = head + f"<div class='error' style='margin-top:1rem'>{_esc(error or 'This deal could not be computed.')}</div>"  # noqa: E501
         return _page(deal_name, body)
 
     outputs = result.get("outputs", {})

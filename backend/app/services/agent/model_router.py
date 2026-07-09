@@ -13,14 +13,15 @@ than model-tier tuning on the rare path that fires.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import LlmUsageEvent
-from app.services import cost, settings as settings_service
+from app.services import cost
+from app.services import settings as settings_service
 from app.services.agent.providers import chat_with
 from app.services.agent.providers.types import ChatResult, Message, ToolSpec, Usage
 
@@ -126,9 +127,9 @@ def get_usage_summary(deal_id: str | None = None) -> dict:
     has no thread_id column, only deal_id, since AgentThread is already
     effectively one-thread-per-deal in this build), broken down by task,
     plus budget status against the monthlyBudgetUsd setting."""
-    now = datetime.now(timezone.utc)
-    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    now = datetime.now(UTC)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
+    month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
 
     with SessionLocal() as db:
         rows = db.execute(select(LlmUsageEvent)).scalars().all()
@@ -138,7 +139,7 @@ def get_usage_summary(deal_id: str | None = None) -> dict:
     # already does for the same reason).
     for row in rows:
         if row.created_at.tzinfo is None:
-            row.created_at = row.created_at.replace(tzinfo=timezone.utc)
+            row.created_at = row.created_at.replace(tzinfo=UTC)
 
     today_rows = [r for r in rows if r.created_at >= today_start]
     month_rows = [r for r in rows if r.created_at >= month_start]

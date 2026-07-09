@@ -219,6 +219,7 @@ def run_turn(
                 break
 
             tool_def = ALL_TOOLS.get(call.name)
+            payload: dict
             if tool_def is None:
                 payload = {"error": f"Unknown tool '{call.name}'."}
                 privilege = "unknown"

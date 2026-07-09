@@ -17,8 +17,8 @@ wild baked in on purpose:
 import openpyxl
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 MONTH_HEADERS = [
     "Jan 2026", "Feb 2026", "Mar 2026", "Apr 2026", "May 2026", "Jun 2026",
@@ -92,7 +92,7 @@ def build_realpage_rent_roll(path) -> None:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Unit Availability"
-    headers = ["Bldg/Unit", "Floorplan", "SQFT", "Name", "Lease Rent", "Market + Addl.", "Move-In", "Lease End", "Status"]
+    headers = ["Bldg/Unit", "Floorplan", "SQFT", "Name", "Lease Rent", "Market + Addl.", "Move-In", "Lease End", "Status"]  # noqa: E501
     ws.append(headers)
     rows = [
         ["01-101", "A1", 720, "Eve Foster", 1395, 1425, "2024-09-01", "2026-08-31", "Occupied"],

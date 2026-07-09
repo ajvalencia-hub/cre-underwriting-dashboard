@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -74,7 +74,7 @@ def confirm_extraction(result_id: str, payload: ExtractionConfirmRequest, db: Se
         raise HTTPException(404, "Extraction result not found")
 
     result.confirmed_values = payload.confirmedValues
-    result.confirmed_at = datetime.now(timezone.utc)
+    result.confirmed_at = datetime.now(UTC)
     db.commit()
     db.refresh(result)
     return _to_out(result)

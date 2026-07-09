@@ -356,7 +356,7 @@ def _detail_line_annual(inputs: dict, line: dict) -> tuple[float, str | None]:
         return amount * units, None
     if basis == "psf":
         sf = (
-            sum(_num(l, "sf") for l in (inputs.get("commercialLeases") or []) if isinstance(l, dict))
+            sum(_num(lease, "sf") for lease in (inputs.get("commercialLeases") or []) if isinstance(lease, dict))
             or _num(inputs, "rentableSf")
             or _num(inputs, "officeRentableSf")
         )
@@ -739,8 +739,8 @@ def _allocation_shares(inputs: dict, total: int):
 
     if basis == "sf":
         com_sf = sum(
-            _num(l, "sf") for l in (inputs.get("commercialLeases") or [])
-            if isinstance(l, dict)
+            _num(lease, "sf") for lease in (inputs.get("commercialLeases") or [])
+            if isinstance(lease, dict)
         )
         res_sf = sum(
             _num(r, "unitCount") * _num(r, "avgSf")

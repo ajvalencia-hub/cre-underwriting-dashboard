@@ -9,8 +9,7 @@ import openai
 import pytest
 
 from app.services import settings as settings_service
-from app.services.agent.providers import anthropic_provider, openai_provider
-from app.services.agent.providers import chat_with
+from app.services.agent.providers import anthropic_provider, chat_with, openai_provider
 from app.services.agent.providers.types import Message, ToolCall, ToolSpec
 
 _TOOLS = [ToolSpec(name="get_deal", description="Fetch a deal.", parameters={"type": "object", "properties": {}})]

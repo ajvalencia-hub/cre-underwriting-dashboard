@@ -160,17 +160,17 @@ def extract_with_llm(
     except Exception as exc:  # noqa: BLE001 - unexpected shape, never let it raise past this module
         return {"result": None, "note": f"LLM extraction call failed: {exc}"}
 
-    result = validated.model_dump()
+    extracted = validated.model_dump()
     for bucket in ("scalarExtractions", "rentRollRows", "t12LineItems", "unmatchedExtractions"):
-        for entry in result[bucket]:
+        for entry in extracted[bucket]:
             entry["sourceRef"]["doc"] = source_doc
 
     # Truncation must never be silent: a long OM loses its later pages here,
     # and values that only appear there are simply absent from the extraction.
     if len(text) > _MAX_TEXT_CHARS:
-        result["warnings"].append(
+        extracted["warnings"].append(
             f"document text is {len(text):,} chars but only the first {_MAX_TEXT_CHARS:,} "
             "were sent to the LLM — content beyond that (later pages) was not extracted."
         )
 
-    return {"result": result, "note": None}
+    return {"result": extracted, "note": None}

@@ -9,7 +9,8 @@ import pytest
 from sqlalchemy import select
 
 from app.models import LlmUsageEvent
-from app.services import document_classifier, settings as settings_service
+from app.services import document_classifier
+from app.services import settings as settings_service
 from app.services.agent import model_router
 from app.services.agent.providers.types import ChatResult, Message, Usage
 from app.services.extraction import llm_extraction

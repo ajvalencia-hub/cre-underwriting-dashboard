@@ -1,0 +1,63 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "B008",  # FastAPI's Depends(...)-as-default-argument is the idiom, not a bug
+    "B023",  # false-positive-prone here: every flagged closure (rent_roll_parser.get(),
+             # leases._finish_lease()) is defined and fully consumed within the same loop
+             # iteration, never stored/deferred past it — verified by reading each site.
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["tests/"]
+
+# Adopted fresh on a previously-untyped ~16k-line codebase (no prior mypy
+# run in this repo's history). Rather than block the gate on a full
+# type-annotation retrofit, or silently no-op it, the modules below are a
+# disclosed, dated baseline: real errors mypy finds today that are either
+# (a) known stub/typing gaps in third-party libs (openpyxl, python-docx,
+# python-pptx, the SQLAlchemy Core Table.delete()/.update() idiom, the
+# Anthropic/OpenAI SDKs' strict TypedDict params vs this app's deliberately
+# vendor-neutral dict-based provider abstraction — see K2 in DECISIONS.md),
+# or (b) inherent to this app's own deliberate dynamic-dict input schema
+# (Deal.inputs is one JSON blob by design — see F1 in DECISIONS.md), not
+# bugs. Every OTHER module (the majority of the app) is fully gated now.
+# Shrink this list as modules get real annotations — don't grow it silently.
+[[tool.mypy.overrides]]
+module = [
+    "app.routers.agent",
+    "app.routers.comps",
+    "app.routers.deals",
+    "app.routers.documents",
+    "app.routers.mappings",
+    "app.routers.scenarios",
+    "app.routers.templates",
+    "app.services.agent.providers.anthropic_provider",
+    "app.services.agent.providers.openai_provider",
+    "app.services.agent.tools.read_tools",
+    "app.services.benchmarks",
+    "app.services.comps",
+    "app.services.deck_service",
+    "app.services.excel_model_export",
+    "app.services.extraction.ocr",
+    "app.services.extraction.rent_roll_parser",
+    "app.services.extraction.t12_parser",
+    "app.services.extraction_service",
+    "app.services.mapping_service",
+    "app.services.memo_service",
+    "app.services.proforma.debt",
+    "app.services.proforma.engine",
+    "app.services.proforma.hold",
+    "app.services.proforma.leases",
+    "app.services.proforma.operations",
+    "app.services.share_html",
+    "app.services.tornado_service",
+]
+ignore_errors = true

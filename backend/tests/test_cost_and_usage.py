@@ -11,7 +11,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.services import cost, settings as settings_service
+from app.services import cost
+from app.services import settings as settings_service
 from app.services.agent import model_router, runner
 from app.services.agent.providers.types import ChatResult, ToolCall, Usage
 

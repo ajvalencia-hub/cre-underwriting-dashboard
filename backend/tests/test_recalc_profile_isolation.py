@@ -3,7 +3,6 @@ contend for the shared user-profile lock and fail intermittently. Every
 soffice invocation must carry its own -env:UserInstallation scratch profile.
 """
 
-from pathlib import Path
 
 from app.services.recalc_service import _build_convert_command
 

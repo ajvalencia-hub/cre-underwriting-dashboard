@@ -10,6 +10,7 @@ mapping. Unparseable rows are skipped with a warning, never guessed.
 import csv
 import io
 import re
+from datetime import date, datetime, timedelta
 from statistics import median
 
 from sqlalchemy import select
@@ -172,15 +173,13 @@ def normalize_address(address: str | None) -> str:
     return " ".join(words)
 
 
-def _iso_date(value) -> "date | None":
-    from datetime import date as _date, datetime as _datetime
-
+def _iso_date(value) -> date | None:
     if isinstance(value, str) and value:
         try:
-            return _datetime.strptime(value[:10], "%Y-%m-%d").date()
+            return datetime.strptime(value[:10], "%Y-%m-%d").date()
         except ValueError:
             return None
-    if isinstance(value, _date):
+    if isinstance(value, date):
         return value
     return None
 
@@ -224,9 +223,7 @@ def find_duplicates(
 
 def stale_count(comp_rows: list, date_attr: str, now=None) -> int:
     """How many comps carry a date older than COMP_STALE_MONTHS."""
-    from datetime import date as _date, timedelta
-
-    today = now or _date.today()
+    today = now or date.today()
     cutoff = today - timedelta(days=COMP_STALE_MONTHS * 30)
     count = 0
     for comp in comp_rows:

@@ -2,8 +2,9 @@
 dispatches every tool call through this registry rather than calling tool
 functions directly, so privilege enforcement lives in exactly one place."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 
 from app.services.agent.providers.types import ToolSpec
 from app.services.agent.tools import read_tools, write_tools
@@ -91,7 +92,7 @@ _READ_TOOLS: list[ToolDef] = [
     ),
     ToolDef(
         name="run_tornado",
-        description="Perturbation sensitivity: which single driver (rent, exit cap, cost, opex, rate, vacancy) moves a given metric the most.",
+        description="Perturbation sensitivity: which single driver (rent, exit cap, cost, opex, rate, vacancy) moves a given metric the most.",  # noqa: E501
         parameters={
             "type": "object",
             "properties": {"values": {"type": "object"}, "metric": _STR},
@@ -102,7 +103,7 @@ _READ_TOOLS: list[ToolDef] = [
     ),
     ToolDef(
         name="run_sensitivity",
-        description="Grid sensitivity: sweep 1-2 input drivers across a list of values each and return the resulting output metrics at every combination.",
+        description="Grid sensitivity: sweep 1-2 input drivers across a list of values each and return the resulting output metrics at every combination.",  # noqa: E501
         parameters={
             "type": "object",
             "properties": {
@@ -117,7 +118,7 @@ _READ_TOOLS: list[ToolDef] = [
     ),
     ToolDef(
         name="get_market_context",
-        description="Fetch market/submarket context data (demographics, rates, pricing benchmarks) for a given market and property type.",
+        description="Fetch market/submarket context data (demographics, rates, pricing benchmarks) for a given market and property type.",  # noqa: E501
         parameters={
             "type": "object",
             "properties": {"market": _STR, "submarket": _STR, "propertyType": _STR},
@@ -139,7 +140,7 @@ _READ_TOOLS: list[ToolDef] = [
     ),
     ToolDef(
         name="get_schema",
-        description="List every valid input/output field id, label, and type — use this to check a field id is real before proposing changes to it.",
+        description="List every valid input/output field id, label, and type — use this to check a field id is real before proposing changes to it.",  # noqa: E501
         parameters={"type": "object", "properties": {}},
         privilege="read",
         fn=read_tools.get_schema,
@@ -169,7 +170,7 @@ _WRITE_TOOLS: list[ToolDef] = [
     ),
     ToolDef(
         name="propose_scenario",
-        description="Propose a new named scenario (a variant set of input changes) for the user to review and save. Never applies it directly.",
+        description="Propose a new named scenario (a variant set of input changes) for the user to review and save. Never applies it directly.",  # noqa: E501
         parameters={
             "type": "object",
             "properties": {

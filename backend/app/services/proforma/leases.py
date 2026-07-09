@@ -84,7 +84,7 @@ def _rollover_assumptions(inputs: dict) -> dict:
     # renewal rent.
     discount = _num(inputs, "renewalRentPsfDiscountPct", 1.0)
     return {
-        "renewalProbability": min(1.0, max(0.0, _num(inputs, "renewalProbability", ROLLOVER_DEFAULTS["renewalProbability"]))),
+        "renewalProbability": min(1.0, max(0.0, _num(inputs, "renewalProbability", ROLLOVER_DEFAULTS["renewalProbability"]))),  # noqa: E501
         "downtimeMonths": int(_num(inputs, "downtimeMonths", ROLLOVER_DEFAULTS["downtimeMonths"])),
         "marketRentPsf": _num(inputs, "marketRentPsf") or None,
         "marketRentGrowthPct": _num(inputs, "marketRentGrowthPct", ROLLOVER_DEFAULTS["marketRentGrowthPct"]),
@@ -224,8 +224,8 @@ def build_lease_income(
     """
     warnings: list[str] = []
     leases = [
-        l for l in (inputs.get("commercialLeases") or [])
-        if isinstance(l, dict) and _num(l, "sf") > 0 and _num(l, "baseRentPsfAnnual") > 0
+        lease for lease in (inputs.get("commercialLeases") or [])
+        if isinstance(lease, dict) and _num(lease, "sf") > 0 and _num(lease, "baseRentPsfAnnual") > 0
     ]
     rollover = _rollover_assumptions(inputs)
 
@@ -237,7 +237,7 @@ def build_lease_income(
     leasing_capital = [0.0] * months
     occupied_sf = [0.0] * months
 
-    total_sf = sum(_num(l, "sf") for l in leases)
+    total_sf = sum(_num(lease, "sf") for lease in leases)
     annual_recoverable = _annual_recoverable_by_calendar_year(
         recoverable_opex_monthly, expense_growth
     )
@@ -493,6 +493,6 @@ def build_lease_income(
 
 def has_leases(inputs: dict) -> bool:
     return any(
-        isinstance(l, dict) and _num(l, "sf") > 0 and _num(l, "baseRentPsfAnnual") > 0
-        for l in (inputs.get("commercialLeases") or [])
+        isinstance(lease, dict) and _num(lease, "sf") > 0 and _num(lease, "baseRentPsfAnnual") > 0
+        for lease in (inputs.get("commercialLeases") or [])
     )

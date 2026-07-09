@@ -8,7 +8,7 @@ never fatal: unreadable/unwritable cache files just mean a refetch.
 import json
 import re
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from app.config import STORAGE_ROOT
 

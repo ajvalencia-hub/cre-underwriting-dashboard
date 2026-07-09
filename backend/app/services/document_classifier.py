@@ -15,7 +15,6 @@ becomes a deal input.
 """
 
 import csv
-import io
 import json
 import re
 from pathlib import Path
@@ -91,7 +90,7 @@ def _spreadsheet_headers_and_text(path: Path, ext: str) -> str:
     single blob of text for keyword scoring."""
     chunks: list[str] = []
     if ext == "csv":
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             reader = csv.reader(f)
             for i, row in enumerate(reader):
                 chunks.append(" ".join(str(c) for c in row))
@@ -101,7 +100,7 @@ def _spreadsheet_headers_and_text(path: Path, ext: str) -> str:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         for ws in wb.worksheets:
             chunks.append(ws.title)
-            for i, row in enumerate(ws.iter_rows(max_row=15, values_only=True)):
+            for row in ws.iter_rows(max_row=15, values_only=True):
                 chunks.append(" ".join(str(c) for c in row if c is not None))
         wb.close()
     return "\n".join(chunks)

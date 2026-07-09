@@ -33,7 +33,7 @@ def get_setting(key: str):
     try:
         return settings_service.get_setting_entry(key)
     except KeyError:
-        raise HTTPException(404, f"Unknown setting '{key}'.")
+        raise HTTPException(404, f"Unknown setting '{key}'.") from None
 
 
 @router.put("/{key}")
@@ -42,7 +42,7 @@ def update_setting(key: str, payload: SettingUpdate):
         settings_service.set_setting(key, payload.value)
         return settings_service.get_setting_entry(key)
     except KeyError:
-        raise HTTPException(404, f"Unknown setting '{key}'.")
+        raise HTTPException(404, f"Unknown setting '{key}'.") from None
 
 
 @router.delete("/{key}")
@@ -51,4 +51,4 @@ def revert_setting(key: str):
         settings_service.delete_setting(key)
         return settings_service.get_setting_entry(key)
     except KeyError:
-        raise HTTPException(404, f"Unknown setting '{key}'.")
+        raise HTTPException(404, f"Unknown setting '{key}'.") from None

@@ -14,7 +14,7 @@ Restore sets the deal's inputs to the snapshot's and records that as its
 own "restore" snapshot, so a restore is itself undoable.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -85,10 +85,10 @@ def record_snapshot(db: Session, deal: Deal, new_inputs: dict, kind: str = "auto
         db.flush()
         latest = None  # the new save below still gets its own snapshot
 
-    window_start = datetime.now(timezone.utc) - timedelta(minutes=COALESCE_WINDOW_MINUTES)
+    window_start = datetime.now(UTC) - timedelta(minutes=COALESCE_WINDOW_MINUTES)
     created = latest.created_at if latest is not None else None
     if created is not None and created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
+        created = created.replace(tzinfo=UTC)
     if (
         latest is not None
         and kind == "autosave"
@@ -98,7 +98,7 @@ def record_snapshot(db: Session, deal: Deal, new_inputs: dict, kind: str = "auto
     ):
         latest.inputs = new_inputs
         latest.changed_paths = sorted(set(latest.changed_paths or []) | set(paths))
-        latest.updated_at = datetime.now(timezone.utc)
+        latest.updated_at = datetime.now(UTC)
     else:
         db.add(
             DealSnapshot(deal_id=deal.id, inputs=new_inputs, changed_paths=paths, kind=kind)
@@ -108,8 +108,8 @@ def record_snapshot(db: Session, deal: Deal, new_inputs: dict, kind: str = "auto
 
 
 def list_snapshots(db: Session, deal_id: str) -> list[DealSnapshot]:
-    return db.execute(
+    return list(db.execute(
         select(DealSnapshot)
         .where(DealSnapshot.deal_id == deal_id)
         .order_by(*_NEWEST_FIRST)
-    ).scalars().all()
+    ).scalars().all())

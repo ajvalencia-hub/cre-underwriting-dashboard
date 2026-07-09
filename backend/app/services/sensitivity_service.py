@@ -29,7 +29,7 @@ def cartesian_combos(drivers: list[dict]) -> list[dict]:
     """
     field_ids = [d["fieldId"] for d in drivers]
     value_lists = [d["values"] for d in drivers]
-    return [dict(zip(field_ids, combo)) for combo in itertools.product(*value_lists)]
+    return [dict(zip(field_ids, combo, strict=True)) for combo in itertools.product(*value_lists)]
 
 
 def run_sensitivity(

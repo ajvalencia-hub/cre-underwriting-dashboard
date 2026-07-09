@@ -95,7 +95,7 @@ def test_fixed_mode_unchanged_when_rate_is_a_float():
 def test_floating_schedule_matches_fixed_when_rate_is_constant():
     fixed = debt.amortization_schedule(100_000, 0.06, 10, 0, 24)
     floating = debt.amortization_schedule(100_000, [0.06] * 24, 10, 0, 24)
-    for f, g in zip(fixed, floating):
+    for f, g in zip(fixed, floating, strict=True):
         assert f.payment == pytest.approx(g.payment)
         assert f.balance == pytest.approx(g.balance)
 

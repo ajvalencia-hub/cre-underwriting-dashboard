@@ -9,7 +9,6 @@ from app.services.proforma import engine
 from app.services.proforma.operations import loss_to_lease_schedule
 from app.services.proforma.timeline import Timeline
 
-
 # ---------------------------------------------------------------------------
 # Hand-computed burn-off math (pure unit test)
 # ---------------------------------------------------------------------------

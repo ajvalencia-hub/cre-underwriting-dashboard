@@ -12,7 +12,6 @@ import pytest
 
 from app.services.proforma import operations
 from app.services.proforma.timeline import Timeline
-
 from tests.test_mixed_use import mixed_deal
 
 

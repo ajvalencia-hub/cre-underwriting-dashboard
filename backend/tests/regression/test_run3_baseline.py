@@ -70,7 +70,7 @@ def _diff(expected, actual, path: str, problems: list[str]) -> None:
         if len(expected) != len(actual):
             problems.append(f"{path}: length {len(expected)} -> {len(actual)}")
             return
-        for i, (e, a) in enumerate(zip(expected, actual)):
+        for i, (e, a) in enumerate(zip(expected, actual, strict=True)):
             _diff(e, a, f"{path}[{i}]", problems)
     elif isinstance(expected, (int, float)) and not isinstance(expected, bool) and isinstance(
         actual, (int, float)

@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -137,8 +139,10 @@ def _migrate_scenarios_kind_and_nullable(eng) -> None:
                 text(
                     f"""
                     INSERT INTO scenarios
-                        (id, scenario_name, kind, template_id, mapping_profile_id, inputs, outputs, created_at, updated_at)
-                    SELECT id, scenario_name, {kind_select}, template_id, mapping_profile_id, inputs, outputs, created_at, updated_at
+                        (id, scenario_name, kind, template_id, mapping_profile_id,
+                         inputs, outputs, created_at, updated_at)
+                    SELECT id, scenario_name, {kind_select}, template_id, mapping_profile_id,
+                        inputs, outputs, created_at, updated_at
                     FROM scenarios_old
                     """
                 )
@@ -168,7 +172,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
     deal-scoped scenario list still shows them. Only creates the Default Deal
     when orphans actually exist."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     inspector = inspect(eng)
     tables = inspector.get_table_names()
@@ -186,7 +190,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
         ).scalar()
         if default_deal_id is None:
             default_deal_id = str(uuid.uuid4())
-            now = datetime.now(timezone.utc).isoformat(sep=" ")
+            now = datetime.now(UTC).isoformat(sep=" ")
             # status only exists once create_all/_migrate_deals_status has run;
             # both happen before this backfill, but a hand-built legacy table
             # may still lack it — probe instead of assuming.
@@ -195,7 +199,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
             status_val = ", 'screening'" if "status" in deal_columns else ""
             conn.execute(
                 text(
-                    "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at"
+                    "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at"  # noqa: E501
                     f"{status_col}) "
                     f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val})"
                 ),

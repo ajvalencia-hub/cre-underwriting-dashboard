@@ -104,8 +104,8 @@ def run_tornado(values: dict, metric: str = "leveredIrr") -> dict:
             else:
                 high = value
         impact = max(
-            abs((low - base)) if low is not None else 0.0,
-            abs((high - base)) if high is not None else 0.0,
+            abs(low - base) if low is not None else 0.0,
+            abs(high - base) if high is not None else 0.0,
         )
         bars.append(
             {"key": driver["key"], "label": driver["label"], "low": low, "high": high, "impact": impact}

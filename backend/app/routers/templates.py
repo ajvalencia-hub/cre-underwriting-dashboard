@@ -95,7 +95,7 @@ def get_sheet_grid(
             Path(template.stored_path), sheet_name, max_rows=max_rows, max_cols=max_cols
         )
     except KeyError:
-        raise HTTPException(404, f"Sheet '{sheet_name}' not found in template")
+        raise HTTPException(404, f"Sheet '{sheet_name}' not found in template") from None
 
 
 @router.delete("/{template_id}")

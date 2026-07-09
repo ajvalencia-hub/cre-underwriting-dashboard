@@ -73,7 +73,7 @@ SETTINGS_CATALOG: dict[str, SettingDef] = {
     # routing.agent.* only supplies the NEW-thread default and the fallback.
     "routing.classification.provider": SettingDef("modelRouting", "Classification Provider", False, default="ollama"),
     "routing.classification.model": SettingDef("modelRouting", "Classification Model", False, default="llama3.1"),
-    "routing.classification.fallback": SettingDef("modelRouting", "Classification Fallback", False, default="anthropic"),
+    "routing.classification.fallback": SettingDef("modelRouting", "Classification Fallback", False, default="anthropic"),  # noqa: E501
     "routing.extraction.provider": SettingDef("modelRouting", "Extraction Provider", False, default="ollama"),
     "routing.extraction.model": SettingDef("modelRouting", "Extraction Model", False, default="llama3.1"),
     "routing.extraction.fallback": SettingDef("modelRouting", "Extraction Fallback", False, default="anthropic"),

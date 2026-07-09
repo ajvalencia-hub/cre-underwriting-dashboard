@@ -17,7 +17,6 @@ from app.services.proforma.operations import (
 )
 from app.services.proforma.timeline import Timeline, build_timeline
 
-
 # ---------------------------------------------------------------- timeline
 
 def test_acquisition_timeline_is_stabilized_from_month_one():

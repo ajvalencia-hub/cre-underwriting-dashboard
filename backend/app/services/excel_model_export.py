@@ -110,7 +110,7 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("asset management fee (new partnership-level fee timing)")
     if inputs.get("rateMode") == "floating":
         features.append("floating-rate debt (period-by-period rate resets / rate caps)")
-    if _num(inputs, "replacementReservesPerUnit") > 0 and (inputs.get("reservesConvention") or "below_noi") == "below_noi":
+    if _num(inputs, "replacementReservesPerUnit") > 0 and (inputs.get("reservesConvention") or "below_noi") == "below_noi":  # noqa: E501
         features.append("below-NOI replacement reserves (capital-cost timing has no formula home)")
     if _num(inputs, "monthsOfTaxesAndInsurance") > 0:
         features.append("T&I escrow funding/release (close-to-exit cash timing)")

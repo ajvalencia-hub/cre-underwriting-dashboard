@@ -46,7 +46,7 @@ def size_junior_tranche(inputs: dict, senior_loan_amount: float, basis: float) -
         pay_mode = "current"
     origination_fee = amount * _num("juniorTrancheOriginationFeePct")
 
-    return JuniorTrancheSizing(kind=kind, amount=amount, rate_pct=rate_pct, pay_mode=pay_mode, origination_fee=origination_fee)
+    return JuniorTrancheSizing(kind=kind, amount=amount, rate_pct=rate_pct, pay_mode=pay_mode, origination_fee=origination_fee)  # noqa: E501
 
 
 def run_junior_tranche(

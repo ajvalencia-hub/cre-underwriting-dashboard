@@ -1,7 +1,7 @@
 """H9: input change history — baseline capture, coalescing window, changed
 paths (incl. one-level dict drill), retention, and restore-with-undo."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -81,7 +81,7 @@ def test_saves_outside_the_window_get_their_own_snapshot(client, session_factory
     # Age the newest snapshot past the coalescing window.
     with session_factory() as db:
         for snapshot in db.query(DealSnapshot).all():
-            snapshot.created_at = datetime.now(timezone.utc) - timedelta(minutes=11)
+            snapshot.created_at = datetime.now(UTC) - timedelta(minutes=11)
         db.commit()
 
     client.put(f"/api/deals/{deal['id']}", json={"inputs": {"a": 3}})

@@ -7,8 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
 from app.database import Base, SessionLocal, engine, run_migrations
-from app.services.presets import seed_presets
-from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
     agent,
     client_errors,
@@ -24,12 +22,14 @@ from app.routers import (
     market_rates,
     presets,
     property_tax,
-    schema,
     scenarios,
+    schema,
     sensitivity,
     settings,
     templates,
 )
+from app.services.presets import seed_presets
+from app.services.storage_maintenance import sweep_generated_files
 
 logging.basicConfig(
     level=logging.INFO,

@@ -21,8 +21,8 @@ Two tiers of data here, and they're kept structurally distinct:
 
 import hashlib
 import random
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Callable
 
 from app.services.data_sources import bea, bls, census_acs, fema, fhfa, fred, geocode, hud
 

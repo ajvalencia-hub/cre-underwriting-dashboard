@@ -79,11 +79,11 @@ def extract_claims(text: str) -> list[Claim]:
     # Mask spans already claimed above before running the bare-keyword
     # pattern, so e.g. "equity multiple ... 1.55x" isn't double-counted as
     # both a "multiple" claim and a "bare" claim.
-    keyword_source = list(masked)
+    keyword_source_chars = list(masked)
     for start, end in covered:
         for i in range(start, end):
-            keyword_source[i] = " "
-    keyword_source = "".join(keyword_source)
+            keyword_source_chars[i] = " "
+    keyword_source = "".join(keyword_source_chars)
 
     for m in _KEYWORD_NUMBER_RE.finditer(keyword_source):
         number = m.group(2)

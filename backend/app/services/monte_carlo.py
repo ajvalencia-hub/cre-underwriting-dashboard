@@ -85,8 +85,8 @@ def _sample_drivers(drivers: list[dict], correlations: list[list[float]] | None,
     rng = np.random.default_rng(seed)
     corr = np.array(correlations, dtype=float) if correlations else np.eye(k)
     z_independent = rng.standard_normal((n, k))
-    l = np.linalg.cholesky(corr)
-    z = z_independent @ l.T
+    chol = np.linalg.cholesky(corr)
+    z = z_independent @ chol.T
 
     samples = np.empty((n, k))
     for i, driver in enumerate(drivers):
@@ -128,7 +128,7 @@ def _histogram(values: list[float]) -> dict | None:
     return {"binEdges": edges.tolist(), "counts": counts.tolist()}
 
 
-def _run_job(run_id: str, inputs: dict, drivers: list[dict], correlations, n: int, seed: int, hurdle_pct: float | None) -> None:
+def _run_job(run_id: str, inputs: dict, drivers: list[dict], correlations, n: int, seed: int, hurdle_pct: float | None) -> None:  # noqa: E501
     try:
         samples = _sample_drivers(drivers, correlations, n, seed)
         metrics: dict[str, list[float]] = {m: [] for m in _METRICS}

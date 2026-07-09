@@ -7,7 +7,6 @@ import pytest
 from app.services import benchmarks
 from app.services.data_sources import bls, census_acs, fema, source_cache
 
-
 # ------------------------------------------------------------ percentile
 
 def test_rent_percentile_hits_the_anchor_quantiles():

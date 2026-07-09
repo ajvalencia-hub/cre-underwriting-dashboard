@@ -3,7 +3,6 @@ escalation and recovery type, free rent, rollover blending at p=0/0.5/1,
 base-year floors, and the engine-level integration. Analysis month 1 =
 January 2026 (the documented epoch)."""
 
-import json
 from pathlib import Path
 
 import pytest

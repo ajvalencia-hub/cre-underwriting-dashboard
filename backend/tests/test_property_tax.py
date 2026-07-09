@@ -10,9 +10,9 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services import property_tax
-from app.services.property_tax import miami_dade
 from app.services.proforma import engine, operations
 from app.services.proforma.timeline import Timeline
+from app.services.property_tax import miami_dade
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

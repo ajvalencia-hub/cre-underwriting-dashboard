@@ -3,6 +3,83 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Post-M tooling — ruff + mypy gate added to backend (no prior lint/type-check infra)
+
+- **Backend had zero static analysis before this pass** (no ruff/mypy config,
+  no lint step in CI) — surfaced as a suggestion from a separate AI agent's
+  ("openclaw") review of this repo; triaged and scoped independently rather
+  than acted on blindly, since backend and frontend tooling maturity differ
+  a lot: **frontend already had a working gate** (`tsc -b` + `oxlint`, both
+  wired into CI's `frontend` job) — only the backend needed this.
+- **[FIN] ruff config: `line-length = 120`, not the 88-char default.** The
+  codebase's actual style (long prose comments explaining non-obvious
+  decisions, dense SQL/dict literals) put 1000+ lines over 88 chars, almost
+  none of them real readability problems. Measured the distribution first
+  (p95 line length, longest lines) rather than guessing; 120 clears all but
+  ~20 outliers (raw SQL text, one long tool-description string), which stay
+  under their own explicit exception rather than forcing a global bump to
+  160 just to silence them.
+- **Rule set: `E, F, W, I, UP, B`** (pyflakes, pycodestyle, isort, pyupgrade,
+  bugbear) with `B008` ignored (FastAPI's `Depends(...)`-as-default-argument
+  is the idiom, not a bug) and `B023` ignored (every flagged closure was
+  verified by reading the call site to be fully consumed within the same
+  loop iteration, never deferred — a real false-positive class here, not a
+  blanket suppression of a real bug-catcher).
+- **Fixed for real, not just silenced**: ~40 mechanical autofixes (unused
+  imports, import sorting, `timezone.utc` → `UTC`, redundant `open()` modes)
+  plus a handful of hand-fixes that were genuine (if minor) issues: a
+  same-named `date`/`_date` alias mismatch in a forward-reference type
+  annotation (`comps.py`), six `zip()` calls given explicit `strict=True`
+  (all are parallel arrays that are always equal length by construction —
+  this is a free correctness guard against a future silent-truncation bug,
+  not just lint hygiene), four bare `except: raise HTTPException(...)`
+  translations given `from None` (cleaner tracebacks, no behavior change),
+  and one raw multi-line SQL migration string reformatted (not commented
+  around) to fit the line-length rule without corrupting the SQL literal —
+  caught and reverted immediately after a first pass mechanically appended
+  `# noqa` INTO a triple-quoted SQL string by mistake; every other flagged
+  line was individually re-read before accepting a noqa/fix to avoid
+  repeating that mistake.
+- **[FIN] mypy: adopted in gradual mode, not strict, with a disclosed
+  per-module baseline.** A first strict-ish pass found 135 errors across 32
+  files in a 16k-line codebase that has never been type-checked. Fixed the
+  genuinely cheap and/or bug-adjacent ones directly (see below); the
+  remainder — concentrated in a fixed, named list of ~27 modules in
+  `pyproject.toml`'s `[[tool.mypy.overrides]]` — is `ignore_errors = true`'d
+  with a comment explaining why, rather than either leaving the gate
+  permanently red (useless as CI signal) or spending unbounded time on a
+  full annotation retrofit of code that isn't actually broken. Root causes
+  of the baselined errors, by category: SQLAlchemy Core's `Table.delete()`/
+  `.update()` idiom isn't well-typed without the (now-removed, SQLAlchemy
+  2.0-incompatible) mypy plugin; `python-docx`/`python-pptx` ship factory
+  functions (`docx.api.Document`, `pptx.api.Presentation`) as their public
+  "type," which mypy correctly rejects as a type annotation; the
+  Anthropic/OpenAI SDKs want exact `TypedDict` unions where this app
+  deliberately passes plain dicts across the vendor-neutral provider
+  boundary (K2); and the proforma engine's dynamic `Deal.inputs` JSON blob
+  (F1's own deliberate schema-free design) is inherently untypeable without
+  a large parallel schema effort. None of these are latent bugs — each was
+  read and reasoned about before being baselined, not pattern-matched by
+  file name.
+- **Real fixes mypy's first pass actually found**: a `list[DealOut]`
+  annotation on a variable that actually held `Deal` ORM rows
+  (`routers/deals.py` — cosmetically wrong, not a runtime bug, since
+  `_to_out()` was still called correctly at every read site); a `payload`
+  dict in the agent runner's tool-call loop whose type was accidentally
+  narrowed to `dict[str, str]` by its first assignment, flagged every later
+  branch that stored a nested dict/list value in it; two "variable rebound
+  from one type to an incompatible one" cases in `provenance.py` (the K5
+  anti-hallucination checker — re-verified with the full suite given how
+  safety-critical that file is) and `llm_extraction.py`, both fixed by
+  giving the second value its own name instead of reusing the first; and a
+  `db.execute(...).scalars().all()` return typed as `Sequence` assigned to a
+  `list`-annotated return in `deal_history.py`, fixed with an explicit
+  `list(...)` wrap.
+- **CI**: both checks (`ruff check .`, `mypy app`) added as new steps in the
+  `backend` job, ahead of pytest, using a new `requirements-dev.txt`
+  (`-r requirements.txt` plus pinned `ruff`/`mypy`) so the runtime image's
+  dependency list stays untouched.
+
 ## Post-M bugfix — AGENT_PROVIDER=scripted regression in new-thread default
 
 - **Bug**: M3's per-task routing (see M3 entry below) moved

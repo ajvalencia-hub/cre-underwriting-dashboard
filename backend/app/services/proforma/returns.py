@@ -22,7 +22,7 @@ def _npv_periodic(rate: float, flows: list[float]) -> float:
 
 def _npv_dated(rate: float, dates: list[date], amounts: list[float]) -> float:
     d0 = dates[0]
-    return sum(cf / (1 + rate) ** ((d - d0).days / 365) for d, cf in zip(dates, amounts))
+    return sum(cf / (1 + rate) ** ((d - d0).days / 365) for d, cf in zip(dates, amounts, strict=True))
 
 
 def _solve_rate(f, low: float = -0.9999, high: float = 10.0, guess: float = 0.1) -> float | None:
@@ -82,7 +82,7 @@ def xirr(dates: list[date], amounts: list[float]) -> float | None:
         return None
     if all(a >= 0 for a in amounts) or all(a <= 0 for a in amounts):
         return None
-    pairs = sorted(zip(dates, amounts), key=lambda p: p[0])
+    pairs = sorted(zip(dates, amounts, strict=True), key=lambda p: p[0])
     sorted_dates = [p[0] for p in pairs]
     sorted_amounts = [p[1] for p in pairs]
     return _solve_rate(lambda r: _npv_dated(r, sorted_dates, sorted_amounts), guess=0.1)

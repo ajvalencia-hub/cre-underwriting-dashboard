@@ -283,14 +283,14 @@ def _aggregate_to_fields(merged: dict) -> dict:
         rows = merged["rentRollRows"]
         confidence = sum(r.get("confidence", 0.5) for r in rows) / len(rows)
         source = rows[0].get("source", "deterministic")
-        doc_ref = {"doc": rows[0].get("sourceRef", {}).get("doc"), "sheet": None, "page": None, "cell": None, "row": None}
+        doc_ref = {"doc": rows[0].get("sourceRef", {}).get("doc"), "sheet": None, "page": None, "cell": None, "row": None}  # noqa: E501
 
         if _looks_multifamily(rows):
             agg = rent_roll_parser.aggregate_multifamily(rows)
             fields["unitMix"] = _field_entry(agg["unitMix"], doc_ref, confidence, source)
             fields["_rentRollTotalUnits"] = _field_entry(agg["totalUnits"], doc_ref, confidence, source)
             if agg["occupancyPctByUnit"] is not None:
-                fields["vacancyPct"] = _field_entry(round(1 - agg["occupancyPctByUnit"], 4), doc_ref, confidence, source)
+                fields["vacancyPct"] = _field_entry(round(1 - agg["occupancyPctByUnit"], 4), doc_ref, confidence, source)  # noqa: E501
                 fields["_occupancyPct"] = _field_entry(agg["occupancyPctByUnit"], doc_ref, confidence, source)
             if agg["lossToLeasePct"] is not None:
                 fields["lossToLeasePct"] = _field_entry(agg["lossToLeasePct"], doc_ref, confidence, source)
@@ -306,7 +306,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
             fields["rentRoll"] = _field_entry(agg["rentRoll"], doc_ref, confidence, source)
             fields["_rentRollTotalUnits"] = _field_entry(agg["totalUnits"], doc_ref, confidence, source)
             if agg["occupancyPctBySf"] is not None:
-                fields["retailVacancyPct"] = _field_entry(round(1 - agg["occupancyPctBySf"], 4), doc_ref, confidence, source)
+                fields["retailVacancyPct"] = _field_entry(round(1 - agg["occupancyPctBySf"], 4), doc_ref, confidence, source)  # noqa: E501
                 fields["_occupancyPct"] = _field_entry(agg["occupancyPctBySf"], doc_ref, confidence, source)
             fields["_rentRollGprAnnual"] = _field_entry(
                 round(agg["grossPotentialRentMonthly"] * 12, 2), doc_ref, confidence, source
@@ -316,7 +316,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
         items = merged["t12LineItems"]
         confidence = sum(li.get("confidence", 0.5) for li in items) / len(items) if items else 0.5
         source = items[0].get("source", "deterministic")
-        doc_ref = {"doc": items[0].get("sourceRef", {}).get("doc"), "sheet": None, "page": None, "cell": None, "row": None}
+        doc_ref = {"doc": items[0].get("sourceRef", {}).get("doc"), "sheet": None, "page": None, "cell": None, "row": None}  # noqa: E501
         agg = t12_parser.aggregate_categories(items)
 
         gpr = agg["income"].get("grossPotentialRent")
@@ -403,7 +403,9 @@ def _aggregate_to_fields(merged: dict) -> dict:
 
 
 def run_extraction(documents: list[Document]) -> dict:
-    merged = {"scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": []}
+    merged: dict = {
+        "scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": [],
+    }
 
     for doc in documents:
         grid, text, doc_warnings = _load_grid_and_text(doc)

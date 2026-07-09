@@ -286,7 +286,7 @@ def test_provenance_checker_is_provider_agnostic(client, monkeypatch):
     from an "ollama"-provider turn is caught exactly the same way as from
     anthropic/openai (re-verifying the mechanism still gates, not just that
     the turn completes)."""
-    deal = client.post("/api/deals", json={"name": "Ollama Hallucination Test", "inputs": {"purchasePrice": 1000000}}).json()
+    deal = client.post("/api/deals", json={"name": "Ollama Hallucination Test", "inputs": {"purchasePrice": 1000000}}).json()  # noqa: E501
     client.put(f"/api/agent/threads/{deal['id']}/provider", json={"provider": "ollama"})
 
     def fake_chat_with(provider_name, messages, tools, system):

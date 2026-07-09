@@ -148,7 +148,7 @@ def test_job_starts_running_then_completes():
 def test_job_run_seeded_determinism():
     drivers = [
         {"inputPath": "vacancyPct", "distribution": "normal", "params": {"mean": 0.10, "stdDev": 0.02}},
-        {"inputPath": "exitCapRatePct", "distribution": "triangular", "params": {"min": 0.06, "mode": 0.08, "max": 0.10}},
+        {"inputPath": "exitCapRatePct", "distribution": "triangular", "params": {"min": 0.06, "mode": 0.08, "max": 0.10}},  # noqa: E501
     ]
     run_a = monte_carlo.start_run(FIXTURE, drivers, None, 40, seed=99)
     run_b = monte_carlo.start_run(FIXTURE, drivers, None, 40, seed=99)

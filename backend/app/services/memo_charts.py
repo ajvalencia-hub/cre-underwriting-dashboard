@@ -103,7 +103,7 @@ def sources_uses_bars(sources_and_uses: dict | None) -> bytes | None:
         return None
 
     fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.6))
-    for ax, (title, entries) in zip(axes, (("Uses", uses), ("Sources", sources))):
+    for ax, (title, entries) in zip(axes, (("Uses", uses), ("Sources", sources)), strict=True):
         labels = [e[0] for e in entries]
         amounts = [e[1] for e in entries]
         ax.barh(labels, amounts, color=_BRAND)
@@ -130,7 +130,7 @@ def hold_sweep_line(sweep: dict | None) -> bytes | None:
     ax.tick_params(labelsize=7)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v * 100:.0f}%")
     modeled = (sweep or {}).get("modeledHoldYears")
-    if modeled in years:
+    if modeled is not None and modeled in years:
         ax.axvline(modeled, color="#f59e0b", linestyle="--", linewidth=1, label="Modeled hold")
     if any(m is not None for m in multiples):
         ax2 = ax.twinx()
