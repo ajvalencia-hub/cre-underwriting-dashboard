@@ -91,7 +91,7 @@ const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
 
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [tab, setTab] = useState<Tab>('quickscreen')
+  const [tab, setTab] = useState<Tab>('documents')
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
@@ -599,8 +599,8 @@ function App() {
         {(
           [
             ['pipeline', 'Deals'],
-            ['quickscreen', '0. Quick Screen'],
-            ['documents', '1. Documents'],
+            ['documents', '0. Documents'],
+            ['quickscreen', '1. Quick Screen'],
             ['setup', '2. Template & Mapping'],
             ['dashboard', '3. Deal Inputs'],
             ['cashflow', '4. Cash Flow'],
