@@ -3,6 +3,49 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Post-M bugfix — AGENT_PROVIDER=scripted regression in new-thread default
+
+- **Bug**: M3's per-task routing (see M3 entry below) moved
+  `_get_or_create_thread()`'s new-thread provider default from the old
+  env-var-backed `agentProvider` setting to `routing.agent.provider` (a
+  literal-default setting with `configAttr=None`, deliberately no env
+  fallback — routing settings are meant to be DB/UI-controlled, not
+  env-driven). This silently broke `frontend/playwright.config.ts`'s
+  `AGENT_PROVIDER=scripted` mechanism, which boots a scratch backend for
+  K11's deterministic e2e spec: new agent threads started getting the real
+  `"ollama"` provider instead of the scripted, network-free stub. Every
+  backend-only verification this session (pytest, parity, regression) ran
+  clean throughout M1–M5 because none of them boot a real uvicorn process
+  reading `AGENT_PROVIDER` from the OS environment — only the Playwright
+  layer does, and it was never actually run this session until this fix
+  (a real gap in this run's own verification discipline, not just an
+  external report).
+- **Found via**: a transcript from a separate AI agent ("openclaw") that
+  the user ran against an independent local clone of this same GitHub repo
+  and pasted into this session. Verified independently rather than trusted
+  outright — confirmed via `git fetch`/`git log origin/main` that none of
+  that agent's (uncommitted, separate-clone) work had reached GitHub, then
+  re-derived the bug from first principles by reading
+  `playwright.config.ts` and `agent.py` directly before writing any fix.
+- **[FIN] Fix: `_get_or_create_thread()` special-cases
+  `config.AGENT_PROVIDER == "scripted"` as an override checked BEFORE
+  `routing.agent.provider` resolution**, restoring the e2e escape hatch
+  without reintroducing a settings-catalog entry for a value that was
+  never meant to be user-facing (`"scripted"` is still excluded from
+  `_selectable_providers()` and rejected by `PUT .../provider`). Rejected
+  alternative: giving `routing.agent.provider` an env fallback again — that
+  would resurrect the exact ambiguity M1 deliberately removed (a stale env
+  var silently overriding a DB-set routing choice for real users, not just
+  the e2e harness).
+- **Verification**: added
+  `test_agent_provider_env_var_scripted_overrides_routing_default_for_new_threads`
+  to `test_agent_router.py` (full backend suite: 665 passed); then, for the
+  first time this session, actually ran the Playwright e2e suite
+  (`npm run e2e` in `frontend/`) rather than relying solely on pytest/
+  preview-tool browser checks — both `agent.spec.ts` and `smoke.spec.ts`
+  passed, with the server log confirming `provider=scripted` on the new
+  thread.
+
 ## M5 — Cost & usage view [FIN]; agent streaming DEFERRED (not built)
 
 - **Agent streaming was NOT built this pass — a real, further scope

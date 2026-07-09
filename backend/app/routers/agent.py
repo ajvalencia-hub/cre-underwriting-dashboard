@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import config
 from app.database import get_db
 from app.models import AgentMessage, AgentProposal, AgentThread, Deal
 from app.routers.deals import _to_out as _deal_to_out
@@ -50,7 +51,22 @@ def _get_or_create_thread(db: Session, deal_id: str) -> AgentThread:
         select(AgentThread).where(AgentThread.deal_id == deal_id).order_by(AgentThread.created_at.desc())
     ).scalars().first()
     if thread is None:
-        default_provider = settings_service.resolve_setting("routing.agent.provider")[0]
+        # "scripted" (K11's deterministic, network-free e2e stub) is
+        # reachable ONLY via the AGENT_PROVIDER env var, deliberately never
+        # through Settings/routing — it isn't a real provider a user could
+        # select. Regression fix: M3 moved the new-thread default from the
+        # env-var-backed "agentProvider" setting to "routing.agent.provider"
+        # (a literal-default setting with no env fallback), which silently
+        # broke AGENT_PROVIDER=scripted's effect on new threads — the
+        # Playwright e2e suite (which boots a real backend with that env
+        # var set) started getting real "ollama" threads instead of the
+        # scripted stub. This explicit check restores the escape hatch
+        # without reintroducing a settings-catalog entry for a value that
+        # was never meant to be user-facing.
+        default_provider = (
+            config.AGENT_PROVIDER if config.AGENT_PROVIDER == "scripted"
+            else settings_service.resolve_setting("routing.agent.provider")[0]
+        )
         thread = AgentThread(deal_id=deal_id, provider=default_provider)
         db.add(thread)
         db.commit()

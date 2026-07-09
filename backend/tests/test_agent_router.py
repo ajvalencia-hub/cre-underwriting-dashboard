@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import config
 from app.database import Base, get_db
 from app.main import app
 from app.services.agent import runner
@@ -283,6 +284,18 @@ def test_set_thread_provider_switches_and_persists(client):
 
     after = client.get(f"/api/agent/threads/{deal['id']}").json()
     assert after["provider"] == "openai"
+
+
+def test_agent_provider_env_var_scripted_overrides_routing_default_for_new_threads(client, monkeypatch):
+    # Regression test: M3 moved the new-thread default from the env-var-
+    # backed "agentProvider" setting to "routing.agent.provider" (no env
+    # fallback), which silently broke frontend/playwright.config.ts's
+    # AGENT_PROVIDER=scripted bootstrap for the K11 deterministic e2e
+    # backend — new threads got "ollama" instead of the scripted stub.
+    monkeypatch.setattr(config, "AGENT_PROVIDER", "scripted")
+    deal = client.post("/api/deals", json={"name": "Test Deal"}).json()
+    thread = client.get(f"/api/agent/threads/{deal['id']}").json()
+    assert thread["provider"] == "scripted"
 
 
 def test_set_thread_provider_takes_effect_on_the_next_turn(client, monkeypatch):
