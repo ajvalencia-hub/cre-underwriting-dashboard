@@ -106,6 +106,72 @@ def build_realpage_rent_roll(path) -> None:
     wb.save(path)
 
 
+def build_studio_heavy_rent_roll_with_tenant_id(path) -> None:
+    """Regression fixture (post-M audit): a studio-majority multifamily roll
+    with BOTH a "Tenant ID" and a "Resident Name" column, and hyphenated
+    unit-type labels ("1-Bed 1-Bath", "2-Bed 2-Bath") — the exact shape that
+    slipped through three separate bugs on a real 64-unit deal:
+    (1) _MULTIFAMILY_UNIT_TYPE_RE missed the hyphen, routing the whole roll
+        down the commercial-lease path; (2) even fixed, a studio-majority
+        mix (studios carry no bed-count digit at all, by design) still fell
+        under the >0.5 match-ratio threshold until studios counted too;
+        (3) the "tenant" field bound to Tenant ID (a number) instead of
+        Resident Name, silently defeating the "VACANT" vacancy marker this
+        fixture puts in Resident Name specifically, not Tenant ID."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rent Roll"
+    headers = ["Unit", "Unit Type", "Sq Ft", "Tenant ID", "Resident Name", "Lease Start", "Lease End", "Market Rent", "RC (Rent)"]  # noqa: E501
+    ws.append(headers)
+    rows = [
+        ["S-101", "Studio", 480, "1001", "Ada Lovelace", "2024-01-01", "2026-12-31", 1550, 1500],
+        ["S-102", "Studio", 480, "1002", "Grace Hopper", "2024-02-01", "2026-01-31", 1550, 1500],
+        ["S-103", "Studio", 480, "1003", "Alan Turing", "2024-03-01", "2026-02-28", 1550, 1500],
+        ["S-104", "Studio", 480, None, "VACANT", None, None, 1550, 1400],
+        ["L-201", "1-Bed 1-Bath", 625, "1004", "Katherine Johnson", "2024-04-01", "2027-03-31", 1776, 1673],
+        ["T-301", "2-Bed 2-Bath", 1000, "1005", "Dorothy Vaughan", "2024-05-01", "2027-04-30", 2300, 2225],
+    ]
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def build_property_management_t12_with_banner_row(path) -> None:
+    """Regression fixture (post-M audit): an AppFolio-style cash-basis T-12
+    with (a) several single-cell metadata/title rows before the real header
+    row, (b) a MERGED single-row banner ("Owner's Actuals", A1:P1-style)
+    immediately above the real month-header row — scoring higher than a
+    bare title row but, before the parse_numeric fix below, tying the real
+    header row's score because parse_numeric("JUN 25") used to silently
+    return 25.0 (stripping the letters) instead of None, making the
+    header-row-guesser's text/number cell scoring blind to every month
+    header — and (c) account-code-prefixed line-item labels ("411010 Rental
+    Income"), which must still classify correctly once the real header row
+    is found."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Profit & Loss 12 Month Recap"])
+    ws.append(["Monthly recap from 06/01/25 to 05/31/26"])
+    ws.append(["Cash Basis"])
+    ws.append(["Property: TEST HOLDINGS"])
+    ws.append([])
+    banner_row = 6
+    ws.cell(row=banner_row, column=1, value="Owner's Actuals")
+    ws.merge_cells(start_row=banner_row, start_column=1, end_row=banner_row, end_column=13)
+    ws.append([""] + MONTH_HEADERS + ["TOTAL"])
+    ws.append(["Income"])
+    ws.append(["411010 Rental Income"] + [50_000] * 12 + [600_000])
+    ws.append(["421120 Water Charge collected"] + [1_000] * 12 + [12_000])
+    ws.append(["Total Income"] + [51_000] * 12 + [612_000])
+    ws.append(["Expense"])
+    ws.append(["501510 Exp:Prop-Taxes-Paid"] + [2_000] * 12 + [24_000])
+    ws.append(["502832 Electricity - Common Area"] + [500] * 12 + [6_000])
+    ws.append(["Total Expense"] + [2_500] * 12 + [30_000])
+    ws.append(["NET INCOME"] + [48_500] * 12 + [582_000])
+    wb.save(path)
+
+
 def build_commercial_rent_roll(path) -> None:
     """Office/retail-style commercial roll: suite/tenant/SF/monthly rent/
     lease type/dates, mixed date formats, one vacant suite. Feeds the H1

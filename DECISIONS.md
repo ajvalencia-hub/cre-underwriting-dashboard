@@ -3,6 +3,88 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Post-M bugfixes — three real extraction bugs found via a live underwriting run
+
+Found by actually running a real 64-unit acquisition deal (OM PDF + T-12 +
+rent roll, all real third-party files) through the whole app end-to-end —
+not by code review. All three were silent: no error, no warning, just
+wrong or missing data reaching Deal Inputs. Documenting together since they
+were found and fixed in the same pass; each is independent and separately
+tested.
+
+- **Bug: a 100%-residential rent roll routed down the commercial-lease
+  extraction path.** [`extraction_service.py`](backend/app/services/extraction_service.py)'s
+  `_MULTIFAMILY_UNIT_TYPE_RE = r"\d\s*(bd|bed|br)\b"` required whitespace
+  between the digit and "bed", so "1-Bed", "2-Bed" (hyphen, not space — at
+  least as common in the wild as a plain space) never matched. Every unit
+  on the real fixture missed, so the roll got treated as commercial:
+  `unitMixProposal` came back `null`, every unit became a fake "commercial
+  lease" (`recoveryType: "gross"` on an apartment), and vacancy landed in
+  `retailVacancyPct` instead of `vacancyPct`. **[FIN] Fix:
+  `\d[\s-]*(bd|bed|br)\b`** (allow the hyphen, not just whitespace).
+  Fixing the regex alone wasn't sufficient, though — the real property was
+  63% studios, and studios correctly carry no bed-count digit at all, so
+  even with every non-studio label matching, the match ratio (24/64 =
+  37.5%) stayed under the `>0.5` majority-vote threshold. **[FIN] Fix:
+  `_looks_multifamily` now also counts a bare "Studio" label as a
+  multifamily signal**, alongside the bed/bath regex — unambiguously
+  residential, just like a bed-count digit is. Rejected: lowering the
+  threshold instead of fixing the studio gap — that would make the
+  heuristic looser for every property type, not just studio-heavy ones.
+- **Bug: `parse_numeric()` silently parsed text as a number, corrupting
+  T-12 header-row auto-detection — 100% of line items lost, no warning.**
+  [`excel_extractor.py`](backend/app/services/extraction/excel_extractor.py)'s
+  `_NUMERIC_RE = r"[^0-9.\-]"` strips every non-digit character rather
+  than validating the string looks numeric first, so
+  `parse_numeric("JUN 25")` returned `25.0` instead of `None`. That broke
+  `_guess_header_row()`'s text-vs-numeric cell scoring (it uses
+  `parse_numeric` to tell a text header cell from a data cell) into
+  picking a decorative merged banner row over the real month-header row
+  one row below — with the wrong header, zero month columns were found,
+  so every line item's amount computation returned `None` and got
+  skipped. A complete, real T-12 (96+ line items) yielded 0 extracted
+  items. **[FIN] Fix: reject the string outright if a letter remains
+  after stripping known formatting characters ($, comma, whitespace)**,
+  before the digit-stripping regex ever runs — "JUN 25" and "12 Month
+  Recap" now correctly return `None`. Confirmed against the existing
+  `test_parse_numeric.py` cases (money/percent/negative/None handling) —
+  none of them contain letters, so none are affected.
+- **Bug: rent-roll "tenant" field bound to "Tenant ID" instead of
+  "Resident Name" when both columns exist, silently breaking vacancy
+  detection.** [`rent_roll_parser.py`](backend/app/services/extraction/rent_roll_parser.py)'s
+  `_match_headers` substring-fallback pass scans columns left-to-right and
+  claims the first alias hit; "Tenant ID" (an earlier column) contains
+  "tenant" as a substring and got claimed before "Resident Name" was ever
+  reached. Cosmetic by itself, but this specific rent roll (like several
+  Yardi/AppFolio exports) marks a vacant unit by putting the literal word
+  "VACANT" in Resident Name — with "tenant" bound to the blank Tenant ID
+  column instead, `_infer_status()` never saw that marker, and every
+  vacant unit came back `status: "unknown"` instead of `"vacant"`. **[FIN]
+  Fix: a new `_FIELD_SUBSTRING_EXCLUSIONS` map excludes headers matching
+  `\bid\b` from satisfying the "tenant" field specifically** in the
+  substring-fallback pass. Scoped to "tenant" only, not a blanket "no ID
+  columns" rule — an "ID" column is exactly the right match for fields
+  that actually want an identifier (e.g. "unit"), so a general exclusion
+  would have been a regression waiting to happen for a "Unit ID"-only
+  roll.
+- **Verification**: three new fixtures in
+  [`tests/extraction_corpus/builders.py`](backend/tests/extraction_corpus/builders.py)
+  reproduce the exact real-world shapes (hyphenated + studio-majority unit
+  mix with dual Tenant-ID/Resident-Name columns; a T-12 with a merged
+  banner row above the real header). Confirmed each fixture actually
+  reproduces its bug by re-running the pre-fix logic against it before
+  trusting the regression test. Re-ran extraction against the real
+  original files (not just the synthetic fixtures) end-to-end via the
+  live API — `unitMixProposal` now matches the OM's stated unit mix
+  exactly, vacancy detection correctly finds all 5 vacant units, and the
+  T-12 now classifies real dollar amounts into `realEstateTaxes`,
+  `insurance`, `utilities`, `repairsMaintenance`, `payroll`,
+  `managementFeePct`, and `generalAdmin`, with everything it can't
+  classify surfaced in the `unmatched` list (by design — see the C1 note
+  in `test_t12_aggregation.py`) rather than silently dropped or guessed.
+  Full suite (672, +7 new), ruff, mypy, and the Excel parity harness all
+  green.
+
 ## Post-M tooling — ruff + mypy gate added to backend (no prior lint/type-check infra)
 
 - **Backend had zero static analysis before this pass** (no ruff/mypy config,

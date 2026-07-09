@@ -37,3 +37,16 @@ def test_non_percent_parsing_unchanged(raw, expected):
 @pytest.mark.parametrize("raw", [None, "", "-", "—", "N/A", "n/a", "%", "abc"])
 def test_unparseable_values_return_none(raw):
     assert parse_numeric(raw) is None
+
+
+@pytest.mark.parametrize("raw", ["JUN 25", "Profit & Loss 12 Month Recap", "Property: 123 Main St", "Q1 2026"])
+def test_text_cells_with_embedded_digits_return_none(raw):
+    """Regression (post-M audit): a text cell that happens to contain
+    digits must never silently parse as a number. Before this guard,
+    parse_numeric("JUN 25") stripped the letters and returned 25.0 instead
+    of None — which corrupted the T-12 header-row auto-detector's
+    text-vs-numeric cell scoring (it uses parse_numeric to tell a text
+    header cell from a data cell), causing it to pick a decorative title/
+    banner row over the real month-header row and lose every line item on
+    a real, complete T-12 statement."""
+    assert parse_numeric(raw) is None

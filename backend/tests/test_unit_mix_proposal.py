@@ -4,6 +4,7 @@ inconsistent-label fallback, and the extraction-result plumbing."""
 
 import pytest
 
+from app.services import extraction_service
 from app.services.extraction import excel_extractor, rent_roll_parser
 from tests.extraction_corpus import builders
 
@@ -124,3 +125,46 @@ def test_extraction_result_carries_the_proposal(tmp_path):
     # provenance columns exist on the proposal but never on the legacy field
     assert "sourceRowCount" in proposal["rows"][0]
     assert "sourceRowCount" not in legacy[0]
+
+
+def test_hyphenated_unit_types_and_studio_majority_still_route_multifamily(tmp_path):
+    """Regression (post-M audit, real 64-unit deal): hyphenated unit-type
+    labels ("1-Bed 1-Bath") must match the multifamily heuristic exactly
+    like "1 Bed 1 Bath" does, and a studio-majority roll (studios carry no
+    bed-count digit at all, by design) must not fall below the >0.5
+    match-ratio threshold just because studios don't match the bed/bath
+    regex — they're still unambiguously residential. A regression on either
+    front used to route the ENTIRE roll down the commercial-lease path
+    instead: unitMixProposal came back null, every residential unit became
+    a fake "commercial lease" with recoveryType "gross", and vacancy landed
+    in retailVacancyPct instead of vacancyPct."""
+    rows = _rows_from_fixture(
+        builders.build_studio_heavy_rent_roll_with_tenant_id, tmp_path, "studio_heavy.xlsx"
+    )
+    assert extraction_service._looks_multifamily(rows)
+
+    agg = rent_roll_parser.aggregate_multifamily(rows)
+    by_type = {u["unitType"]: u["unitCount"] for u in agg["unitMix"]}
+    assert by_type == {"Studio": 4, "1-Bed 1-Bath": 1, "2-Bed 2-Bath": 1}
+    # 1 of 4 studios is vacant (Resident Name literally "VACANT") -> 5/6 occupied.
+    assert agg["occupiedUnits"] == 5
+
+
+def test_tenant_field_binds_to_resident_name_not_tenant_id(tmp_path):
+    """Regression (post-M audit): when a rent roll has BOTH a "Tenant ID"
+    and a "Resident Name" column, "tenant" must bind to Resident Name, not
+    the numeric ID — Tenant ID comes first left-to-right and "tenant" is a
+    substring of "tenantid", so the substring-fallback pass previously
+    claimed it before Resident Name was ever reached. This cascades into
+    breaking vacancy detection: some rent rolls (this fixture included)
+    mark a vacant unit by putting the literal word "VACANT" in the
+    resident-name column specifically, with a blank Tenant ID — with the
+    wrong column bound, that vacant unit's status came back "unknown"
+    instead of "vacant"."""
+    rows = _rows_from_fixture(
+        builders.build_studio_heavy_rent_roll_with_tenant_id, tmp_path, "studio_heavy2.xlsx"
+    )
+    by_unit = {r["unit"]: r for r in rows}
+    assert by_unit["S-101"]["tenant"] == "Ada Lovelace"
+    assert by_unit["S-104"]["tenant"] == "VACANT"
+    assert by_unit["S-104"]["status"] == "vacant"

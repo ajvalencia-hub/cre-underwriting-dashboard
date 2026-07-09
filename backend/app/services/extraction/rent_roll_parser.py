@@ -53,6 +53,17 @@ _FIELD_ALIASES: dict[str, list[str]] = {
     "status": ["status", "occupancy status", "occupied/vacant"],
 }
 
+# A "Tenant ID"/"Resident ID" column is an identifier, never the tenant's
+# actual name — letting it substring-match the "tenant" field (ahead of a
+# later "Resident Name" column, since the fallback pass scans left-to-right
+# and claims the first hit) previously broke vacancy detection, which
+# depends on seeing the literal "VACANT" marker some rent rolls put in the
+# name column specifically, not in an ID column. Scoped to "tenant" only —
+# an "ID" column is exactly what should satisfy a real identifier field.
+_FIELD_SUBSTRING_EXCLUSIONS: dict[str, re.Pattern] = {
+    "tenant": re.compile(r"\bid\b", re.IGNORECASE),
+}
+
 _MTM_RE = re.compile(r"^\s*(mtm|m-t-m|month\s*-?\s*to\s*-?\s*month)\s*$", re.IGNORECASE)
 _MONTH_YEAR_FORMATS = ("%b %Y", "%B %Y", "%m/%Y", "%m-%Y")
 
@@ -87,8 +98,11 @@ def _match_headers(headers: list[str]) -> dict[str, int]:
         if field in matched:
             continue
         norm_aliases = [_normalize(a) for a in aliases]
+        exclusion = _FIELD_SUBSTRING_EXCLUSIONS.get(field)
         for i, h in enumerate(normalized):
             if i in claimed or not h:
+                continue
+            if exclusion is not None and exclusion.search(headers[i]):
                 continue
             if any(
                 (len(a) >= 3 and a in h) or (len(h) >= 4 and h in a)

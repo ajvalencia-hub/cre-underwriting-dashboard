@@ -24,7 +24,10 @@ from app.services.extraction import (
 
 _MIN_DETERMINISTIC_ROWS = 2
 _MIN_OPSTMT_MATCHES = 3
-_MULTIFAMILY_UNIT_TYPE_RE = re.compile(r"\d\s*(bd|bed|br)\b", re.IGNORECASE)
+# A hyphen between the digit and "bed" ("1-Bed", "2-Bed 2-Bath Loft") is at
+# least as common as a plain space in real rent rolls — [\s-]* (not \s*)
+# covers both, plus the no-separator case ("1BR").
+_MULTIFAMILY_UNIT_TYPE_RE = re.compile(r"\d[\s-]*(bd|bed|br)\b", re.IGNORECASE)
 
 
 def _allowed_fields() -> list[dict]:
@@ -236,12 +239,22 @@ def _extract_narrative(doc: Document, text: str, warnings: list[str]) -> dict:
 
 
 _MULTIFAMILY_UNIT_ID_RE = re.compile(r"^\s*unit\s*#?\s*\d", re.IGNORECASE)
+# "Studio" units carry no bed-count digit at all — that's correct, not a
+# gap in _MULTIFAMILY_UNIT_TYPE_RE — but on a studio-heavy property (this
+# regression's own fixture is 63% studios) excluding them from the
+# match-ratio numerator can keep a 100% residential rent roll under the
+# >0.5 threshold even once every non-studio label matches correctly.
+_STUDIO_UNIT_TYPE_RE = re.compile(r"\bstudio\b", re.IGNORECASE)
 
 
 def _looks_multifamily(rows: list[dict]) -> bool:
     typed = [r for r in rows if r.get("unitType")]
     if typed:
-        matches = sum(1 for r in typed if _MULTIFAMILY_UNIT_TYPE_RE.search(str(r["unitType"])))
+        matches = sum(
+            1 for r in typed
+            if _MULTIFAMILY_UNIT_TYPE_RE.search(str(r["unitType"]))
+            or _STUDIO_UNIT_TYPE_RE.search(str(r["unitType"]))
+        )
         if matches / len(typed) > 0.5:
             return True
     # No usable unitType column — a common shape for small/simple rent rolls
