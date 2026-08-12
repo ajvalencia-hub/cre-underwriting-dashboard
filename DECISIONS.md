@@ -3,6 +3,40 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Dealflow segregation, part 2 — type-aware tools (post-Run 5)
+
+- **Analysis tools only offer fields the engine reads for THIS deal.**
+  Sensitivity drivers, the goal-seek picker, and the Risk panel's
+  "other input" list now filter through `visibleFields(schema, values)`
+  (section + field visibleWhen) — sweeping/solving over the other
+  dealflow's inputs (landCost on an acquisition) produced a silent flat
+  grid. The backend goal-seek API stays permissive (deals can change
+  type mid-solve); the UI is where the constraint belongs.
+- **Risk suggestions are per dealflow**: developments sample hardCosts
+  where acquisitions sample purchasePrice — the old hardcoded
+  purchasePrice suggestion seeded a nonsense ±10% band around $1 on a
+  development.
+- **The tornado's cost driver label names the field actually
+  perturbed** ("Purchase price" / "Hard costs") instead of the merged
+  "Hard costs / purchase price".
+- **The Excel export refuses a missing dealType** instead of silently
+  producing an acquisition-shaped workbook; the one-page deck now
+  states the deal type (it never did).
+- **The Quick Screen has BOTH napkins**: a Development/Acquisition
+  toggle; the acquisition side tests cash-on-cash AND DSCR (strong ≥
+  6% + 1.25x, marginal ≥ 4% + 1.15x; all-cash deals satisfy the DSCR
+  leg vacuously so unlevered yield decides) with amortizing debt
+  service via the standard mortgage constant — deliberately NOT the
+  development yield-on-cost spread test, which answers a construction
+  question. Its "Send to Deal Inputs" maps dealType=acquisition,
+  price/closing/NOI/financing (nothing guessed; same principle as the
+  development mapping). v1 scope: no URL persistence, solve-fors, or
+  sidebar estimates for the acquisition side yet (documented deferral).
+- **Bug fix**: the development mapping wrote its per-UNIT hard cost
+  into `hardCostsPsf` when sized by units — a $/unit figure in a PSF
+  field. It now maps only in SF mode; the total in `hardCosts` is what
+  the engine reads either way.
+
 ## Dealflow segregation — acquisitions vs developments (post-Run 5)
 
 - **Stage registry is a single source of truth** in

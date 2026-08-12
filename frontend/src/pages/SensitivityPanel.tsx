@@ -7,7 +7,7 @@ import {
   type SavedSensitivity,
 } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
-import { flattenFields, type FlatField } from '../lib/schemaFields'
+import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
 import { boundsReady, heatColor, linspace } from '../lib/sensitivityMath'
 import type { OutputMetric, InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
@@ -55,7 +55,11 @@ export default function SensitivityPanel({
 }: SensitivityPanelProps) {
   const fields = flattenFields(schema)
   const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
-  const driverCandidates = fields.filter((f) => DRIVER_TYPES.has(f.type))
+  // Only fields VISIBLE for this deal (type-aware): sweeping the other
+  // dealflow's inputs would produce a silent flat grid.
+  const driverCandidates = visibleFields(schema, baseValues).filter((f) =>
+    DRIVER_TYPES.has(f.type),
+  )
 
   const [mode, setMode] = useState<SweepMode>('native')
   const [mappedFieldIds, setMappedFieldIds] = useState<Set<string>>(new Set())

@@ -29,6 +29,7 @@ _TILE_IDS = [
 ]
 
 _ASSUMPTION_ROWS = [
+    ("dealType", "Deal type", "text"),
     ("purchasePrice", "Purchase price", "currency"),
     ("landCost", "Land cost", "currency"),
     ("hardCosts", "Hard costs", "currency"),

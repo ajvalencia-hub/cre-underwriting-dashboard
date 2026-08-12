@@ -18,11 +18,20 @@ BPS_DELTA = 0.005
 DRIVERS = [
     {"key": "rent", "label": "Rent"},
     {"key": "exitCap", "label": "Exit cap rate (±50 bps)"},
+    # The cost driver's label is resolved per deal type at run time — it
+    # perturbs hardCosts on developments and purchasePrice on acquisitions,
+    # and the chart should say which one actually moved.
     {"key": "cost", "label": "Hard costs / purchase price"},
     {"key": "opex", "label": "Operating expenses"},
     {"key": "rate", "label": "Interest rate (±50 bps)"},
     {"key": "vacancy", "label": "Vacancy"},
 ]
+
+
+def _driver_label(driver: dict, values: dict) -> str:
+    if driver["key"] == "cost":
+        return "Hard costs" if values.get("dealType") == "development" else "Purchase price"
+    return driver["label"]
 
 _OPEX_FIELDS = [
     "realEstateTaxes", "insurance", "utilities", "repairsMaintenance",
@@ -108,7 +117,8 @@ def run_tornado(values: dict, metric: str = "leveredIrr") -> dict:
             abs((high - base)) if high is not None else 0.0,
         )
         bars.append(
-            {"key": driver["key"], "label": driver["label"], "low": low, "high": high, "impact": impact}
+            {"key": driver["key"], "label": _driver_label(driver, values),
+             "low": low, "high": high, "impact": impact}
         )
 
     bars.sort(key=lambda b: b["impact"], reverse=True)

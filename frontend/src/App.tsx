@@ -386,6 +386,13 @@ function App() {
     setTab('dashboard')
   }
 
+  // Acquisition-side quick screen send (the mapped values arrive already
+  // shaped by mapAcquisitionQuickScreenToDealInputs, incl. dealType).
+  function handleSendAcquisitionToDealInputs(values: Record<string, unknown>) {
+    setFormValues((prev) => ({ ...prev, ...values }))
+    setTab('dashboard')
+  }
+
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
     setQuickScreenInputs(inputs)
     setTab('quickscreen')
@@ -541,6 +548,7 @@ function App() {
     >
       {goalSeekMetric && (
         <GoalSeekModal
+          schema={schema}
           metric={goalSeekMetric}
           values={formValues}
           onApply={(fieldId, value) => handleFieldChange(fieldId, value)}
@@ -817,6 +825,7 @@ function App() {
           onInputsChange={setQuickScreenInputs}
           results={quickScreenResults}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
+          onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
           dealId={activeDealId}
         />
       </div>
@@ -897,7 +906,7 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
-        <RiskPanel values={formValues} dealId={activeDealId} />
+        <RiskPanel schema={schema} values={formValues} dealId={activeDealId} />
       </div>
 
       <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>

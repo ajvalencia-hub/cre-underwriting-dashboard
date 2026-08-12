@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchGoalSeekInputs, runGoalSeek, type GoalSeekResult } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
-import type { OutputMetric } from '../types/schema'
+import { visibleFields } from '../lib/schemaFields'
+import type { InputSchema, OutputMetric } from '../types/schema'
 
 interface GoalSeekModalProps {
+  schema: InputSchema
   metric: OutputMetric
   values: Record<string, unknown>
   /** Writes the solved value through the normal input-change path so
@@ -13,7 +15,7 @@ interface GoalSeekModalProps {
 }
 
 /** J7: solve one numeric input so `metric` hits a target value. */
-export default function GoalSeekModal({ metric, values, onApply, onClose }: GoalSeekModalProps) {
+export default function GoalSeekModal({ schema, metric, values, onApply, onClose }: GoalSeekModalProps) {
   const [inputs, setInputs] = useState<{ id: string; label: string; type: string }[]>([])
   const [search, setSearch] = useState('')
   const [targetInput, setTargetInput] = useState('')
@@ -28,13 +30,21 @@ export default function GoalSeekModal({ metric, values, onApply, onClose }: Goal
       .catch(() => setError('Could not load the input list.'))
   }, [])
 
+  // Type-aware: intersect the backend's numeric-field list with the fields
+  // VISIBLE for this deal — solving over the other dealflow's inputs (e.g.
+  // landCost on an acquisition) can never move the metric.
+  const visibleIds = useMemo(
+    () => new Set(visibleFields(schema, values).map((f) => f.id)),
+    [schema, values],
+  )
   const filtered = useMemo(() => {
+    const applicable = inputs.filter((f) => visibleIds.has(f.id))
     const q = search.trim().toLowerCase()
-    if (!q) return inputs
-    return inputs.filter(
+    if (!q) return applicable
+    return applicable.filter(
       (f) => f.label.toLowerCase().includes(q) || f.id.toLowerCase().includes(q),
     )
-  }, [inputs, search])
+  }, [inputs, search, visibleIds])
 
   // Percent metrics are typed as decimals ("12" would be 1200%) — accept the
   // human form and divide.

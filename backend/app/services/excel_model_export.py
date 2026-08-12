@@ -93,6 +93,10 @@ def _num(inputs: dict, key: str, default: float = 0.0) -> float:
 
 def unsupported_features(inputs: dict) -> list[str]:
     features = []
+    if inputs.get("dealType") not in ("acquisition", "development"):
+        # Refuse rather than silently defaulting to an acquisition-shaped
+        # workbook — a wrong pro forma is worse than no export.
+        features.append("missing deal type (set Deal Basics → Deal Type first)")
     if leases.has_leases(inputs):
         features.append("commercial lease-level rent rolls (escalations/recoveries/rollover)")
     if inputs.get("waterfallTiers"):

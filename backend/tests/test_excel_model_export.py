@@ -51,6 +51,14 @@ def test_unsupported_features_refuse_with_the_full_list(analytic):
         assert fragment in text, fragment
 
 
+def test_missing_deal_type_refuses(analytic):
+    """No dealType -> refusal, never a silently acquisition-shaped workbook."""
+    untyped = {k: v for k, v in analytic.items() if k != "dealType"}
+    with pytest.raises(UnsupportedModelFeatures) as excinfo:
+        build_model_workbook(untyped)
+    assert "missing deal type" in str(excinfo.value)
+
+
 def test_development_sold_before_stabilization_refuses():
     dev = {
         "dealType": "development",

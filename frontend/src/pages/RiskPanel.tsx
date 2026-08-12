@@ -8,18 +8,24 @@ import {
   type McDriver,
   type MonteCarloResult,
 } from '../lib/api'
+import { visibleFields } from '../lib/schemaFields'
+import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 
 interface RiskPanelProps {
+  schema: InputSchema
   values: Record<string, unknown>
   dealId: string | null
 }
 
 // Seed suggestions mirror the tornado's driver set, expressed as concrete
-// numeric fields (the tornado's composite "rent" driver has no single path).
-const SUGGESTED_PATHS = [
-  'grossPotentialRent', 'exitCapRatePct', 'purchasePrice', 'interestRate', 'vacancyPct',
-]
+// numeric fields per dealflow (the tornado's composite "rent" driver has no
+// single path). Acquisitions sample purchase price; developments sample the
+// construction budget instead — the field the engine actually reads.
+const SUGGESTED_PATHS_BY_TYPE: Record<string, string[]> = {
+  acquisition: ['grossPotentialRent', 'exitCapRatePct', 'purchasePrice', 'interestRate', 'vacancyPct'],
+  development: ['grossPotentialRent', 'exitCapRatePct', 'hardCosts', 'interestRate', 'vacancyPct'],
+}
 
 function defaultDriver(path: string, values: Record<string, unknown>): McDriver {
   const current = typeof values[path] === 'number' ? (values[path] as number) : 0
@@ -80,8 +86,14 @@ function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[]
 }
 
 /** J8: Monte Carlo risk panel — seeded, deterministic, saved to scenarios. */
-export default function RiskPanel({ values, dealId }: RiskPanelProps) {
+export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   const [inputList, setInputList] = useState<{ id: string; label: string }[]>([])
+  // Type-aware: suggestions per dealflow, picker limited to fields the
+  // engine actually reads for this deal.
+  const dealType = values.dealType === 'development' ? 'development' : 'acquisition'
+  const suggested = SUGGESTED_PATHS_BY_TYPE[dealType]
+  const visibleIds = new Set(visibleFields(schema, values).map((f) => f.id))
+  const applicableInputs = inputList.filter((f) => visibleIds.has(f.id))
   const [drivers, setDrivers] = useState<McDriver[]>([])
   const [n, setN] = useState(500)
   const [seed, setSeed] = useState('')
@@ -188,7 +200,7 @@ export default function RiskPanel({ values, dealId }: RiskPanelProps) {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="text-xs text-slate-500">Add driver:</span>
-        {SUGGESTED_PATHS.filter((p) => !drivers.some((d) => d.inputPath === p)).map((p) => (
+        {suggested.filter((p) => !drivers.some((d) => d.inputPath === p)).map((p) => (
           <button
             key={p}
             onClick={() => addDriver(p)}
@@ -203,7 +215,7 @@ export default function RiskPanel({ values, dealId }: RiskPanelProps) {
           className="rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-500"
         >
           <option value="">other input…</option>
-          {inputList
+          {applicableInputs
             .filter((f) => !drivers.some((d) => d.inputPath === f.id))
             .map((f) => (
               <option key={f.id} value={f.id}>

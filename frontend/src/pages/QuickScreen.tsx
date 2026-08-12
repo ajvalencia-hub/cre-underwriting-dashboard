@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AcquisitionQuickScreen from '../components/AcquisitionQuickScreen'
 import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
 import { computeNative, saveScenario, type DebtBlock } from '../lib/api'
@@ -22,8 +23,12 @@ interface QuickScreenProps {
   onInputsChange: (inputs: QuickScreenInputs) => void
   results: QuickScreenResults
   onSendToDealInputs: () => void
+  /** Acquisition-side send: merges the mapped values and opens Deal Inputs. */
+  onSendAcquisitionToDealInputs: (values: Record<string, unknown>) => void
   dealId: string | null
 }
+
+type ScreenMode = 'development' | 'acquisition'
 
 const FEASIBILITY_LABEL: Record<string, string> = {
   strong: `Strong — yield-on-cost clears exit cap by ${FEASIBILITY_THRESHOLDS.strong}+ bps`,
@@ -36,7 +41,15 @@ const FEASIBILITY_COLOR: Record<string, string> = {
   weak: 'border-red-200 bg-red-50 text-red-700',
 }
 
-export default function QuickScreen({ inputs, onInputsChange, results, onSendToDealInputs, dealId }: QuickScreenProps) {
+export default function QuickScreen({
+  inputs,
+  onInputsChange,
+  results,
+  onSendToDealInputs,
+  onSendAcquisitionToDealInputs,
+  dealId,
+}: QuickScreenProps) {
+  const [mode, setMode] = useState<ScreenMode>('development')
   const [scenarioName, setScenarioName] = useState('Quick Screen')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -150,11 +163,42 @@ export default function QuickScreen({ inputs, onInputsChange, results, onSendToD
     <div className="max-w-4xl">
       <h1 className="text-2xl font-semibold">Back-of-Napkin Screen</h1>
       <p className="mt-1 text-slate-500">
-        A handful of inputs to see whether a development deal is worth underwriting in full — no template
-        or mapping required.
+        A handful of inputs to see whether a{' '}
+        {mode === 'development' ? 'development' : 'n acquisition'} deal is worth underwriting in
+        full — no template or mapping required.
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+      {/* Each dealflow gets its own napkin: yield-on-cost spread for
+          ground-up, cap-rate / cash-on-cash / DSCR for acquisitions. */}
+      <div className="mt-3 flex gap-1 rounded border border-slate-200 bg-white p-1 text-sm w-fit">
+        {(
+          [
+            ['development', 'Development'],
+            ['acquisition', 'Acquisition'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setMode(id)}
+            aria-pressed={mode === id}
+            className={`rounded px-3 py-1 ${
+              mode === id
+                ? id === 'development'
+                  ? 'bg-orange-100 font-medium text-orange-700'
+                  : 'bg-sky-100 font-medium text-sky-700'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'acquisition' && (
+        <AcquisitionQuickScreen onSendToDealInputs={onSendAcquisitionToDealInputs} />
+      )}
+
+      <div className={mode === 'development' ? 'mt-6 grid grid-cols-1 gap-6 md:grid-cols-2' : 'hidden'}>
         <div className="space-y-4 rounded-md border border-slate-200 bg-white p-4">
           <div>
             <label className="block text-xs font-medium text-slate-600">Sized by</label>

@@ -400,7 +400,10 @@ export function mapQuickScreenToDealInputs(
     // Development Details
     landCost: inputs.landCost,
     hardCosts: results.hardCosts,
-    hardCostsPsf: inputs.hardCostPerUnit,
+    // Only a per-SF figure belongs in the PSF field — in units mode
+    // hardCostPerUnit is $/unit and writing it here would be a silent
+    // mis-population (the total in `hardCosts` is what the engine reads).
+    ...(inputs.sizeMode === 'sf' ? { hardCostsPsf: inputs.hardCostPerUnit } : {}),
     softCosts: results.softCosts,
     contingencyPct: inputs.contingencyPct,
     // Exit Assumptions
@@ -413,6 +416,159 @@ export function mapQuickScreenToDealInputs(
     interestRate: inputs.constructionInterestRatePct,
     totalCostBasis: results.totalDevelopmentCost,
     loanAmount: results.loanAmount,
+    // Equity Structure
+    totalEquity: results.equityRequired,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Acquisition quick screen: the acquisition-side back-of-napkin (the module
+// above is development-shaped: land + hard cost + construction loan). Same
+// philosophy — pure math, components only render. Verdict is cash-on-cash +
+// DSCR based (the acquisition napkin test), not yield-on-cost spread.
+// ---------------------------------------------------------------------------
+
+export interface AcquisitionQuickScreenInputs {
+  purchasePrice: number
+  closingCostsPct: number // fraction of price, added to the equity basis
+  quantity: number // # units
+  rent: number // $/unit/month
+  noiMarginPct: number // fraction of GPR retained as NOI
+  exitCapRatePct: number // fraction — reversion context for the cap spread
+  ltvPct: number // fraction of PRICE (standard sizing basis), 0 = all cash
+  interestRatePct: number // fraction
+  amortYears: number // 0 = interest-only
+}
+
+export interface AcquisitionQuickScreenResults {
+  totalBasis: number
+  grossPotentialRent: number
+  stabilizedNoi: number
+  goingInCapRate: number
+  capRateSpreadBps: number // going-in over exit — positive = buying above the exit cap
+  pricePerUnit: number
+  loanAmount: number
+  equityRequired: number
+  loanConstant: number | null
+  annualDebtService: number
+  leveredCashFlow: number
+  cashOnCashPct: number | null
+  minDscr: number | null
+  debtYield: number | null
+  breakEvenRatio: number
+  feasibility: FeasibilityTier
+}
+
+/** Acquisition verdict thresholds [documented in DECISIONS.md]: cash-on-cash
+ *  AND DSCR must both clear a tier. All-cash deals have no DSCR — the DSCR
+ *  leg is vacuously satisfied and cash-on-cash (= unlevered yield) decides. */
+export const ACQUISITION_FEASIBILITY = {
+  strong: { cashOnCash: 0.06, dscr: 1.25 },
+  marginal: { cashOnCash: 0.04, dscr: 1.15 },
+}
+
+export function classifyAcquisitionFeasibility(
+  cashOnCash: number | null,
+  dscr: number | null,
+): FeasibilityTier {
+  const coc = cashOnCash ?? -Infinity
+  const meets = (tier: { cashOnCash: number; dscr: number }) =>
+    coc >= tier.cashOnCash && (dscr === null || dscr >= tier.dscr)
+  if (meets(ACQUISITION_FEASIBILITY.strong)) return 'strong'
+  if (meets(ACQUISITION_FEASIBILITY.marginal)) return 'marginal'
+  return 'weak'
+}
+
+/** Level-payment mortgage constant (annual debt service per $ of loan);
+ *  amortYears 0 collapses to the rate (interest-only). */
+export function annualLoanConstant(ratePct: number, amortYears: number): number {
+  if (amortYears <= 0) return ratePct
+  const r = ratePct / 12
+  const n = Math.round(amortYears * 12)
+  if (r === 0) return 12 / n
+  return (12 * r) / (1 - (1 + r) ** -n)
+}
+
+export function computeAcquisitionQuickScreen(
+  inputs: AcquisitionQuickScreenInputs,
+): AcquisitionQuickScreenResults {
+  const totalBasis = inputs.purchasePrice * (1 + inputs.closingCostsPct)
+  const grossPotentialRent = inputs.quantity * inputs.rent * 12
+  const stabilizedNoi = grossPotentialRent * inputs.noiMarginPct
+  const goingInCapRate = inputs.purchasePrice > 0 ? stabilizedNoi / inputs.purchasePrice : 0
+  const capRateSpreadBps = (goingInCapRate - inputs.exitCapRatePct) * 10000
+  const pricePerUnit = inputs.quantity > 0 ? inputs.purchasePrice / inputs.quantity : 0
+
+  const loanAmount = inputs.purchasePrice * inputs.ltvPct
+  const equityRequired = totalBasis - loanAmount
+  const loanConstant =
+    loanAmount > 0 ? annualLoanConstant(inputs.interestRatePct, inputs.amortYears) : null
+  const annualDebtService = loanAmount > 0 && loanConstant !== null ? loanAmount * loanConstant : 0
+  const leveredCashFlow = stabilizedNoi - annualDebtService
+  const cashOnCashPct = equityRequired > 0 ? leveredCashFlow / equityRequired : null
+  const minDscr = annualDebtService > 0 ? stabilizedNoi / annualDebtService : null
+  const debtYield = loanAmount > 0 ? stabilizedNoi / loanAmount : null
+  const breakEvenRatio =
+    grossPotentialRent > 0
+      ? (grossPotentialRent - stabilizedNoi + annualDebtService) / grossPotentialRent
+      : 0
+
+  return {
+    totalBasis,
+    grossPotentialRent,
+    stabilizedNoi,
+    goingInCapRate,
+    capRateSpreadBps,
+    pricePerUnit,
+    loanAmount,
+    equityRequired,
+    loanConstant,
+    annualDebtService,
+    leveredCashFlow,
+    cashOnCashPct,
+    minDscr,
+    debtYield,
+    breakEvenRatio,
+    feasibility: classifyAcquisitionFeasibility(cashOnCashPct, minDscr),
+  }
+}
+
+export const ACQUISITION_QUICK_SCREEN_DEFAULTS: AcquisitionQuickScreenInputs = {
+  purchasePrice: 10_000_000,
+  closingCostsPct: 0.02,
+  quantity: 60,
+  rent: 1_600,
+  noiMarginPct: 0.6,
+  exitCapRatePct: 0.055,
+  ltvPct: 0.6,
+  interestRatePct: 0.065,
+  amortYears: 30,
+}
+
+/** "Send to Deal Inputs" for the acquisition screen — same single-mapping
+ *  principle as the development version above; nothing guessed, the implied
+ *  5% vacancy mirrors the NOI-margin decomposition. */
+export function mapAcquisitionQuickScreenToDealInputs(
+  inputs: AcquisitionQuickScreenInputs,
+  results: AcquisitionQuickScreenResults,
+): Record<string, unknown> {
+  return {
+    dealType: 'acquisition',
+    // Acquisition Details
+    purchasePrice: inputs.purchasePrice,
+    closingCostsPct: inputs.closingCostsPct,
+    inPlaceNoi: results.stabilizedNoi,
+    // Operating Income
+    grossPotentialRent: results.grossPotentialRent,
+    vacancyPct: DEFAULT_IMPLIED_VACANCY_PCT,
+    // Exit Assumptions
+    exitCapRatePct: inputs.exitCapRatePct,
+    // Financing
+    ltvOrLtc: inputs.ltvPct,
+    loanAmount: results.loanAmount,
+    interestRate: inputs.interestRatePct,
+    amortYears: inputs.amortYears,
+    totalCostBasis: results.totalBasis,
     // Equity Structure
     totalEquity: results.equityRequired,
   }

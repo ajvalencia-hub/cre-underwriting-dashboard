@@ -24,6 +24,15 @@ def development() -> dict:
     return json.loads((FIXTURES / "analytic_development.json").read_text())
 
 
+def test_cost_driver_label_names_the_field_actually_perturbed(analytic, development):
+    """Type-aware label: the merged 'Hard costs / purchase price' never ships
+    to the UI — acquisitions say Purchase price, developments Hard costs."""
+    acq_bars = tornado_service.run_tornado(analytic, "leveredIrr")["bars"]
+    assert next(b for b in acq_bars if b["key"] == "cost")["label"] == "Purchase price"
+    dev_bars = tornado_service.run_tornado(development, "leveredIrr")["bars"]
+    assert next(b for b in dev_bars if b["key"] == "cost")["label"] == "Hard costs"
+
+
 def test_perturb_rules(analytic, development):
     up = tornado_service.perturb(analytic, "rent", +1)
     assert up["grossPotentialRent"] == pytest.approx(analytic["grossPotentialRent"] * 1.10)
