@@ -519,6 +519,12 @@ function App() {
           onClose={() => setGoalSeekMetric(null)}
         />
       )}
+      {/* The deal header + workflow tabs stay pinned while tab content
+          scrolls (main is the scroll container). Negative margins span
+          main's px-8/pt-6 padding so scrolled content never peeks around
+          the bar; z-30 sits above the statement's sticky cells (z-10) and
+          below modals (z-50). */}
+      <div className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
         <select
@@ -684,6 +690,7 @@ function App() {
           </button>
         ))}
       </nav>
+      </div>
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
