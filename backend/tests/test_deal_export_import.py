@@ -55,6 +55,36 @@ def _make_deal_with_scenarios(client) -> dict:
     return client.get(f"/api/deals/{deal['id']}").json()
 
 
+def test_status_round_trips_with_fallback(client):
+    """Pipeline status travels in the bundle; junk falls back to screening
+    WITH a warning; old bundles without one stay silent."""
+    deal = _make_deal_with_scenarios(client)
+    client.put(f"/api/deals/{deal['id']}", json={"status": "under_contract"})
+    bundle = client.get(f"/api/deals/{deal['id']}/export").json()
+    assert bundle["deal"]["status"] == "under_contract"
+
+    imported = client.post("/api/deals/import", json={"bundle": bundle}).json()
+    assert imported["status"] == "under_contract"
+    assert not any("pipeline stage" in w for w in imported["importWarnings"])
+
+    # Development lifecycle stages travel too.
+    client.put(f"/api/deals/{deal['id']}", json={"status": "entitlements"})
+    dev_bundle = client.get(f"/api/deals/{deal['id']}/export").json()
+    assert client.post("/api/deals/import", json={"bundle": dev_bundle}).json()["status"] == "entitlements"
+
+    # Junk status -> screening + a warning.
+    bad = {**bundle, "deal": {**bundle["deal"], "status": "flipping"}}
+    junk = client.post("/api/deals/import", json={"bundle": bad}).json()
+    assert junk["status"] == "screening"
+    assert any("flipping" in w for w in junk["importWarnings"])
+
+    # Pre-status bundles (no key): screening, NO warning.
+    legacy = {**bundle, "deal": {k: v for k, v in bundle["deal"].items() if k != "status"}}
+    old = client.post("/api/deals/import", json={"bundle": legacy}).json()
+    assert old["status"] == "screening"
+    assert not any("pipeline stage" in w for w in old["importWarnings"])
+
+
 def test_export_import_round_trip(client):
     deal = _make_deal_with_scenarios(client)
     bundle = client.get(f"/api/deals/{deal['id']}/export").json()

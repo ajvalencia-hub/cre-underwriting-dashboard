@@ -480,7 +480,8 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
         "exportKind": EXPORT_KIND,
         "schemaVersion": EXPORT_SCHEMA_VERSION,
         "exportedAt": datetime.now(timezone.utc).isoformat(),
-        "deal": {"name": deal.name, "inputs": deal.inputs},
+        "deal": {"name": deal.name, "inputs": deal.inputs,
+                 "status": deal.status or "screening"},
         "activeTemplate": template_ref,
         "activeMappingProfile": mapping_ref,
         "notes": [
@@ -527,11 +528,27 @@ def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
     name = str(deal_data.get("name") or "Imported Deal").strip() or "Imported Deal"
     inputs = deal_data.get("inputs") if isinstance(deal_data.get("inputs"), dict) else {}
 
-    deal = Deal(name=f"{name} (imported)", inputs=inputs)
+    warnings: list[str] = []
+
+    # Pipeline status round-trips (older bundles lack it — screening, no
+    # warning). An unrecognized value falls back WITH a warning rather than
+    # silently inventing a stage.
+    from app.schemas import DEAL_STATUSES
+
+    bundle_status = deal_data.get("status")
+    if bundle_status in DEAL_STATUSES:
+        status = bundle_status
+    else:
+        status = "screening"
+        if bundle_status is not None:
+            warnings.append(
+                f"Bundle status '{bundle_status}' isn't a known pipeline stage — "
+                "the imported deal starts at Screening."
+            )
+
+    deal = Deal(name=f"{name} (imported)", inputs=inputs, status=status)
     db.add(deal)
     db.flush()  # assigns the new deal id for the scenarios below
-
-    warnings: list[str] = []
     if bundle.get("activeTemplate") or bundle.get("activeMappingProfile"):
         template_name = (bundle.get("activeTemplate") or {}).get("filename") or "unknown template"
         warnings.append(
