@@ -182,6 +182,42 @@ def test_build_benchmarks_produces_all_flags(stubbed_sources):
     assert "rentGrowthPct" in by_metric["rent_growth_vs_hpa"]["relatedFieldIds"]
 
 
+def test_development_rent_tested_net_of_new_construction_premium(stubbed_sources):
+    """The same $3,000 claimed rent: an acquisition's IN-PLACE rent sits at
+    the ~88th percentile of existing stock (warning), but a development's
+    PRO-FORMA rent is tested net of the 15% new-construction allowance
+    ($2,609 -> ~82nd percentile, caution) with pro-forma wording."""
+    mix = [{"bedrooms": 1, "count": 60}, {"bedrooms": 2, "count": 40}]
+
+    acq = benchmarks.build_benchmarks(
+        "701 Congress Ave", "Austin", "", "multifamily",
+        subject={"dealType": "acquisition", "avgRentMonthly": 3000, "bedroomMix": mix},
+    )
+    acq_flag = next(f for f in acq["flags"] if f["metric"] == "rent_vs_market")
+    assert acq_flag["verdict"] == "warning"
+    assert acq_flag["explanation"].startswith("Subject rent")
+
+    dev = benchmarks.build_benchmarks(
+        "701 Congress Ave", "Austin", "", "multifamily",
+        subject={"dealType": "development", "avgRentMonthly": 3000, "bedroomMix": mix},
+    )
+    dev_flag = next(f for f in dev["flags"] if f["metric"] == "rent_vs_market")
+    assert dev_flag["verdict"] == "caution"
+    assert "Pro-forma rent" in dev_flag["explanation"]
+    assert "new-construction premium" in dev_flag["explanation"]
+    # The reported subjectValue stays the CLAIMED rent, never the netted one.
+    assert dev_flag["subjectValue"] == 3000
+
+
+def test_subject_derivation_carries_deal_type():
+    assert benchmarks.derive_subject_from_inputs(
+        {"dealType": "development", "grossPotentialRent": 100_000}
+    )["dealType"] == "development"
+    # Untyped/junk deals derive no dealType — the rent test falls back to
+    # the historical in-place framing.
+    assert "dealType" not in benchmarks.derive_subject_from_inputs({"dealType": "flip"})
+
+
 def test_one_failed_source_never_blocks_the_rest(stubbed_sources, monkeypatch):
     def explode(s, c):
         raise RuntimeError("HUD exploded")

@@ -3,6 +3,9 @@
 // nothing here writes back into the form.
 
 export interface BenchmarkSubject {
+  /** Which dealflow the claimed numbers belong to — the rent test treats a
+   *  development's PRO-FORMA rent differently from in-place rent. */
+  dealType?: 'acquisition' | 'development'
   avgRentMonthly?: number
   avgUnitSf?: number
   bedroomMix?: { bedrooms: number; count: number }[]
@@ -35,6 +38,10 @@ function bedroomsFromUnitType(unitType: unknown): number | undefined {
 
 export function deriveBenchmarkSubject(values: Record<string, unknown>): BenchmarkSubject {
   const subject: BenchmarkSubject = {}
+
+  if (values.dealType === 'acquisition' || values.dealType === 'development') {
+    subject.dealType = values.dealType
+  }
 
   const unitMix = values.unitMix
   if (Array.isArray(unitMix)) {

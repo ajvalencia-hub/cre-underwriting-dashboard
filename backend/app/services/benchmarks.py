@@ -21,6 +21,12 @@ from app.services.data_sources.source_cache import cached_fetch
 
 RENT_PERCENTILE_WARNING = 0.85
 RENT_PERCENTILE_CAUTION = 0.70
+# [FIN] Ground-up deals: ACS/HUD describe the EXISTING stock, and new
+# construction legitimately rents at a premium to it — a development's
+# pro-forma rent is tested net of this allowance before the percentile
+# thresholds apply (see DECISIONS.md). Acquisitions get no allowance:
+# their in-place rents ARE existing stock.
+NEW_CONSTRUCTION_RENT_PREMIUM = 0.15
 RENT_GROWTH_CAUTION_SPREAD = 0.02  # subject growth vs benchmark, absolute
 RENT_GROWTH_WARNING_SPREAD = 0.04
 EXPENSE_RATIO_BAND = (0.30, 0.55)
@@ -103,6 +109,11 @@ def derive_subject_from_inputs(inputs: dict) -> dict:
     """Backend twin of the frontend's deriveBenchmarkSubject — used by the IC
     memo route, which only has the scenario's stored inputs."""
     subject: dict = {}
+
+    # Deal type rides along so the rent test knows whether the claimed rent
+    # is in-place (existing stock) or pro-forma (new construction).
+    if inputs.get("dealType") in ("acquisition", "development"):
+        subject["dealType"] = inputs["dealType"]
 
     unit_mix = inputs.get("unitMix")
     if isinstance(unit_mix, list):
@@ -212,12 +223,19 @@ def build_benchmarks(
 
     # ---- subject rent vs ACS median + HUD FMR ----------------------------
     subject_rent = subject.get("avgRentMonthly")
+    is_development = subject.get("dealType") == "development"
     acs_median = acs.get("medianGrossRent")
     fmr_value, fmr_basis = (
         _weighted_fmr(fmr, subject.get("bedroomMix")) if fmr.get("dataSource") == "hud" else (None, "")
     )
     if subject_rent and (acs_median or fmr_value):
-        percentile = estimate_rent_percentile(subject_rent, fmr_value, acs_median)
+        # Developments claim PRO-FORMA rents against existing-stock data —
+        # test them net of the new-construction premium allowance.
+        tested_rent = (
+            subject_rent / (1 + NEW_CONSTRUCTION_RENT_PREMIUM)
+            if is_development else subject_rent
+        )
+        percentile = estimate_rent_percentile(tested_rent, fmr_value, acs_median)
         if percentile is not None:
             verdict = (
                 "warning" if percentile > RENT_PERCENTILE_WARNING
@@ -229,6 +247,16 @@ def build_benchmarks(
                 benchmark_bits.append(f"ACS median ${acs_median:,.0f}")
             if fmr_value:
                 benchmark_bits.append(f"HUD FMR ({fmr_basis}) ${fmr_value:,.0f}")
+            explanation = (
+                f"Pro-forma rent ${subject_rent:,.0f}/mo — tested net of a "
+                f"{NEW_CONSTRUCTION_RENT_PREMIUM * 100:.0f}% new-construction premium — "
+                f"sits at the ~{percentile * 100:.0f}th percentile of EXISTING-stock "
+                f"rents ({', '.join(benchmark_bits)}). Verify the premium against "
+                f"recent deliveries."
+                if is_development else
+                f"Subject rent ${subject_rent:,.0f}/mo sits at the ~{percentile * 100:.0f}th "
+                f"percentile of market rents ({', '.join(benchmark_bits)})."
+            )
             flags.append(
                 _flag(
                     "rent_vs_market",
@@ -237,8 +265,7 @@ def build_benchmarks(
                     "census_acs + hud",
                     str(acs.get("acsYear") or fmr.get("year") or ""),
                     verdict,
-                    f"Subject rent ${subject_rent:,.0f}/mo sits at the ~{percentile * 100:.0f}th "
-                    f"percentile of market rents ({', '.join(benchmark_bits)}).",
+                    explanation,
                     ["unitMix", "grossPotentialRent"],
                 )
             )
