@@ -27,9 +27,25 @@ def _rank_key(text: str, q: str) -> tuple[int, str]:
     return (0 if lowered.startswith(q) else 1, lowered)
 
 
+# Dealflow facet prefixes: "acq:foo" / "dev:foo" restrict deal-scoped groups
+# (deals, tenants, notes) to one dealflow; comps are global and unaffected.
+_TYPE_PREFIXES = {"acq:": "acquisition", "dev:": "development"}
+
+
+def _deal_type_of(inputs: dict) -> str | None:
+    value = (inputs or {}).get("dealType")
+    return value if value in ("acquisition", "development") else None
+
+
 @router.get("")
 def search(q: str = "", db: Session = Depends(get_db)):
     q = q.strip().lower()
+    type_filter = None
+    for prefix, deal_type in _TYPE_PREFIXES.items():
+        if q.startswith(prefix):
+            type_filter = deal_type
+            q = q[len(prefix):].strip()
+            break
     if len(q) < 2:
         return {"query": q, "groups": []}
     like = f"%{q}%"
@@ -43,6 +59,8 @@ def search(q: str = "", db: Session = Depends(get_db)):
             )
         )
     ).scalars().all()
+    if type_filter:
+        deals = [d for d in deals if _deal_type_of(d.inputs) == type_filter]
     deal_items = sorted(
         (
             {
@@ -53,6 +71,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
                     if isinstance(v, str) and v
                 ),
                 "dealId": d.id,
+                "dealType": _deal_type_of(d.inputs),
             }
             for d in deals
         ),
@@ -83,19 +102,27 @@ def search(q: str = "", db: Session = Depends(get_db)):
     notes = db.execute(
         select(DealNote).where(func.lower(DealNote.body).like(like))
     ).scalars().all()
-    deal_names = {
-        d.id: d.name
+    note_deals = {
+        d.id: d
         for d in db.execute(
             select(Deal).where(Deal.id.in_({n.deal_id for n in notes}))
         ).scalars()
     } if notes else {}
+    if type_filter:
+        notes = [
+            n for n in notes
+            if n.deal_id in note_deals
+            and _deal_type_of(note_deals[n.deal_id].inputs) == type_filter
+        ]
     note_items = sorted(
         (
             {
                 "id": n.id,
                 "title": (n.body[:80] + ("…" if len(n.body) > 80 else "")),
-                "subtitle": deal_names.get(n.deal_id, ""),
+                "subtitle": note_deals[n.deal_id].name if n.deal_id in note_deals else "",
                 "dealId": n.deal_id,
+                "dealType": _deal_type_of(note_deals[n.deal_id].inputs)
+                if n.deal_id in note_deals else None,
             }
             for n in notes
         ),
@@ -105,6 +132,9 @@ def search(q: str = "", db: Session = Depends(get_db)):
     # Tenants across deals: JSON arrays, Python scan (see module docstring).
     tenant_items = []
     for deal in db.execute(select(Deal)).scalars():
+        deal_type = _deal_type_of(deal.inputs)
+        if type_filter and deal_type != type_filter:
+            continue
         for row in (deal.inputs or {}).get("commercialLeases") or []:
             tenant = row.get("tenant") if isinstance(row, dict) else None
             if isinstance(tenant, str) and q in tenant.lower():
@@ -114,6 +144,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
                         "title": tenant,
                         "subtitle": deal.name,
                         "dealId": deal.id,
+                        "dealType": deal_type,
                     }
                 )
     tenant_items = sorted(
@@ -125,9 +156,11 @@ def search(q: str = "", db: Session = Depends(get_db)):
         for kind, items in (
             ("deals", deal_items),
             ("tenants", tenant_items),
-            ("comps", comp_items),
+            # Comps are global (no deal type) — a faceted query is explicitly
+            # a dealflow search, so they drop out under acq:/dev:.
+            ("comps", comp_items if not type_filter else []),
             ("notes", note_items),
         )
         if items
     ]
-    return {"query": q, "groups": groups}
+    return {"query": q, "groups": groups, "typeFilter": type_filter}

@@ -3,6 +3,34 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Dealflow segregation, part 3 — follow-up items (post-Run 5)
+
+- **[FIN] Development pro-forma rents are benchmarked net of a 15%
+  new-construction premium** (`NEW_CONSTRUCTION_RENT_PREMIUM`): ACS
+  medians and HUD FMRs describe the EXISTING stock, which new
+  construction legitimately out-rents — so the percentile test divides
+  the claimed rent by 1.15 before the unchanged warning/caution
+  thresholds, and the flag's wording switches to pro-forma framing with
+  a "verify against recent deliveries" nudge. Acquisitions get no
+  allowance (their in-place rents ARE existing stock); the flag's
+  subjectValue always reports the CLAIMED rent, never the netted one.
+  Rejected: separate softer thresholds for developments — a premium on
+  the rent is the actual economic claim being made; moving thresholds
+  hides it.
+- **Export bundles carry pipeline status** (validated against the stage
+  registry on import; junk falls back to Screening WITH a warning,
+  missing stays silent — additive field, same bundle schemaVersion).
+- **Acquisition quick screen reaches parity**: acq_-prefixed URL params
+  + a `screen` param (existing shared development links keep their
+  meaning), sidebar estimates follow the ACTIVE napkin, and solve-for
+  hints solve BOTH verdict legs (CoC and DSCR) in closed form — a
+  price hitting the CoC target that still fails DSCR wouldn't flip the
+  tier, so the binding constraint decides.
+- **Search gains a dealflow facet**: deal-scoped results carry an
+  ACQ/DEV badge, and `acq:` / `dev:` query prefixes restrict deals/
+  tenants/notes to one flow. Global comps drop out under a facet — a
+  faceted query is explicitly a dealflow search.
+
 ## Dealflow segregation, part 2 — type-aware tools (post-Run 5)
 
 - **Analysis tools only offer fields the engine reads for THIS deal.**

@@ -113,7 +113,20 @@ export default function CommandPalette({ open, onClose, onNavigate }: CommandPal
                       isActive ? 'bg-sky-50' : ''
                     }`}
                   >
-                    <span className="text-sm text-slate-700">{item.title}</span>
+                    <span className="flex items-center gap-1.5 text-sm text-slate-700">
+                      {item.title}
+                      {item.dealType && (
+                        <span
+                          className={`rounded px-1 py-0.5 text-[9px] font-semibold ${
+                            item.dealType === 'development'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-sky-100 text-sky-700'
+                          }`}
+                        >
+                          {item.dealType === 'development' ? 'DEV' : 'ACQ'}
+                        </span>
+                      )}
+                    </span>
                     {item.subtitle && (
                       <span className="text-[11px] text-slate-400">{item.subtitle}</span>
                     )}
@@ -124,7 +137,8 @@ export default function CommandPalette({ open, onClose, onNavigate }: CommandPal
           ))}
         </div>
         <div className="border-t border-slate-100 px-4 py-1.5 text-[10px] text-slate-400">
-          ↑↓ navigate · ↵ open · esc close
+          ↑↓ navigate · ↵ open · esc close · prefix <code>acq:</code> / <code>dev:</code> to
+          filter one dealflow
         </div>
       </div>
     </div>

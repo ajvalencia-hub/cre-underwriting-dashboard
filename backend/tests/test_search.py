@@ -87,6 +87,49 @@ def test_deal_matches_on_address_and_market(client):
     assert by_market and by_market[0]["items"][0]["dealId"] == deal["id"]
 
 
+def test_deal_type_facet_and_badges(client):
+    riverside_acq = client.post("/api/deals", json={"name": "Riverside Acq"}).json()
+    client.put(f"/api/deals/{riverside_acq['id']}", json={"inputs": {
+        "dealType": "acquisition",
+        "commercialLeases": [{"tenant": "Riverside Books", "sf": 900}],
+    }})
+    riverside_dev = client.post("/api/deals", json={"name": "Riverside Dev"}).json()
+    client.put(f"/api/deals/{riverside_dev['id']}", json={"inputs": {"dealType": "development"}})
+    client.post(f"/api/deals/{riverside_dev['id']}/notes", json={"body": "Riverside permits filed"})
+
+    db = client._session()  # type: ignore[attr-defined]
+    db.add(SaleComp(name="Riverside Comp", market="Austin"))
+    db.commit()
+    db.close()
+
+    # Unfaceted: every item in a deal-scoped group carries its dealType.
+    plain = client.get("/api/search?q=riverside").json()
+    assert plain["typeFilter"] is None
+    groups = {g["kind"]: g["items"] for g in plain["groups"]}
+    assert {d["title"]: d["dealType"] for d in groups["deals"]} == {
+        "Riverside Acq": "acquisition", "Riverside Dev": "development",
+    }
+    assert groups["tenants"][0]["dealType"] == "acquisition"
+    assert groups["notes"][0]["dealType"] == "development"
+
+    # acq: facet — only acquisition-scoped hits; global comps drop out.
+    acq = client.get("/api/search?q=acq:riverside").json()
+    assert acq["typeFilter"] == "acquisition"
+    acq_groups = {g["kind"]: g["items"] for g in acq["groups"]}
+    assert [d["title"] for d in acq_groups["deals"]] == ["Riverside Acq"]
+    assert "notes" not in acq_groups  # the note belongs to the dev deal
+    assert "comps" not in acq_groups
+
+    # dev: facet mirrors.
+    dev = client.get("/api/search?q=dev:riverside").json()
+    dev_groups = {g["kind"]: g["items"] for g in dev["groups"]}
+    assert [d["title"] for d in dev_groups["deals"]] == ["Riverside Dev"]
+    assert "tenants" not in dev_groups
+
+    # A bare prefix with a too-short remainder returns nothing, not junk.
+    assert client.get("/api/search?q=acq:r").json()["groups"] == []
+
+
 def test_migration_creates_indexes():
     db_engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool

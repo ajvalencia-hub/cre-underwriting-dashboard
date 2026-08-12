@@ -748,6 +748,8 @@ export interface SearchItem {
   title: string
   subtitle: string
   dealId?: string
+  /** Which dealflow the item belongs to (deal-scoped groups only). */
+  dealType?: 'acquisition' | 'development' | null
 }
 
 export interface SearchGroup {
