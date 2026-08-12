@@ -3,6 +3,37 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Settings v1 — scaffold, dark mode, backups panel, integrations (post-Run 5)
+
+- **Two-tier settings architecture**: per-browser UI preferences live in
+  localStorage (lib/uiPrefs.ts — same pattern as pipeline saved views);
+  server-affecting settings stay server-side. This slice needed NO new
+  server storage — the backups panel and integration status are pure
+  surfacing of existing endpoints/config.
+- **Dark mode is a contained `.dark`-scoped CSS override layer** in
+  index.css remapping the finite utility palette the app actually uses
+  (structural neutrals invert, tinted status chips become translucent
+  accents, primary slate-900 buttons flip to light-on-dark,
+  `color-scheme: dark` flips native controls). Rejected: adding `dark:`
+  variants to hundreds of call sites — a mechanical diff touching every
+  component for the same visual result, and a merge hazard for every
+  future component. The override file IS the registry of the app's
+  palette; new components using the same utilities inherit dark for
+  free. Documented light-only surfaces: generated documents (memo
+  matplotlib PNGs, decks, Excel) stay light by design.
+- Theme pref: light | dark | **system (default)** — system follows
+  `prefers-color-scheme` live via a media-query listener; the class is
+  applied in main.tsx BEFORE first paint (no light flash).
+- **The Backups panel is the J16 endpoints' first UI** — list, back up
+  now, and restore behind a confirm dialog that states the overwrite +
+  restart consequence; the response's uploads-manifest count is shown
+  so the operator can verify files survived.
+- **Integration status returns FLAGS ONLY** (`configured: bool` per env
+  var) — key values never leave the server, asserted by test. BLS is
+  labeled as working unauthenticated; every source's graceful
+  degradation is the existing contract, the panel just makes it
+  visible.
+
 ## Dealflow segregation, part 3 — follow-up items (post-Run 5)
 
 - **[FIN] Development pro-forma rents are benchmarked net of a 15%

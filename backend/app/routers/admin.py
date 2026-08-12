@@ -1,4 +1,4 @@
-"""J16: admin actions — backup now / list / restore."""
+"""Admin surface: backups (J16) + integration status (Settings page)."""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -6,6 +6,33 @@ from pydantic import BaseModel
 from app.services import backup_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+@router.get("/integrations")
+def integration_status():
+    """Which optional API keys are configured — FLAGS ONLY, the values never
+    leave the server. Feeds the Settings > Integrations panel; every source
+    degrades gracefully when unset (that's the existing contract)."""
+    from app import config
+
+    entries = [
+        ("FRED_API_KEY", "FRED (St. Louis Fed)", config.FRED_API_KEY,
+         "Index rates — SOFR seed for floating debt, market-rates context."),
+        ("CENSUS_API_KEY", "Census ACS", config.CENSUS_API_KEY,
+         "Demographics and median-rent benchmarks."),
+        ("HUD_API_TOKEN", "HUD", config.HUD_API_TOKEN,
+         "Fair Market Rents for the rent-vs-market benchmark."),
+        ("BEA_API_KEY", "BEA", config.BEA_API_KEY,
+         "Regional income data in market context."),
+        ("BLS_API_KEY", "BLS", config.BLS_API_KEY,
+         "Employment trends (also works unauthenticated at low volume)."),
+        ("ANTHROPIC_API_KEY", "Anthropic", config.ANTHROPIC_API_KEY,
+         "LLM fallback for document classification and extraction."),
+    ]
+    return [
+        {"envVar": env_var, "label": label, "configured": bool(value), "purpose": purpose}
+        for env_var, label, value, purpose in entries
+    ]
 
 
 @router.get("/backups")

@@ -13,6 +13,7 @@ import PortfolioPage from './pages/PortfolioPage'
 import RiskPanel from './pages/RiskPanel'
 import ScenariosPanel from './pages/ScenariosPanel'
 import SensitivityPanel from './pages/SensitivityPanel'
+import SettingsPage from './pages/SettingsPage'
 import TemplateUpload from './pages/TemplateUpload'
 import {
   createDeal,
@@ -83,6 +84,7 @@ type Tab =
   | 'scenarios'
   | 'comps'
   | 'portfolio'
+  | 'settings'
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -774,6 +776,7 @@ function App() {
             ['scenarios', '6. Scenarios'],
             ['comps', '7. Comps'],
             ['portfolio', 'Portfolio'],
+            ['settings', '⚙ Settings'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -963,6 +966,10 @@ function App() {
 
       <div style={{ display: tab === 'portfolio' ? 'block' : 'none' }}>
         <PortfolioPage active={tab === 'portfolio'} />
+      </div>
+
+      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+        <SettingsPage active={tab === 'settings'} />
       </div>
 
       <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>

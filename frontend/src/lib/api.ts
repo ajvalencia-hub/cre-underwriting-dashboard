@@ -717,6 +717,42 @@ export function getExtraction(resultId: string) {
   return getJson<ExtractionResult>(`/extraction/${resultId}`)
 }
 
+// ---- Settings: backups (J16 endpoints) + integration status ----
+
+export interface BackupSnapshot {
+  name: string
+  createdAt: string | null
+  uploadCount: number
+  hasDb: boolean
+}
+
+export function fetchBackups() {
+  return getJson<{ daily: BackupSnapshot[]; weekly: BackupSnapshot[] }>('/admin/backups')
+}
+
+export function runBackupNow() {
+  return postJson<{ created: string; kind: string }>('/admin/backups/run', {}, 'POST')
+}
+
+export function restoreBackup(kind: string, name: string) {
+  return postJson<{ restored: string; uploads: unknown[]; note: string }>(
+    '/admin/backups/restore',
+    { kind, name },
+    'POST',
+  )
+}
+
+export interface IntegrationStatus {
+  envVar: string
+  label: string
+  configured: boolean
+  purpose: string
+}
+
+export function fetchIntegrations() {
+  return getJson<IntegrationStatus[]>('/admin/integrations')
+}
+
 // ---- J15: portfolio roll-up ----
 
 export interface PortfolioRollup {
