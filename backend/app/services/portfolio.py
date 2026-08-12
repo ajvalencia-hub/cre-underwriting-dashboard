@@ -63,6 +63,7 @@ def build_portfolio(deals: list[dict]) -> dict:
     active = [d for d in deals if (d.get("status") or "screening") != DEAD_STATUS]
 
     by_status: dict[str, dict] = {}
+    by_deal_type: dict[str, dict] = {}
     market_equity: dict[str, float] = {}
     class_equity: dict[str, float] = {}
     computed: list[dict] = []
@@ -86,6 +87,10 @@ def build_portfolio(deals: list[dict]) -> dict:
         market = str(inputs.get("market") or "—")
         asset_class = str(inputs.get("propertyType") or "—")
 
+        deal_type = inputs.get("dealType")
+        if deal_type not in ("acquisition", "development"):
+            deal_type = "untyped"
+
         bucket = by_status.setdefault(
             status, {"count": 0, "equity": 0.0, "totalCost": 0.0, "units": 0.0, "sf": 0.0}
         )
@@ -95,11 +100,21 @@ def build_portfolio(deals: list[dict]) -> dict:
         bucket["units"] += _units(inputs)
         bucket["sf"] += _square_feet(inputs)
 
+        type_bucket = by_deal_type.setdefault(
+            deal_type, {"count": 0, "equity": 0.0, "totalCost": 0.0, "units": 0.0, "sf": 0.0}
+        )
+        type_bucket["count"] += 1
+        type_bucket["equity"] += equity
+        type_bucket["totalCost"] += cost
+        type_bucket["units"] += _units(inputs)
+        type_bucket["sf"] += _square_feet(inputs)
+
         market_equity[market] = market_equity.get(market, 0.0) + equity
         class_equity[asset_class] = class_equity.get(asset_class, 0.0) + equity
 
         computed.append({
             "id": deal.get("id"), "name": deal.get("name"), "status": status,
+            "dealType": deal_type,
             "market": market, "assetClass": asset_class, "equity": equity,
             "leveredIrr": outputs.get("leveredIrr"),
             "equityMultiple": outputs.get("equityMultiple"),
@@ -139,6 +154,9 @@ def build_portfolio(deals: list[dict]) -> dict:
         },
         "byStatus": [
             {"status": s, **vals} for s, vals in sorted(by_status.items())
+        ],
+        "byDealType": [
+            {"dealType": t, **vals} for t, vals in sorted(by_deal_type.items())
         ],
         "exposureByMarket": [
             {"market": m, "equity": e} for m, e in

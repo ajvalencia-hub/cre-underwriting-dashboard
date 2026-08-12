@@ -82,14 +82,18 @@ describe('applyView', () => {
 })
 
 describe('pipelineToCsv', () => {
-  it('serializes the given rows with escaping and staleness', () => {
+  it('serializes the given rows with type, escaping, and staleness', () => {
     const rows = [
-      deal({ name: 'Quote "Deal"', status: 'loi', inputs: { market: 'Miami, FL' },
+      deal({ name: 'Quote "Deal"', status: 'loi',
+             inputs: { market: 'Miami, FL', dealType: 'acquisition' },
              updatedAt: '2026-06-01T00:00:00Z' }), // 34 days old -> red badge
+      deal({ id: 'y', name: 'Legacy', status: 'screening',
+             updatedAt: '2026-07-04T00:00:00Z' }), // untyped -> empty Type cell
     ]
     const csv = pipelineToCsv(rows, NOW)
     const lines = csv.split('\n')
-    expect(lines[0]).toBe('Name,Market,Status,Last touched,Staleness')
-    expect(lines[1]).toBe('"Quote ""Deal""","Miami, FL",loi,2026-06-01T00:00:00Z,stale 34d')
+    expect(lines[0]).toBe('Name,Type,Market,Status,Last touched,Staleness')
+    expect(lines[1]).toBe('"Quote ""Deal""",acquisition,"Miami, FL",loi,2026-06-01T00:00:00Z,stale 34d')
+    expect(lines[2]).toBe('"Legacy",,"",screening,2026-07-04T00:00:00Z,')
   })
 })

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchPortfolio, type PortfolioRollup } from '../lib/api'
+import { STAGE_LABELS } from '../lib/dealStages'
+import type { DealStatus } from '../types/deal'
 
 interface PortfolioPageProps {
   active: boolean
@@ -9,13 +11,7 @@ const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
 const fmtPct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
 const fmtX = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}x`)
 
-const STATUS_LABELS: Record<string, string> = {
-  screening: 'Screening',
-  underwriting: 'Underwriting',
-  loi: 'LOI',
-  under_contract: 'Under Contract',
-  closed: 'Closed',
-}
+const STATUS_LABELS: Record<string, string> = STAGE_LABELS as Record<DealStatus, string>
 
 function Bars({ rows }: { rows: { label: string; equity: number }[] }) {
   const max = Math.max(...rows.map((r) => r.equity), 1)
@@ -82,6 +78,34 @@ export default function PortfolioPage({ active }: PortfolioPageProps) {
             <div className="text-lg font-semibold text-slate-800">{value}</div>
           </div>
         ))}
+      </div>
+
+      <div>
+        <div className="mb-1 text-xs font-semibold text-slate-500">TOTALS BY DEAL TYPE</div>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-slate-400">
+              <th className="pr-3 font-medium">Type</th>
+              <th className="pr-3 text-right font-medium">Deals</th>
+              <th className="pr-3 text-right font-medium">Equity</th>
+              <th className="pr-3 text-right font-medium">Total cost</th>
+              <th className="pr-3 text-right font-medium">Units</th>
+              <th className="pr-3 text-right font-medium">SF</th>
+            </tr>
+          </thead>
+          <tbody className="text-slate-600">
+            {data.byDealType.map((t) => (
+              <tr key={t.dealType}>
+                <td className="pr-3 capitalize">{t.dealType}</td>
+                <td className="pr-3 text-right tabular-nums">{t.count}</td>
+                <td className="pr-3 text-right tabular-nums">{fmtMoney(t.equity)}</td>
+                <td className="pr-3 text-right tabular-nums">{fmtMoney(t.totalCost)}</td>
+                <td className="pr-3 text-right tabular-nums">{Math.round(t.units).toLocaleString()}</td>
+                <td className="pr-3 text-right tabular-nums">{Math.round(t.sf).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <div>

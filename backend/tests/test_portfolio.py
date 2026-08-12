@@ -104,6 +104,33 @@ def test_uncomputable_deals_are_excluded_and_listed():
     assert roll["totals"]["equity"] == pytest.approx(400_000, rel=1e-6)
 
 
+def test_by_deal_type_aggregation():
+    """Typed deals bucket by dealflow; a deal without a type lands in
+    'untyped' rather than being guessed."""
+    dev = analytic()
+    dev.pop("purchasePrice")
+    dev.update({
+        "dealType": "development", "landCost": 300_000, "hardCosts": 500_000,
+        "softCosts": 100_000, "constructionMonths": 12, "market": "Austin",
+    })
+    untyped = analytic()
+    untyped.pop("dealType")
+    roll = portfolio.build_portfolio([
+        _deal("a", "Acq", "underwriting", analytic()),
+        _deal("b", "Dev", "construction", dev),
+        _deal("c", "Old", "screening", untyped),
+    ])
+    # The untyped deal can't compute (engine requires dealType) -> excluded,
+    # so byDealType only carries the two real flows.
+    by_type = {row["dealType"]: row for row in roll["byDealType"]}
+    assert by_type["acquisition"]["count"] == 1
+    assert by_type["development"]["count"] == 1
+    assert by_type["acquisition"]["equity"] == pytest.approx(400_000, rel=1e-6)
+    assert roll["excludedCount"] == 1
+    # Each computed deal row names its flow.
+    assert {d["dealType"] for d in roll["deals"]} == {"acquisition", "development"}
+
+
 def test_units_and_sf_aggregate():
     mf = analytic(unitMix=[{"unitType": "1BR", "unitCount": 50, "avgSf": 800,
                             "inPlaceRent": 1500, "marketRent": 1500}])

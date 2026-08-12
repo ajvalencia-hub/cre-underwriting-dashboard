@@ -724,13 +724,14 @@ export interface PortfolioRollup {
   excludedCount: number
   totals: { equity: number; totalCost: number; units: number; sf: number }
   byStatus: { status: string; count: number; equity: number; totalCost: number; units: number; sf: number }[]
+  byDealType: { dealType: string; count: number; equity: number; totalCost: number; units: number; sf: number }[]
   exposureByMarket: { market: string; equity: number }[]
   exposureByAssetClass: { assetClass: string; equity: number }[]
   blendedLeveredIrr: number | null
   blendedEquityMultiple: number | null
   concentration: { market: string; equity: number; sharePct: number }[]
   deals: {
-    id: string; name: string; status: string; market: string; assetClass: string
+    id: string; name: string; status: string; dealType: string; market: string; assetClass: string
     equity: number; leveredIrr: number | null; equityMultiple: number | null
   }[]
   excluded: { id: string; name: string; reason: string }[]

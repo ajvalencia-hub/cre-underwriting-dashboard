@@ -34,21 +34,21 @@ def export_portfolio_csv(db: Session = Depends(get_db)):
     roll = portfolio.build_portfolio(_deal_dicts(db))
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Deal", "Status", "Market", "Asset class", "Equity",
+    writer.writerow(["Deal", "Type", "Status", "Market", "Asset class", "Equity",
                      "Levered IRR", "Equity multiple"])
     for d in roll["deals"]:
         writer.writerow([
-            d["name"], d["status"], d["market"], d["assetClass"],
+            d["name"], d["dealType"], d["status"], d["market"], d["assetClass"],
             round(d["equity"]),
             "" if d["leveredIrr"] is None else round(d["leveredIrr"], 6),
             "" if d["equityMultiple"] is None else round(d["equityMultiple"], 4),
         ])
     writer.writerow([])
-    writer.writerow(["PORTFOLIO", "", "", "", round(roll["totals"]["equity"]),
+    writer.writerow(["PORTFOLIO", "", "", "", "", round(roll["totals"]["equity"]),
                      "" if roll["blendedLeveredIrr"] is None else round(roll["blendedLeveredIrr"], 6),
                      "" if roll["blendedEquityMultiple"] is None else round(roll["blendedEquityMultiple"], 4)])
     for d in roll["excluded"]:
-        writer.writerow([d["name"], "EXCLUDED", d["reason"], "", "", "", ""])
+        writer.writerow([d["name"], "", "EXCLUDED", d["reason"], "", "", "", ""])
 
     return Response(
         content=buffer.getvalue(),

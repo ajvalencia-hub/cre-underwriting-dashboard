@@ -1,7 +1,8 @@
 // Pipeline saved views + CSV export (I10). Pure/injectable for unit tests.
 
+import { dealTypeOf, stageRank, TERMINAL_STAGES } from './dealStages'
 import { stalenessBadge } from './staleness'
-import type { Deal, DealStatus } from '../types/deal'
+import type { Deal } from '../types/deal'
 
 export type PipelineSortKey = 'stage' | 'updated' | 'name'
 
@@ -47,10 +48,6 @@ export function deleteView(storage: StorageLike, name: string): PipelineView[] {
   return views
 }
 
-const STATUS_ORDER: DealStatus[] = [
-  'screening', 'underwriting', 'loi', 'under_contract', 'closed', 'dead',
-]
-
 export function applyView(
   deals: Deal[],
   marketFilter: string,
@@ -59,7 +56,7 @@ export function applyView(
 ): Deal[] {
   const needle = marketFilter.trim().toLowerCase()
   const filtered = deals.filter((deal) => {
-    if (!showTerminal && (deal.status === 'closed' || deal.status === 'dead')) return false
+    if (!showTerminal && TERMINAL_STAGES.includes(deal.status)) return false
     if (!needle) return true
     const market = typeof deal.inputs?.market === 'string' ? deal.inputs.market : ''
     return market.toLowerCase().includes(needle) || deal.name.toLowerCase().includes(needle)
@@ -67,14 +64,14 @@ export function applyView(
   return [...filtered].sort((a, b) => {
     if (sortKey === 'name') return a.name.localeCompare(b.name)
     if (sortKey === 'updated') return Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-    const stage = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+    const stage = stageRank(a.status) - stageRank(b.status)
     return stage !== 0 ? stage : Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
   })
 }
 
 /** CSV of the CURRENT filtered/sorted view — what you see is what exports. */
 export function pipelineToCsv(deals: Deal[], nowMs: number = Date.now()): string {
-  const header = ['Name', 'Market', 'Status', 'Last touched', 'Staleness']
+  const header = ['Name', 'Type', 'Market', 'Status', 'Last touched', 'Staleness']
   const lines = [header.join(',')]
   for (const deal of deals) {
     const market = typeof deal.inputs?.market === 'string' ? deal.inputs.market : ''
@@ -82,6 +79,7 @@ export function pipelineToCsv(deals: Deal[], nowMs: number = Date.now()): string
     lines.push(
       [
         `"${deal.name.replace(/"/g, '""')}"`,
+        dealTypeOf(deal) ?? '',
         `"${market.replace(/"/g, '""')}"`,
         deal.status,
         deal.updatedAt,

@@ -1,13 +1,15 @@
-// Pipeline staleness (H7). Pure for unit testing. A deal is "stale" when it
-// hasn't been touched in 14 days and "very stale" at 30 — but only while it
-// is in an active stage; closed/dead deals are supposed to sit still.
+// Pipeline staleness (H7, per-stage thresholds since the dealflow split).
+// Pure for unit testing. Thresholds come from the stage registry: the
+// default is 14d amber / 30d red, but long-lived development stages
+// (entitlements, construction, …) are relaxed so they don't badge red for
+// the entire life of a normal project. Terminal stages (closed, stabilized,
+// dead) never badge — those deals are supposed to sit still.
 
+import { TERMINAL_STAGES, stalenessThresholds } from './dealStages'
 import type { DealStatus } from '../types/deal'
 
 export const STALE_DAYS = 14
 export const VERY_STALE_DAYS = 30
-
-const TERMINAL_STATUSES: DealStatus[] = ['closed', 'dead']
 
 export function daysSince(iso: string, nowMs: number = Date.now()): number {
   const then = Date.parse(iso)
@@ -25,10 +27,11 @@ export function stalenessBadge(
   updatedAt: string,
   nowMs: number = Date.now(),
 ): StalenessBadge | null {
-  if (TERMINAL_STATUSES.includes(status)) return null
+  if (TERMINAL_STAGES.includes(status)) return null
+  const { stale, veryStale } = stalenessThresholds(status)
   const days = daysSince(updatedAt, nowMs)
-  if (days >= VERY_STALE_DAYS) return { label: `stale ${days}d`, tone: 'red' }
-  if (days >= STALE_DAYS) return { label: `stale ${days}d`, tone: 'amber' }
+  if (days >= veryStale) return { label: `stale ${days}d`, tone: 'red' }
+  if (days >= stale) return { label: `stale ${days}d`, tone: 'amber' }
   return null
 }
 

@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class SheetMeta(BaseModel):
@@ -111,7 +111,21 @@ class DealIn(BaseModel):
     inputs: dict[str, Any] = {}
 
 
-DEAL_STATUSES = ("screening", "underwriting", "loi", "under_contract", "closed", "dead")
+# Deal pipeline stages — single source of truth is input_schema.json's
+# `dealStages` (acquisition vs development flows share it with the frontend).
+# The stored status column accepts the UNION so a deal that changes type
+# never has an invalid status; each board's UI constrains to its own set.
+def _load_deal_stages() -> dict[str, list[str]]:
+    import json
+    from app.config import INPUT_SCHEMA_PATH
+
+    return json.loads(INPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["dealStages"]
+
+
+DEAL_STAGES_BY_TYPE = _load_deal_stages()
+DEAL_STATUSES = tuple(
+    dict.fromkeys(stage for stages in DEAL_STAGES_BY_TYPE.values() for stage in stages)
+)
 
 
 class DealUpdate(BaseModel):
@@ -119,9 +133,18 @@ class DealUpdate(BaseModel):
     # switcher PUTs only the name, template selection PUTs only the ids.
     name: str | None = None
     inputs: dict[str, Any] | None = None
-    status: Literal["screening", "underwriting", "loi", "under_contract", "closed", "dead"] | None = None
+    status: str | None = None
     activeTemplateId: str | None = None
     activeMappingProfileId: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_in_registry(cls, value: str | None) -> str | None:
+        if value is not None and value not in DEAL_STATUSES:
+            raise ValueError(
+                f"Unknown deal status '{value}' — expected one of {DEAL_STATUSES}"
+            )
+        return value
 
 
 class DealOut(BaseModel):

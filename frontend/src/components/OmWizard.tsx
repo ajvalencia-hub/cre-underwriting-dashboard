@@ -54,6 +54,10 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [confirmedValues, setConfirmedValues] = useState<Record<string, unknown> | null>(null)
   const [dealName, setDealName] = useState('')
+  // Dealflow choice at the create step. OMs are overwhelmingly for existing
+  // assets, so acquisition is the seed — but development budget fields in
+  // the reviewed values flip the suggestion.
+  const [dealType, setDealType] = useState<'acquisition' | 'development'>('acquisition')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -170,7 +174,9 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
       const deal = await createDealFromExtraction({
         name: dealName.trim() || 'Deal from documents',
         extractionResultId: result.id,
-        confirmedValues,
+        // The user's dealflow choice rides with the reviewed values so the
+        // deal lands on the right pipeline board.
+        confirmedValues: { ...confirmedValues, dealType },
         // The review gate already required per-failure acknowledgment
         // checkboxes before onApply could fire.
         acknowledgeFailures: hasFailures,
@@ -299,7 +305,16 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
           <ExtractionReview
             schema={schema}
             result={result}
-            onApply={(values) => setConfirmedValues(values)}
+            onApply={(values) => {
+              setConfirmedValues(values)
+              // Suggest a dealflow from what was actually extracted: budget
+              // fields mean ground-up; otherwise an OM is an existing asset.
+              const looksLikeDevelopment =
+                values.dealType === 'development' ||
+                Number(values.landCost) > 0 ||
+                Number(values.hardCosts) > 0
+              setDealType(looksLikeDevelopment ? 'development' : 'acquisition')
+            }}
           />
         )}
 
@@ -309,13 +324,24 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
               {Object.keys(confirmedValues).length} reviewed value(s) will populate the new
               deal, each with a provenance row linking it to its source document.
             </p>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 value={dealName}
                 onChange={(e) => setDealName(e.target.value)}
                 placeholder="Deal name"
                 className="w-64 rounded border border-slate-300 px-2 py-1 text-sm"
               />
+              <label className="flex items-center gap-1 text-xs text-slate-500">
+                Dealflow
+                <select
+                  value={dealType}
+                  onChange={(e) => setDealType(e.target.value as 'acquisition' | 'development')}
+                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                >
+                  <option value="acquisition">Acquisition</option>
+                  <option value="development">Development</option>
+                </select>
+              </label>
               <button
                 onClick={() => void handleCreate()}
                 disabled={busy || !dealName.trim()}

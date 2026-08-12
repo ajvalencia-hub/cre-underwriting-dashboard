@@ -10,12 +10,21 @@ export interface CriticalDate {
   notes?: string
 }
 
-export const PRESET_LABELS = [
-  'LOI expiry',
-  'DD end',
-  'Financing contingency',
-  'Closing',
-] as const
+/** Quick-add label presets per dealflow (stored labels stay free text).
+ *  Untyped deals see the acquisition set — the app-wide historical default. */
+export const PRESETS_BY_TYPE = {
+  acquisition: ['LOI expiry', 'DD end', 'Financing contingency', 'Closing'],
+  development: [
+    'Feasibility deadline',
+    'Land closing',
+    'Permit approval',
+    'Groundbreaking',
+    'Certificate of occupancy',
+    'Stabilization',
+  ],
+} as const
+
+export const PRESET_LABELS = PRESETS_BY_TYPE.acquisition
 
 export const UPCOMING_WINDOW_DAYS = 14
 

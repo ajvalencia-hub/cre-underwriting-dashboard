@@ -3,6 +3,52 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Dealflow segregation — acquisitions vs developments (post-Run 5)
+
+- **Stage registry is a single source of truth** in
+  input_schema.json `dealStages`, consumed by backend validation
+  (schemas.DEAL_STAGES_BY_TYPE / DEAL_STATUSES) and mirrored in
+  frontend lib/dealStages.ts — replacing FOUR hand-copies of the status
+  enum. Cross-language sync is pinned by twin tests asserting the same
+  literals on both sides (a node-fs read from vitest was rejected: the
+  app tsconfig has no node types and a types-only dep wasn't worth it).
+- **Acquisitions keep the original six transaction stages** (screening →
+  underwriting → loi → under_contract → closed | dead) — ZERO migration
+  for existing deals. **Developments get project-lifecycle stages**
+  (screening → feasibility → site_control → entitlements →
+  pre_construction → construction → lease_up → stabilized | dead), per
+  the user's choice of lifecycle over transaction framing.
+- **The stored status column accepts the UNION** of both sets; each
+  board's dropdown constrains to its type's stages plus the deal's
+  current value marked "(legacy)" when out-of-set. Rejected: a forced
+  one-time migration mapping e.g. loi→site_control — silently
+  reinterpreting the user's pipeline data is worse than showing a
+  labeled legacy value they move themselves. Terminal set is now
+  {closed, stabilized, dead}.
+- **Deals are TYPED FROM BIRTH**: New Deal is a two-choice menu, each
+  pipeline board has its own typed create button, and the OM wizard's
+  create step carries a dealflow select (seeded acquisition — OMs are
+  overwhelmingly existing assets — flipped to development when the
+  reviewed values carry budget fields). This kills the old split where
+  a fresh deal was "missing dealType" on share/deck/portfolio but a
+  silent acquisition on hold-sweep/Excel export. Untyped legacy deals
+  are NEVER auto-assigned: the pipeline shows an "assign a dealflow"
+  strip and the user picks.
+- **Bulk stage changes across a mixed selection offer only the shared
+  stages** (screening, dead) — applying "construction" to an
+  acquisition via bulk is unrepresentable in the UI (the API validates
+  against the union, since deals can change type).
+- **Staleness thresholds are per-stage**: entitlements/construction
+  45/90 days, pre-construction/lease-up 30/60, everything else the
+  original 14/30 — a development in a year-long entitlement review no
+  longer badges red forever.
+- Critical-date quick-add presets are per dealflow (acquisition keeps
+  LOI/DD/financing/closing; development gets feasibility deadline, land
+  closing, permit approval, groundbreaking, C/O, stabilization).
+  Pipeline CSV and the portfolio roll-up gain a deal-type dimension
+  (byDealType buckets; untyped is its own labeled bucket, never
+  guessed).
+
 ## J16 — Docker + backup (Run 5)
 
 - **One image serves the whole app.** A multi-stage Dockerfile builds the

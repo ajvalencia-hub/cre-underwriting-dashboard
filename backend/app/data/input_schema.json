@@ -1,6 +1,10 @@
 {
   "version": 1,
   "dealTypes": ["acquisition", "development"],
+  "dealStages": {
+    "acquisition": ["screening", "underwriting", "loi", "under_contract", "closed", "dead"],
+    "development": ["screening", "feasibility", "site_control", "entitlements", "pre_construction", "construction", "lease_up", "stabilized", "dead"]
+  },
   "propertyTypes": [
     "multifamily", "single_family", "townhouse", "retail",
     "industrial", "hotel", "office", "mixed_use", "other"

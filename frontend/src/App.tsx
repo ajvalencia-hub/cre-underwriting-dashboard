@@ -56,6 +56,7 @@ import FileCabinet from './components/FileCabinet'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
+import { dealTypeOf, type DealType } from './lib/dealStages'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
@@ -116,6 +117,8 @@ function App() {
   const [datesEditorOpen, setDatesEditorOpen] = useState(false)
   // J13: Cmd+K command palette.
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Typed New Deal chooser (header button popover).
+  const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -244,14 +247,39 @@ function App() {
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
   }
 
-  async function handleNewDeal() {
+  // Typed creation: every new deal carries its dealflow (acquisition |
+  // development) in inputs from birth, so server-side surfaces (share, deck,
+  // portfolio, hold-sweep) agree with the form instead of splitting between
+  // "missing dealType" and a silent acquisition default.
+  async function handleNewDeal(type: DealType) {
     if (state.status !== 'ready') return
     await autosaverRef.current!.flush()
-    const deal = await createDeal({ name: `Untitled Deal ${deals.length + 1}` })
+    setNewDealMenuOpen(false)
+    const label = type === 'development' ? 'Development' : 'Acquisition'
+    const deal = await createDeal({
+      name: `Untitled ${label} ${deals.length + 1}`,
+      inputs: { dealType: type },
+    })
     setDeals((prev) => [deal, ...prev])
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
     applyDealState(state.schema, deal, new URLSearchParams())
     setActiveDealId(deal.id)
+  }
+
+  // Assign a dealflow to an untyped (legacy) deal. The active deal routes
+  // through the normal field-change path so autosave/history record it; an
+  // inactive deal merges server-side directly.
+  async function handleSetDealType(dealId: string, type: DealType) {
+    if (dealId === activeDealId) {
+      handleFieldChange('dealType', type)
+      return
+    }
+    const deal = deals.find((d) => d.id === dealId)
+    if (!deal) return
+    const updated = await updateDeal(dealId, {
+      inputs: { ...deal.inputs, dealType: type },
+    })
+    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
   }
 
   async function refreshDeals() {
@@ -558,12 +586,46 @@ function App() {
             className="rounded border border-slate-300 px-2 py-1 text-sm"
           />
         )}
-        <button
-          onClick={() => void handleNewDeal()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          New Deal
-        </button>
+        {/* Type badge: which dealflow the active deal belongs to. */}
+        {(() => {
+          const type = dealTypeOf({ inputs: formValues })
+          if (!type) return null
+          return (
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                type === 'development'
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'bg-sky-100 text-sky-700'
+              }`}
+            >
+              {type === 'development' ? 'DEV' : 'ACQ'}
+            </span>
+          )
+        })()}
+        <div className="relative">
+          <button
+            onClick={() => setNewDealMenuOpen((v) => !v)}
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          >
+            New Deal ▾
+          </button>
+          {newDealMenuOpen && (
+            <div className="absolute left-0 top-full z-40 mt-1 w-36 rounded border border-slate-200 bg-white py-1 shadow-lg">
+              <button
+                onClick={() => void handleNewDeal('acquisition')}
+                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-sky-50"
+              >
+                Acquisition
+              </button>
+              <button
+                onClick={() => void handleNewDeal('development')}
+                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-orange-50"
+              >
+                Development
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={() => void handleDeleteDeal()}
           className="rounded border border-slate-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50"
@@ -711,8 +773,9 @@ function App() {
             const byId = new Map(updated.map((d) => [d.id, d]))
             setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
           }}
-          onNewDeal={() => void handleNewDeal()}
+          onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
+          onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
         />
       </div>
 

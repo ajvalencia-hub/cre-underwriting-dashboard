@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  PRESET_LABELS,
+  PRESETS_BY_TYPE,
   readCriticalDates,
   sortByDate,
   type CriticalDate,
@@ -41,7 +41,10 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <div className="flex flex-wrap gap-1 text-xs">
-          {PRESET_LABELS.map((label) => (
+          {(values.dealType === 'development'
+            ? PRESETS_BY_TYPE.development
+            : PRESETS_BY_TYPE.acquisition
+          ).map((label) => (
             <button
               key={label}
               onClick={() => addRow(label)}
