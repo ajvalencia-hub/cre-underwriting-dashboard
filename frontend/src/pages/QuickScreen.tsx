@@ -12,6 +12,7 @@ import {
   solveExitCapForSpread,
   solveHardCostForSpread,
   solveRentForSpread,
+  type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
   type QuickScreenResults,
   type SizeMode,
@@ -22,6 +23,11 @@ interface QuickScreenProps {
   inputs: QuickScreenInputs
   onInputsChange: (inputs: QuickScreenInputs) => void
   results: QuickScreenResults
+  /** Which napkin is active — lifted to App for URL sharing + sidebar. */
+  mode: ScreenMode
+  onModeChange: (mode: ScreenMode) => void
+  acquisitionInputs: AcquisitionQuickScreenInputs
+  onAcquisitionInputsChange: (inputs: AcquisitionQuickScreenInputs) => void
   onSendToDealInputs: () => void
   /** Acquisition-side send: merges the mapped values and opens Deal Inputs. */
   onSendAcquisitionToDealInputs: (values: Record<string, unknown>) => void
@@ -45,11 +51,14 @@ export default function QuickScreen({
   inputs,
   onInputsChange,
   results,
+  mode,
+  onModeChange,
+  acquisitionInputs,
+  onAcquisitionInputsChange,
   onSendToDealInputs,
   onSendAcquisitionToDealInputs,
   dealId,
 }: QuickScreenProps) {
-  const [mode, setMode] = useState<ScreenMode>('development')
   const [scenarioName, setScenarioName] = useState('Quick Screen')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -179,7 +188,7 @@ export default function QuickScreen({
         ).map(([id, label]) => (
           <button
             key={id}
-            onClick={() => setMode(id)}
+            onClick={() => onModeChange(id)}
             aria-pressed={mode === id}
             className={`rounded px-3 py-1 ${
               mode === id
@@ -195,7 +204,11 @@ export default function QuickScreen({
       </div>
 
       {mode === 'acquisition' && (
-        <AcquisitionQuickScreen onSendToDealInputs={onSendAcquisitionToDealInputs} />
+        <AcquisitionQuickScreen
+          inputs={acquisitionInputs}
+          onInputsChange={onAcquisitionInputsChange}
+          onSendToDealInputs={onSendAcquisitionToDealInputs}
+        />
       )}
 
       <div className={mode === 'development' ? 'mt-6 grid grid-cols-1 gap-6 md:grid-cols-2' : 'hidden'}>

@@ -575,6 +575,119 @@ export function mapAcquisitionQuickScreenToDealInputs(
 }
 
 // ---------------------------------------------------------------------------
+// Acquisition solve-fors: closed-form "what would it take" for a target
+// tier. Both constraints of the verdict (cash-on-cash AND DSCR) are solved
+// and combined — hitting the CoC target at a price the DSCR still fails
+// would not flip the tier.
+// ---------------------------------------------------------------------------
+
+/**
+ * Max price for a target cash-on-cash t AND DSCR d, with NOI fixed
+ * (price doesn't change rents):
+ *   CoC:  t = (NOI − p·ltv·k) / (p·(1+cc) − p·ltv)
+ *         → p·(t·(1+cc−ltv) + ltv·k) = NOI
+ *         → p_CoC = NOI / (t·(1+cc−ltv) + ltv·k)
+ *   DSCR: d ≤ NOI / (p·ltv·k) → p_DSCR = NOI / (d·ltv·k)
+ *   answer = min(p_CoC, p_DSCR); all-cash (ltv=0) → p = NOI / (t·(1+cc)).
+ */
+export function solveAcquisitionPriceForTier(
+  inputs: AcquisitionQuickScreenInputs,
+  targetCashOnCash: number,
+  targetDscr: number,
+): number | null {
+  const results = computeAcquisitionQuickScreen(inputs)
+  const noi = results.stabilizedNoi
+  if (noi <= 0) return null
+  const cc = inputs.closingCostsPct
+  const ltv = inputs.ltvPct
+  const k = annualLoanConstant(inputs.interestRatePct, inputs.amortYears)
+  const cocDenominator = targetCashOnCash * (1 + cc - ltv) + ltv * k
+  if (cocDenominator <= 0) return null
+  const priceForCoc = noi / cocDenominator
+  if (ltv <= 0 || k <= 0) return priceForCoc
+  const priceForDscr = noi / (targetDscr * ltv * k)
+  return Math.min(priceForCoc, priceForDscr)
+}
+
+/**
+ * Required rent for a target tier with price/terms fixed. NOI is linear in
+ * rent (NOI = 12·q·rent·margin), so solve the binding constraint:
+ *   CoC:  NOI ≥ t·equity + DS
+ *   DSCR: NOI ≥ d·DS
+ *   NOI_target = max of the two → rent = NOI_target / (12·q·margin).
+ */
+export function solveAcquisitionRentForTier(
+  inputs: AcquisitionQuickScreenInputs,
+  targetCashOnCash: number,
+  targetDscr: number,
+): number | null {
+  if (inputs.quantity <= 0 || inputs.noiMarginPct <= 0) return null
+  const results = computeAcquisitionQuickScreen(inputs)
+  const noiForCoc = targetCashOnCash * results.equityRequired + results.annualDebtService
+  const noiForDscr = results.annualDebtService > 0 ? targetDscr * results.annualDebtService : 0
+  const noiTarget = Math.max(noiForCoc, noiForDscr)
+  if (noiTarget <= 0) return null
+  return noiTarget / (12 * inputs.quantity * inputs.noiMarginPct)
+}
+
+// ---------------------------------------------------------------------------
+// Acquisition sidebar wiring + URL persistence (share/reload parity with the
+// development screen). Acquisition params are `acq_`-prefixed so existing
+// shared development links keep their meaning; the active napkin rides in a
+// `screen` param.
+// ---------------------------------------------------------------------------
+
+export function mapAcquisitionQuickScreenToOutputMetrics(
+  results: AcquisitionQuickScreenResults,
+  inputs: AcquisitionQuickScreenInputs,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  const set = (id: string, value: number | null) => {
+    if (value !== null && Number.isFinite(value)) out[id] = value
+  }
+  set('goingInCapRate', results.goingInCapRate)
+  // Reversion at the exit cap on today's NOI — the napkin's single-year view.
+  set('terminalValue', inputs.exitCapRatePct > 0 ? results.stabilizedNoi / inputs.exitCapRatePct : null)
+  set('ltv', inputs.ltvPct > 0 ? inputs.ltvPct : null)
+  set('debtYield', results.debtYield)
+  set('loanConstant', results.loanConstant)
+  set('breakEvenRatio', results.breakEvenRatio)
+  set('minDscr', results.minDscr)
+  set('avgDscr', results.minDscr) // single stabilized year — identical
+  set('stabilizedCashOnCash', results.cashOnCashPct)
+  return out
+}
+
+const ACQ_NUMERIC_KEYS = [
+  'purchasePrice', 'closingCostsPct', 'quantity', 'rent', 'noiMarginPct',
+  'exitCapRatePct', 'ltvPct', 'interestRatePct', 'amortYears',
+] as const satisfies readonly (keyof AcquisitionQuickScreenInputs)[]
+
+export function serializeAcquisitionQuickScreenInputs(
+  inputs: AcquisitionQuickScreenInputs,
+  params: URLSearchParams = new URLSearchParams(),
+): URLSearchParams {
+  for (const key of ACQ_NUMERIC_KEYS) params.set(`acq_${key}`, String(inputs[key]))
+  return params
+}
+
+export function parseAcquisitionQuickScreenInputs(
+  params: URLSearchParams,
+): AcquisitionQuickScreenInputs | null {
+  const hasAny = ACQ_NUMERIC_KEYS.some((key) => params.has(`acq_${key}`))
+  if (!hasAny) return null
+  const result = { ...ACQUISITION_QUICK_SCREEN_DEFAULTS }
+  const numeric = result as unknown as Record<string, number>
+  for (const key of ACQ_NUMERIC_KEYS) {
+    const raw = params.get(`acq_${key}`)
+    if (raw === null) continue
+    const num = Number(raw)
+    if (Number.isFinite(num)) numeric[key] = num
+  }
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // Inline sensitivity mini-grid: rent (rows) x exit cap (cols), 5x5, center =
 // current inputs. Reuses computeQuickScreen per cell — no separate calc engine.
 // ---------------------------------------------------------------------------

@@ -41,12 +41,18 @@ import { formatOutputValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
 import {
+  ACQUISITION_QUICK_SCREEN_DEFAULTS,
   QUICK_SCREEN_DEFAULTS,
   QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS,
+  computeAcquisitionQuickScreen,
   computeQuickScreen,
+  mapAcquisitionQuickScreenToOutputMetrics,
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
+  parseAcquisitionQuickScreenInputs,
+  serializeAcquisitionQuickScreenInputs,
   serializeQuickScreenInputs,
+  type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
@@ -109,6 +115,11 @@ function App() {
   const [nativeIrrConvention, setNativeIrrConvention] = useState<'periodic_monthly' | 'xirr' | null>(null)
   const [nativeStatement, setNativeStatement] = useState<Statement | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
+  // The acquisition-side napkin (lifted here for URL sharing + sidebar
+  // estimates, same as the development inputs above).
+  const [acquisitionQuickScreenInputs, setAcquisitionQuickScreenInputs] =
+    useState<AcquisitionQuickScreenInputs>(ACQUISITION_QUICK_SCREEN_DEFAULTS)
+  const [quickScreenMode, setQuickScreenMode] = useState<'development' | 'acquisition'>('development')
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -141,9 +152,20 @@ function App() {
   }
 
   const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
+  const acquisitionQuickScreenResults = useMemo(
+    () => computeAcquisitionQuickScreen(acquisitionQuickScreenInputs),
+    [acquisitionQuickScreenInputs],
+  )
+  // Sidebar estimates follow the ACTIVE napkin.
   const quickScreenOutputs = useMemo(
-    () => mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
-    [quickScreenResults, quickScreenInputs],
+    () =>
+      quickScreenMode === 'acquisition'
+        ? mapAcquisitionQuickScreenToOutputMetrics(
+            acquisitionQuickScreenResults, acquisitionQuickScreenInputs,
+          )
+        : mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
+    [quickScreenMode, quickScreenResults, quickScreenInputs,
+     acquisitionQuickScreenResults, acquisitionQuickScreenInputs],
   )
   const quickScreenFullModelOnlyIds = useMemo(
     () => new Set<string>(QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS),
@@ -194,7 +216,13 @@ function App() {
         const active = list.find((d) => d.id === storedId) ?? list[0]
         localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
         // URL quick-screen params only override on first load.
-        applyDealState(schema, active, new URLSearchParams(window.location.search))
+        const urlParams = new URLSearchParams(window.location.search)
+        applyDealState(schema, active, urlParams)
+        // Acquisition-napkin params + the active screen ride the same URL
+        // (acq_-prefixed so shared development links keep their meaning).
+        const acqFromUrl = parseAcquisitionQuickScreenInputs(urlParams)
+        if (acqFromUrl) setAcquisitionQuickScreenInputs(acqFromUrl)
+        if (urlParams.get('screen') === 'acquisition') setQuickScreenMode('acquisition')
         setDeals(list)
         setActiveDealId(active.id)
         setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
@@ -227,14 +255,16 @@ function App() {
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
   }, [formValues, quickScreenInputs, activeDealId])
 
-  // Keep the sharable URL in sync with the quick screen (pre-existing behavior).
+  // Keep the sharable URL in sync with BOTH napkins + the active screen.
   useEffect(() => {
     const handle = setTimeout(() => {
       const params = serializeQuickScreenInputs(quickScreenInputs)
+      serializeAcquisitionQuickScreenInputs(acquisitionQuickScreenInputs, params)
+      if (quickScreenMode === 'acquisition') params.set('screen', 'acquisition')
       window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
     }, 500)
     return () => clearTimeout(handle)
-  }, [quickScreenInputs])
+  }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode])
 
   async function switchDeal(dealId: string) {
     if (state.status !== 'ready' || dealId === activeDealId) return
@@ -824,6 +854,10 @@ function App() {
           inputs={quickScreenInputs}
           onInputsChange={setQuickScreenInputs}
           results={quickScreenResults}
+          mode={quickScreenMode}
+          onModeChange={setQuickScreenMode}
+          acquisitionInputs={acquisitionQuickScreenInputs}
+          onAcquisitionInputsChange={setAcquisitionQuickScreenInputs}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
           dealId={activeDealId}

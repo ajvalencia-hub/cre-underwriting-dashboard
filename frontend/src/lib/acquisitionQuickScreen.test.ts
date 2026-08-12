@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACQUISITION_FEASIBILITY,
   ACQUISITION_QUICK_SCREEN_DEFAULTS,
   annualLoanConstant,
   classifyAcquisitionFeasibility,
   computeAcquisitionQuickScreen,
   computeQuickScreen,
   mapAcquisitionQuickScreenToDealInputs,
+  mapAcquisitionQuickScreenToOutputMetrics,
   mapQuickScreenToDealInputs,
+  parseAcquisitionQuickScreenInputs,
   QUICK_SCREEN_DEFAULTS,
+  serializeAcquisitionQuickScreenInputs,
+  solveAcquisitionPriceForTier,
+  solveAcquisitionRentForTier,
   type AcquisitionQuickScreenInputs,
 } from './quickScreenMath'
 
@@ -104,6 +110,73 @@ describe('mapAcquisitionQuickScreenToDealInputs', () => {
     const r = computeAcquisitionQuickScreen(ACQUISITION_QUICK_SCREEN_DEFAULTS)
     expect(r.stabilizedNoi).toBeGreaterThan(0)
     expect(r.feasibility).toMatch(/strong|marginal|weak/)
+  })
+})
+
+describe('solve-fors', () => {
+  it('solved price reproduces the target tier exactly (both legs)', () => {
+    // Start from a WEAK deal: high price relative to NOI.
+    const weak = { ...BASE, purchasePrice: 1_600_000 }
+    expect(computeAcquisitionQuickScreen(weak).feasibility).toBe('weak')
+    const target = ACQUISITION_FEASIBILITY.marginal
+    const price = solveAcquisitionPriceForTier(weak, target.cashOnCash, target.dscr)!
+    // At the solved price the deal sits exactly on the marginal boundary.
+    const at = computeAcquisitionQuickScreen({ ...weak, purchasePrice: price })
+    expect(
+      Math.min(
+        (at.cashOnCashPct ?? 0) - target.cashOnCash,
+        (at.minDscr ?? Infinity) - target.dscr,
+      ),
+    ).toBeCloseTo(0, 6) // the binding constraint lands on its threshold
+    expect(at.feasibility).toBe('marginal')
+  })
+
+  it('solved rent reproduces the target tier with price fixed', () => {
+    const weak = { ...BASE, purchasePrice: 1_600_000 }
+    const target = ACQUISITION_FEASIBILITY.marginal
+    const rent = solveAcquisitionRentForTier(weak, target.cashOnCash, target.dscr)!
+    const at = computeAcquisitionQuickScreen({ ...weak, rent })
+    expect(
+      Math.min(
+        (at.cashOnCashPct ?? 0) - target.cashOnCash,
+        (at.minDscr ?? Infinity) - target.dscr,
+      ),
+    ).toBeCloseTo(0, 6)
+    expect(at.feasibility).toBe('marginal')
+  })
+
+  it('all-cash price solve uses the CoC leg alone', () => {
+    const cash = { ...BASE, ltvPct: 0, purchasePrice: 2_000_000 }
+    const price = solveAcquisitionPriceForTier(cash, 0.06, 1.25)!
+    // p = NOI / (t·(1+cc)): 72,000 / (0.06 · 1.02) = 1,176,470.6
+    expect(price).toBeCloseTo(72_000 / (0.06 * 1.02), 2)
+  })
+})
+
+describe('sidebar mapping + URL round-trip', () => {
+  it('maps the derivable output ids only', () => {
+    const r = computeAcquisitionQuickScreen(BASE)
+    const out = mapAcquisitionQuickScreenToOutputMetrics(r, BASE)
+    expect(out.goingInCapRate).toBeCloseTo(0.072, 8)
+    expect(out.terminalValue).toBeCloseTo(72_000 / 0.06, 2)
+    expect(out.minDscr).toBe(out.avgDscr) // single-year napkin
+    expect(out.stabilizedCashOnCash).toBeCloseTo(r.cashOnCashPct!, 10)
+    expect(out).not.toHaveProperty('leveredIrr') // full-model only
+  })
+
+  it('serialize/parse round-trips with the acq_ prefix', () => {
+    const params = serializeAcquisitionQuickScreenInputs(BASE)
+    expect(params.get('acq_purchasePrice')).toBe('1000000')
+    expect(params.get('purchasePrice')).toBeNull() // never collides with dev keys
+    const parsed = parseAcquisitionQuickScreenInputs(params)!
+    expect(parsed).toEqual(BASE)
+    // No acq_ params at all -> null (dev-only links unchanged).
+    expect(parseAcquisitionQuickScreenInputs(new URLSearchParams('rent=1800'))).toBeNull()
+    // Junk values fall back to defaults per key.
+    const junk = new URLSearchParams('acq_purchasePrice=abc&acq_rent=1234')
+    const fromJunk = parseAcquisitionQuickScreenInputs(junk)!
+    expect(fromJunk.purchasePrice).toBe(ACQUISITION_QUICK_SCREEN_DEFAULTS.purchasePrice)
+    expect(fromJunk.rent).toBe(1234)
   })
 })
 

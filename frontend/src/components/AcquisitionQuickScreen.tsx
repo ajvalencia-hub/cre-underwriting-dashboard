@@ -1,15 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import ScalarInput from './fields/ScalarInput'
 import {
   ACQUISITION_FEASIBILITY,
-  ACQUISITION_QUICK_SCREEN_DEFAULTS,
   computeAcquisitionQuickScreen,
   mapAcquisitionQuickScreenToDealInputs,
+  solveAcquisitionPriceForTier,
+  solveAcquisitionRentForTier,
   type AcquisitionQuickScreenInputs,
 } from '../lib/quickScreenMath'
 import { formatMoney, formatPct } from '../lib/quickScreenFormat'
 
 interface AcquisitionQuickScreenProps {
+  inputs: AcquisitionQuickScreenInputs
+  onInputsChange: (inputs: AcquisitionQuickScreenInputs) => void
   onSendToDealInputs: (values: Record<string, unknown>) => void
 }
 
@@ -46,17 +49,36 @@ const FIELDS: {
 
 /** The acquisition-side back-of-napkin: cap rate, cash-on-cash, DSCR — the
  *  counterpart of the development yield-on-cost screen. All math lives in
- *  quickScreenMath.computeAcquisitionQuickScreen. */
-export default function AcquisitionQuickScreen({ onSendToDealInputs }: AcquisitionQuickScreenProps) {
-  const [inputs, setInputs] = useState<AcquisitionQuickScreenInputs>(
-    ACQUISITION_QUICK_SCREEN_DEFAULTS,
-  )
+ *  quickScreenMath.computeAcquisitionQuickScreen; state is lifted to App for
+ *  URL sharing and sidebar estimates. */
+export default function AcquisitionQuickScreen({
+  inputs,
+  onInputsChange,
+  onSendToDealInputs,
+}: AcquisitionQuickScreenProps) {
   const results = useMemo(() => computeAcquisitionQuickScreen(inputs), [inputs])
+
+  // Solve-for hints toward the NEXT tier (closed form, both verdict legs).
+  const nextTier =
+    results.feasibility === 'weak'
+      ? ('marginal' as const)
+      : results.feasibility === 'marginal'
+        ? ('strong' as const)
+        : null
+  const solve = useMemo(() => {
+    if (!nextTier) return null
+    const target = ACQUISITION_FEASIBILITY[nextTier]
+    return {
+      tier: nextTier,
+      price: solveAcquisitionPriceForTier(inputs, target.cashOnCash, target.dscr),
+      rent: solveAcquisitionRentForTier(inputs, target.cashOnCash, target.dscr),
+    }
+  }, [inputs, nextTier])
 
   function set(key: keyof AcquisitionQuickScreenInputs, value: unknown) {
     // Numbers only — a blank would propagate NaN through every result.
     if (typeof value !== 'number' || !Number.isFinite(value)) return
-    setInputs((prev) => ({ ...prev, [key]: value }))
+    onInputsChange({ ...inputs, [key]: value })
   }
 
   return (
@@ -83,6 +105,14 @@ export default function AcquisitionQuickScreen({ onSendToDealInputs }: Acquisiti
         <div className={`rounded-md border p-3 text-sm ${VERDICT_COLOR[results.feasibility]}`}>
           <span className="font-semibold capitalize">{results.feasibility}</span>{' '}
           <span>{VERDICT_LABEL[results.feasibility]}</span>
+          {solve && (solve.price !== null || solve.rent !== null) && (
+            <div className="mt-1 text-xs opacity-80">
+              To reach <span className="capitalize">{solve.tier}</span>:
+              {solve.price !== null && <> price ≤ {formatMoney(solve.price)}</>}
+              {solve.price !== null && solve.rent !== null && ' · or'}
+              {solve.rent !== null && <> rent ≥ {formatMoney(solve.rent)}/unit/mo</>}
+            </div>
+          )}
         </div>
 
         <div className="rounded-md border border-slate-200 bg-white p-4">
