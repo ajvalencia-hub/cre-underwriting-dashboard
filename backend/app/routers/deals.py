@@ -32,15 +32,90 @@ def _to_out(deal: Deal) -> DealOut:
         status=deal.status or "screening",
         activeTemplateId=deal.active_template_id,
         activeMappingProfileId=deal.active_mapping_profile_id,
+        archivedAt=deal.archived_at,
         createdAt=deal.created_at,
         updatedAt=deal.updated_at,
     )
 
 
 @router.get("", response_model=list[DealOut])
-def list_deals(db: Session = Depends(get_db)):
-    deals = db.execute(select(Deal).order_by(Deal.updated_at.desc())).scalars().all()
-    return [_to_out(d) for d in deals]
+def list_deals(includeArchived: bool = False, db: Session = Depends(get_db)):
+    query = select(Deal).order_by(Deal.updated_at.desc())
+    if not includeArchived:
+        query = query.where(Deal.archived_at.is_(None))
+    return [_to_out(d) for d in db.execute(query).scalars().all()]
+
+
+@router.post("/{deal_id}/archive", response_model=DealOut)
+def archive_deal(deal_id: str, db: Session = Depends(get_db)):
+    """Soft delete: hides the deal from the pipeline, portfolio and search
+    while keeping everything attached to it. Idempotent."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    if deal.archived_at is None:
+        deal.archived_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(deal)
+    return _to_out(deal)
+
+
+@router.post("/{deal_id}/unarchive", response_model=DealOut)
+def unarchive_deal(deal_id: str, db: Session = Depends(get_db)):
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    if deal.archived_at is not None:
+        deal.archived_at = None
+        db.commit()
+        db.refresh(deal)
+    return _to_out(deal)
+
+
+class CloneRequest(BaseModel):
+    name: str | None = None
+
+
+@router.post("/{deal_id}/clone", response_model=DealOut)
+def clone_deal(deal_id: str, payload: CloneRequest | None = None, db: Session = Depends(get_db)):
+    """Duplicate a deal for a what-if: inputs (minus any in-progress wizard
+    draft), pipeline stage, template/mapping selection and scenarios are
+    copied; notes, attachments and input history are NOT (they belong to
+    the source record). The copy starts a fresh history."""
+    source = db.get(Deal, deal_id)
+    if source is None:
+        raise HTTPException(404, "Deal not found")
+    requested = (payload.name if payload else None) or ""
+    name = requested.strip() or f"Copy of {source.name}"
+    inputs = {
+        key: value for key, value in json.loads(json.dumps(source.inputs or {})).items()
+        if key != "_omWizard"
+    }
+    inputs["dealName"] = name
+    clone = Deal(
+        name=name,
+        inputs=inputs,
+        status=source.status or "screening",
+        active_template_id=source.active_template_id,
+        active_mapping_profile_id=source.active_mapping_profile_id,
+    )
+    db.add(clone)
+    db.flush()
+    for s in db.execute(select(Scenario).where(Scenario.deal_id == source.id)).scalars():
+        db.add(Scenario(
+            scenario_name=s.scenario_name,
+            kind=s.kind,
+            deal_id=clone.id,
+            template_id=s.template_id,
+            mapping_profile_id=s.mapping_profile_id,
+            inputs=json.loads(json.dumps(s.inputs or {})),
+            outputs=json.loads(json.dumps(s.outputs or {})),
+            sensitivity=json.loads(json.dumps(s.sensitivity)) if s.sensitivity else None,
+            monte_carlo=json.loads(json.dumps(s.monte_carlo)) if s.monte_carlo else None,
+        ))
+    db.commit()
+    db.refresh(clone)
+    return _to_out(clone)
 
 
 @router.post("", response_model=DealOut)
@@ -387,6 +462,8 @@ def deal_ic_deck(deal_id: str, scenario_id: str | None = None, db: Session = Dep
     sensitivity = monte_carlo = None
     if scenario_id:
         scenario = db.get(_Scenario, scenario_id)
+        if scenario is None or scenario.deal_id != deal_id:
+            raise HTTPException(404, "Scenario not found on this deal")
         if scenario is not None:
             sensitivity = scenario.sensitivity
             monte_carlo = scenario.monte_carlo

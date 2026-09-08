@@ -14,7 +14,10 @@ from app.services.template_service import compute_file_hash
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".csv"}
+ALLOWED_EXTENSIONS = {".pdf", ".xlsx", ".csv"}
+# Legacy .xls was accepted but every parser is openpyxl-only, so those
+# uploads dead-ended after classification. Refuse up front with the fix.
+_LEGACY_EXTENSIONS = {".xls"}
 
 
 def _to_summary(doc: Document, reused: bool = False) -> DocumentSummary:
@@ -41,9 +44,13 @@ def list_documents(db: Session = Depends(get_db)):
 @router.post("/upload", response_model=DocumentSummary)
 async def upload_document(file: UploadFile, db: Session = Depends(get_db)):
     ext = Path(file.filename or "").suffix.lower()
+    if ext in _LEGACY_EXTENSIONS:
+        raise HTTPException(
+            400, "Legacy .xls workbooks can't be parsed — re-save the file as .xlsx and upload that."
+        )
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            400, f"Unsupported file type '{ext}'. Upload .pdf, .xlsx, .xls, or .csv."
+            400, f"Unsupported file type '{ext}'. Upload .pdf, .xlsx, or .csv."
         )
 
     file_bytes = await read_upload_limited(file)
@@ -94,7 +101,14 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     doc = db.get(Document, document_id)
     if doc is None:
         raise HTTPException(404, "Document not found")
-    Path(doc.stored_path).unlink(missing_ok=True)
+    # Files are content-addressed and shared between rows (the same upload
+    # attached to two deals is one file, two rows) — unlink only when this
+    # was the last row referencing the bytes, matching deal deletion.
+    shared = db.execute(
+        select(Document.id).where(Document.file_hash == doc.file_hash, Document.id != doc.id)
+    ).first()
+    if shared is None:
+        Path(doc.stored_path).unlink(missing_ok=True)
     db.delete(doc)
     db.commit()
     return {"deleted": True}

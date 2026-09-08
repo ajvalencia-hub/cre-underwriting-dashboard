@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import RentComp, SaleComp
+from app.services.sql_like import LIKE_ESCAPE, contains
 
 # --- CSV parsing -----------------------------------------------------------
 
@@ -255,7 +256,9 @@ EXIT_CAP_WARNING_BPS = 0.010
 
 
 def _market_filter(query, model, market: str):
-    return query.where(model.market.ilike(f"%{market.strip()}%")) if market.strip() else query
+    if not market.strip():
+        return query
+    return query.where(model.market.ilike(contains(market.strip()), escape=LIKE_ESCAPE))
 
 
 def _type_ok(comp_type: str, asset_class: str) -> bool:

@@ -68,3 +68,34 @@ def test_backup_endpoints_wire_to_the_service(client, monkeypatch, tmp_path):
     missing = client.post("/api/admin/backups/restore",
                           json={"kind": "daily", "name": "missing"})
     assert missing.status_code == 404
+
+
+def test_restore_and_download_reject_traversal_at_the_http_layer(client, tmp_path, monkeypatch):
+    """Real service (no monkeypatch) against a scratch backups root: malformed
+    names are a 400, never a filesystem touch."""
+    monkeypatch.setattr(backup_service, "BACKUPS_DIR", tmp_path / "backups")
+    monkeypatch.setattr(backup_service, "DB_PATH", tmp_path / "live.sqlite3")
+    for kind, name in [("../db", "."), ("daily", ".."), ("daily", "nope")]:
+        res = client.post("/api/admin/backups/restore", json={"kind": kind, "name": name})
+        assert res.status_code == 400, (kind, name)
+        assert client.get(f"/api/admin/backups/{kind}/{name}/download").status_code in (400, 404)
+
+
+def test_download_returns_the_snapshot_db(client, tmp_path, monkeypatch):
+    import sqlite3
+
+    live = tmp_path / "live.sqlite3"
+    conn = sqlite3.connect(str(live))
+    conn.execute("CREATE TABLE t (x)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(backup_service, "BACKUPS_DIR", tmp_path / "backups")
+    monkeypatch.setattr(backup_service, "DB_PATH", live)
+    created = client.post("/api/admin/backups/run").json()["created"]
+
+    res = client.get(f"/api/admin/backups/daily/{created}/download")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("application/vnd.sqlite3")
+    assert f"cre-backup-daily-{created}.sqlite3" in res.headers["content-disposition"]
+    assert res.content[:16] == b"SQLite format 3\x00"
+    assert client.get("/api/admin/backups/daily/20200101T000000Z/download").status_code == 404

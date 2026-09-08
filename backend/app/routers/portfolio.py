@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 def _deal_dicts(db: Session) -> list[dict]:
     return [
         {"id": d.id, "name": d.name, "status": d.status or "screening", "inputs": d.inputs or {}}
-        for d in db.execute(select(Deal)).scalars()
+        for d in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars()
     ]
 
 

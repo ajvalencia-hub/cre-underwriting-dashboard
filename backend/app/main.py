@@ -1,17 +1,21 @@
 import logging
 import os
+import re
 import time
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import auth
 from app.config import CORS_ORIGINS
 from app.database import Base, SessionLocal, engine, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
     admin,
+    auth as auth_router,
     client_errors,
     comps,
     compute,
@@ -61,7 +65,10 @@ async def request_id_middleware(request: Request, call_next):
     """H13: every request gets an id (client-supplied X-Request-ID honored),
     logged with method/path/status/duration and echoed on the response so a
     UI error report can be matched to its server-side line."""
-    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    supplied = request.headers.get("X-Request-ID") or ""
+    # Client ids are echoed into logs: keep them short and free of separators
+    # so a crafted header can't forge log lines.
+    request_id = re.sub(r"[^A-Za-z0-9._-]", "", supplied)[:64] or uuid.uuid4().hex[:12]
     start = time.perf_counter()
     try:
         response = await call_next(request)
@@ -80,6 +87,21 @@ async def request_id_middleware(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def api_token_middleware(request: Request, call_next):
+    """Optional CRE_API_TOKEN gate (app/auth.py). Health, the auth routes and
+    the static SPA stay public; everything else under /api needs the token
+    or the session cookie. Registered after the request-id middleware so a
+    401 is still logged with its id."""
+    if not auth.is_public_path(request.url.path) and not auth.is_authorized(request):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "API token required"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -95,6 +117,7 @@ app.add_middleware(
     ],
 )
 
+app.include_router(auth_router.router)
 app.include_router(schema.router)
 app.include_router(deals.router)
 app.include_router(file_cabinet.router)

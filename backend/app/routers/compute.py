@@ -98,6 +98,8 @@ def monte_carlo_start(payload: MonteCarloRequest):
         )
     except monte_carlo.MonteCarloError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except monte_carlo.MonteCarloBusy as exc:
+        raise HTTPException(429, str(exc), headers={"Retry-After": "5"}) from exc
     return {"jobId": job_id, "n": payload.n}
 
 

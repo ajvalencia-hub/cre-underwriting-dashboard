@@ -11,4 +11,9 @@ frontend/playwright-report
 .github
 **/.pytest_cache
 **/.mypy_cache
+**/.ruff_cache
+# Never bake local secrets into an image layer.
+**/.env
+**/.env.*
+!**/.env.example
 *.md

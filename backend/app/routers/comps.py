@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import RentComp, SaleComp
+from app.routers.upload_limit import read_upload_limited
 from app.services import comps as comps_service
+from app.services.sql_like import LIKE_ESCAPE, contains
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
@@ -164,7 +166,7 @@ def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
     query = select(model).order_by(model.created_at.desc())
     if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
+        query = query.where(model.market.ilike(contains(market.strip()), escape=LIKE_ESCAPE))
     points: list[dict] = []
     warnings: list[str] = []
     for comp in db.execute(query).scalars():
@@ -203,9 +205,9 @@ async def import_csv_file(
     """Multipart convenience wrapper: reads the file and returns the same
     preview payload as /import without a mapping, plus the decoded text so
     the client can re-submit /import with a mapping."""
-    raw = await file.read()
-    if len(raw) > MAX_CSV_BYTES:
-        raise HTTPException(413, "CSV exceeds the 5 MB import limit.")
+    # Chunked read that 413s as soon as the cap is crossed — never buffer
+    # an unbounded body first (every other upload route already does this).
+    raw = await read_upload_limited(file, MAX_CSV_BYTES)
     text = raw.decode("utf-8-sig", errors="replace")
     preview = import_csv(ImportRequest(kind=kind, csvText=text), db)
     return {**preview, "csvText": text}
@@ -216,7 +218,7 @@ def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
     query = select(model).order_by(model.created_at.desc())
     if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
+        query = query.where(model.market.ilike(contains(market.strip()), escape=LIKE_ESCAPE))
     return [_to_out(c, kind) for c in db.execute(query).scalars()]
 
 

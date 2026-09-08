@@ -1,6 +1,7 @@
 """Admin surface: backups (J16) + integration status (Settings page)."""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.services import backup_service
@@ -58,10 +59,32 @@ def restore_backup(payload: RestoreRequest):
     the operator can confirm which files must still be on the data volume."""
     try:
         manifest = backup_service.restore_backup(payload.kind, payload.name)
-    except (FileNotFoundError, ValueError) as exc:
+    except ValueError as exc:
+        # Malformed kind/name (incl. traversal attempts) — never a lookup miss.
+        raise HTTPException(400, str(exc)) from exc
+    except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {
         "restored": f"{payload.kind}/{payload.name}",
         "uploads": manifest.get("uploads", []),
         "note": "Restart the backend so the restored database is loaded.",
     }
+
+
+@router.get("/backups/{kind}/{name}/download")
+def download_backup(kind: str, name: str):
+    """Download a snapshot's SQLite file (offsite copy / migration). Same
+    validated resolver as restore, so only well-formed snapshot names inside
+    the backups root are reachable."""
+    try:
+        snapshot_dir = backup_service.snapshot_path(kind, name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db_file = snapshot_dir / "app.sqlite3"
+    if not db_file.exists():
+        raise HTTPException(404, f"No DB snapshot at {kind}/{name}")
+    return FileResponse(
+        db_file,
+        media_type="application/vnd.sqlite3",
+        filename=f"cre-backup-{kind}-{name}.sqlite3",
+    )

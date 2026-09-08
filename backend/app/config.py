@@ -24,6 +24,10 @@ for d in (TEMPLATES_DIR, GENERATED_DIR, DOCUMENTS_DIR, DB_DIR, BACKUPS_DIR):
 DATA_DIR = BACKEND_ROOT / "app" / "data"
 INPUT_SCHEMA_PATH = DATA_DIR / "input_schema.json"
 
+# Optional shared API token (see app/auth.py). Unset = no gate. Set it when
+# the API is reachable beyond localhost (the Docker compose binds 0.0.0.0).
+CRE_API_TOKEN = os.environ.get("CRE_API_TOKEN", "").strip()
+
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",

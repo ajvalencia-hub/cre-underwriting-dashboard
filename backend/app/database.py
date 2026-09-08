@@ -34,6 +34,19 @@ def run_migrations(target_engine=None) -> None:
     _migrate_deals_status(eng)
     _migrate_documents_deal_id(eng)
     _migrate_search_indexes(eng)
+    _migrate_deals_archived_at(eng)
+
+
+def _migrate_deals_archived_at(eng) -> None:
+    """Deals gained a nullable archived_at (Run 6 soft delete)."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "archived_at" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN archived_at DATETIME"))
 
 
 def _migrate_search_indexes(eng) -> None:

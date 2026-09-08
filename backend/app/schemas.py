@@ -154,6 +154,7 @@ class DealOut(BaseModel):
     status: str = "screening"
     activeTemplateId: str | None
     activeMappingProfileId: str | None
+    archivedAt: datetime | None = None
     createdAt: datetime
     updatedAt: datetime
 

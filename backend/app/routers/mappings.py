@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import MappingProfile, Scenario, Template
+from app.models import Deal, MappingProfile, Scenario, Template
 from app.schemas import AutoMatchResult, MappingProfileIn, MappingProfileOut
 from app.services import mapping_service
 
@@ -87,6 +87,11 @@ def delete_mapping(mapping_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Mapping profile not found")
 
     db.execute(Scenario.__table__.delete().where(Scenario.mapping_profile_id == mapping_id))
+    db.execute(
+        Deal.__table__.update()
+        .where(Deal.active_mapping_profile_id == mapping_id)
+        .values(active_mapping_profile_id=None)
+    )
     db.delete(profile)
     db.commit()
     return {"deleted": True}

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Deal, DealNote, SaleComp
+from app.services.sql_like import LIKE_ESCAPE, contains
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -48,14 +49,15 @@ def search(q: str = "", db: Session = Depends(get_db)):
             break
     if len(q) < 2:
         return {"query": q, "groups": []}
-    like = f"%{q}%"
+    like = contains(q)  # literal match — `_`/`%` in the query are not wildcards
 
     deals = db.execute(
         select(Deal).where(
+            Deal.archived_at.is_(None),
             or_(
-                func.lower(Deal.name).like(like),
-                func.lower(func.json_extract(Deal.inputs, "$.address")).like(like),
-                func.lower(func.json_extract(Deal.inputs, "$.market")).like(like),
+                func.lower(Deal.name).like(like, escape=LIKE_ESCAPE),
+                func.lower(func.json_extract(Deal.inputs, "$.address")).like(like, escape=LIKE_ESCAPE),
+                func.lower(func.json_extract(Deal.inputs, "$.market")).like(like, escape=LIKE_ESCAPE),
             )
         )
     ).scalars().all()
@@ -81,9 +83,9 @@ def search(q: str = "", db: Session = Depends(get_db)):
     comps = db.execute(
         select(SaleComp).where(
             or_(
-                func.lower(SaleComp.name).like(like),
-                func.lower(SaleComp.address).like(like),
-                func.lower(SaleComp.market).like(like),
+                func.lower(SaleComp.name).like(like, escape=LIKE_ESCAPE),
+                func.lower(SaleComp.address).like(like, escape=LIKE_ESCAPE),
+                func.lower(SaleComp.market).like(like, escape=LIKE_ESCAPE),
             )
         )
     ).scalars().all()
@@ -100,7 +102,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
     )[:GROUP_LIMIT]
 
     notes = db.execute(
-        select(DealNote).where(func.lower(DealNote.body).like(like))
+        select(DealNote).where(func.lower(DealNote.body).like(like, escape=LIKE_ESCAPE))
     ).scalars().all()
     note_deals = {
         d.id: d
@@ -131,7 +133,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
 
     # Tenants across deals: JSON arrays, Python scan (see module docstring).
     tenant_items = []
-    for deal in db.execute(select(Deal)).scalars():
+    for deal in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars():
         deal_type = _deal_type_of(deal.inputs)
         if type_filter and deal_type != type_filter:
             continue

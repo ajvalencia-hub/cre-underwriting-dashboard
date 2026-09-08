@@ -87,9 +87,75 @@ def test_restore_round_trip(tmp_path):
 def test_restore_missing_snapshot_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         backup_service.restore_backup(
-            "daily", "nope", db_path=tmp_path / "db.sqlite3",
+            "daily", "20260101T000000Z", db_path=tmp_path / "db.sqlite3",
             backups_root=tmp_path / "backups",
         )
+
+
+@pytest.mark.parametrize("kind,name", [
+    ("../db", "."),                       # climb out of the backups root
+    ("daily", ".."),
+    ("daily", "../../db"),
+    ("daily", "nope"),                    # not a snapshot name at all
+    ("daily", "20260101T000000Z/../x"),
+    ("weekly", "C:\\Windows\\app"),
+    ("daily", "/etc"),
+    ("monthly", "20260101T000000Z"),      # unknown kind
+])
+def test_restore_rejects_malformed_kind_or_name(tmp_path, kind, name):
+    """Restore overwrites the LIVE database, so the (kind, name) pair must be
+    validated by construction — never joined onto the filesystem raw."""
+    live = tmp_path / "live.sqlite3"
+    _make_db(live, "Untouched")
+    # Plant a decoy DB outside the backups root that a traversal would reach.
+    _make_db(tmp_path / "app.sqlite3", "Decoy")
+    with pytest.raises(ValueError):
+        backup_service.restore_backup(
+            kind, name, db_path=live, backups_root=tmp_path / "backups",
+        )
+    conn = sqlite3.connect(str(live))
+    assert conn.execute("SELECT name FROM deals").fetchone()[0] == "Untouched"
+    conn.close()
+
+
+def test_snapshot_path_accepts_well_formed_names(tmp_path):
+    root = tmp_path / "backups"
+    (root / "daily" / "20260101T000000Z_1").mkdir(parents=True)
+    resolved = backup_service.snapshot_path("daily", "20260101T000000Z_1", backups_root=root)
+    assert resolved == (root / "daily" / "20260101T000000Z_1").resolve()
+
+
+def test_scheduled_backup_skips_daily_when_a_recent_one_exists(tmp_path):
+    """A process restart runs the scheduler loop immediately; without this
+    guard, seven restarts in a day would rotate every older daily away."""
+    db = tmp_path / "app.sqlite3"
+    _make_db(db, "Sched")
+    backups = tmp_path / "backups"
+
+    first = backup_service.run_scheduled_backup(backups_root=backups, db_path=db)
+    assert first == ["daily", "weekly"]
+    # Immediately again (a restart): the daily is fresh, the weekly exists.
+    second = backup_service.run_scheduled_backup(backups_root=backups, db_path=db)
+    assert second == []
+    assert len(list((backups / "daily").iterdir())) == 1
+
+    # Age the only daily past the interval by renaming it -> a new one is taken.
+    old = next((backups / "daily").iterdir())
+    old.rename(backups / "daily" / "20200101T000000Z")
+    third = backup_service.run_scheduled_backup(backups_root=backups, db_path=db)
+    assert third == ["daily"]
+    assert len(list((backups / "daily").iterdir())) == 2
+
+
+def test_newest_snapshot_age_ignores_foreign_dirs(tmp_path):
+    root = tmp_path / "backups"
+    (root / "daily" / "notes").mkdir(parents=True)  # not a snapshot
+    assert backup_service.newest_snapshot_age_seconds("daily", backups_root=root) is None
+    (root / "daily" / "20260101T000000Z").mkdir()
+    from datetime import datetime, timezone
+    now = datetime(2026, 1, 1, 6, 0, tzinfo=timezone.utc)
+    age = backup_service.newest_snapshot_age_seconds("daily", backups_root=root, now=now)
+    assert age == 6 * 3600
 
 
 def test_list_backups(tmp_path):

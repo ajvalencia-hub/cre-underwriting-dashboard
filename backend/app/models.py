@@ -51,6 +51,9 @@ class Deal(Base):
     status: Mapped[str] = mapped_column(String, default="screening")
     active_template_id: Mapped[str | None] = mapped_column(String, nullable=True)
     active_mapping_profile_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Soft delete: archived deals drop out of the pipeline/portfolio/search
+    # but keep every scenario, note and attachment; hard delete stays explicit.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
