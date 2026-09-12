@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ExtractionReview from '../components/ExtractionReview'
 import { deleteDocument, fetchDocuments, runExtraction, updateDocumentType, uploadDocument } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
 import { DOCUMENT_TYPE_LABELS, type DocumentSummary, type DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
@@ -80,6 +81,8 @@ export default function Documents({
   }
 
   async function handleDelete(id: string) {
+    const target = documents.find((d) => d.id === id)
+    if (!confirmAction(`Delete document "${target?.filename ?? id}"?`)) return
     try {
       await deleteDocument(id)
       setDocuments((prev) => prev.filter((d) => d.id !== id))

@@ -6,6 +6,7 @@ import {
   fetchPresets,
   type AssumptionPreset,
 } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
 import { presetDiff, selectedChanges, type PresetDiffRow } from '../lib/presetDiff'
 import { flattenFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
@@ -89,6 +90,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
 
   async function handleDelete() {
     if (!selected) return
+    if (!confirmAction(`Delete preset "${selected.name}"?`)) return
     try {
       await deletePreset(selected.id)
       setPresets((prev) => prev.filter((p) => p.id !== selected.id))

@@ -27,4 +27,6 @@ export interface Deal {
   activeMappingProfileId: string | null
   createdAt: string
   updatedAt: string
+  /** Soft-delete marker (F2): set = archived, hidden from the default list. */
+  archivedAt?: string | null
 }

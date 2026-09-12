@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import FieldRow, { type FieldIndicator } from './fields/FieldRow'
 import MarketContextPanel from './MarketContextPanel'
 import PropertyTaxLookup from './PropertyTaxLookup'
 import { fetchBenchmarks, fetchMarketRates, type BenchmarkResult, type MarketRates } from '../lib/api'
 import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
+import { createLatestGuard } from '../lib/latest'
 import { isVisible } from '../lib/visibility'
 import type { InputSchema } from '../types/schema'
 
@@ -75,6 +76,8 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult | null>(null)
   const [benchmarksLoading, setBenchmarksLoading] = useState(false)
+  // B5: benchmark fetches resolve in request order only.
+  const benchmarkGuard = useRef(createLatestGuard())
 
   const address = typeof values.address === 'string' ? values.address : ''
   const market = typeof values.market === 'string' ? values.market : ''
@@ -107,15 +110,24 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
 
   useEffect(() => {
     if (!address.trim() && !market.trim()) {
+      benchmarkGuard.current.invalidate()
       setBenchmarks(null)
       return
     }
     const handle = setTimeout(() => {
+      const token = benchmarkGuard.current.next()
       setBenchmarksLoading(true)
       fetchBenchmarks({ address, market, submarket, assetClass, subject: { ...subject } })
-        .then(setBenchmarks)
-        .catch(() => setBenchmarks(null)) // offline/failed — panel just hides
-        .finally(() => setBenchmarksLoading(false))
+        .then((result) => {
+          if (benchmarkGuard.current.isCurrent(token)) setBenchmarks(result)
+        })
+        .catch(() => {
+          // offline/failed — panel just hides
+          if (benchmarkGuard.current.isCurrent(token)) setBenchmarks(null)
+        })
+        .finally(() => {
+          if (benchmarkGuard.current.isCurrent(token)) setBenchmarksLoading(false)
+        })
     }, BENCHMARK_DEBOUNCE_MS)
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps

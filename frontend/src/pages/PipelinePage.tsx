@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
-import { exportBatchDeck } from '../lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { exportBatchDeck, fetchDeals, unarchiveDeal } from '../lib/api'
 import { upcomingDeadlines } from '../lib/criticalDates'
+import { safeStorage } from '../lib/safeStorage'
+import { toastError } from '../lib/toast'
 import {
   bulkStageOptions,
   dealTypeOf,
@@ -34,6 +36,8 @@ interface PipelinePageProps {
   onNewDealFromDocuments: () => void
   /** Assign a type to an untyped (legacy) deal. */
   onSetDealType: (dealId: string, type: DealType) => void
+  /** F2: an unarchive changed the server-side list — refetch it. */
+  onDealsChanged: () => void
 }
 
 const BOARD_META: Record<DealType, { title: string; accent: string }> = {
@@ -49,6 +53,8 @@ function dealMarket(deal: Deal): string {
 interface BoardProps {
   type: DealType
   deals: Deal[]
+  /** F2: archived deals of this type — rendered dimmed, never counted or bulk-selected. */
+  archivedDeals: Deal[]
   hiddenCount: number
   activeDealId: string | null
   selected: Set<string>
@@ -57,12 +63,13 @@ interface BoardProps {
   onOpenDeal: (dealId: string) => void
   onStatusChange: (dealId: string, status: DealStatus) => void
   onNewDeal: (type: DealType) => void
+  onUnarchive: (dealId: string) => void
 }
 
 /** One dealflow board: its own stage chips, counts, and stage dropdowns. */
 function Board({
-  type, deals, hiddenCount, activeDealId, selected,
-  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal,
+  type, deals, archivedDeals, hiddenCount, activeDealId, selected,
+  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal, onUnarchive,
 }: BoardProps) {
   const stages = stagesFor(type)
   const counts = new Map<DealStatus, number>()
@@ -214,6 +221,30 @@ function Board({
                 </td>
               </tr>
             )}
+            {archivedDeals.map((deal) => (
+              <tr key={deal.id} className="border-b border-slate-50 opacity-50" aria-label={`${deal.name} (archived)`}>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2">
+                  <span className="font-medium text-slate-600">{deal.name}</span>
+                  <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
+                    archived
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-slate-500">{dealMarket(deal) || '—'}</td>
+                <td className="px-3 py-2 text-xs text-slate-500">{STAGE_LABELS[deal.status]}</td>
+                <td className="px-3 py-2 text-slate-500">
+                  {deal.archivedAt ? `archived ${relativeAge(deal.archivedAt)}` : relativeAge(deal.updatedAt)}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => onUnarchive(deal.id)}
+                    className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    Unarchive
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -230,6 +261,7 @@ export default function PipelinePage({
   onNewDeal,
   onNewDealFromDocuments,
   onSetDealType,
+  onDealsChanged,
 }: PipelinePageProps) {
   const [showTerminal, setShowTerminal] = useState(false)
   const [marketFilter, setMarketFilter] = useState('')
@@ -237,14 +269,55 @@ export default function PipelinePage({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkStatusValue, setBulkStatusValue] = useState<DealStatus>('screening')
   const [bulkBusy, setBulkBusy] = useState(false)
-  const [views, setViews] = useState<PipelineView[]>(() => loadViews(window.localStorage))
+  // B13: saved views go through safeStorage (never throws).
+  const [views, setViews] = useState<PipelineView[]>(() => loadViews(safeStorage))
   const [viewName, setViewName] = useState('')
   const [deckBusy, setDeckBusy] = useState(false)
   const [deckNote, setDeckNote] = useState<string | null>(null)
+  // F2: archived deals are fetched on demand (includeArchived=true) and kept
+  // apart from `deals` so counts, bulk actions and boards ignore them.
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivedDeals, setArchivedDeals] = useState<Deal[]>([])
+
+  useEffect(() => {
+    if (!showArchived) {
+      setArchivedDeals([])
+      return
+    }
+    let cancelled = false
+    fetchDeals({ includeArchived: true })
+      .then((list) => {
+        if (!cancelled) setArchivedDeals(list.filter((d) => Boolean(d.archivedAt)))
+      })
+      .catch((err) => {
+        if (!cancelled) toastError(err, 'Could not load archived deals.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showArchived, deals])
+
+  async function handleUnarchive(dealId: string) {
+    try {
+      await unarchiveDeal(dealId)
+      setArchivedDeals((prev) => prev.filter((d) => d.id !== dealId))
+      onDealsChanged()
+    } catch (err) {
+      toastError(err, 'Could not unarchive the deal.')
+    }
+  }
 
   const sorted = useMemo(
     () => applyView(deals, marketFilter, sortKey, showTerminal),
     [deals, marketFilter, sortKey, showTerminal],
+  )
+  const archivedByType = useMemo(
+    () => ({
+      acquisition: archivedDeals.filter((d) => dealTypeOf(d) === 'acquisition'),
+      development: archivedDeals.filter((d) => dealTypeOf(d) === 'development'),
+      untyped: archivedDeals.filter((d) => dealTypeOf(d) === null),
+    }),
+    [archivedDeals],
   )
 
   // The two dealflows, plus legacy deals that predate typed creation.
@@ -291,6 +364,9 @@ export default function PipelinePage({
         effectiveBulkValue,
       )
       setSelected(new Set())
+    } catch (err) {
+      // B14: a failed bulk update used to reject silently.
+      toastError(err, 'Bulk stage update failed.')
     } finally {
       setBulkBusy(false)
     }
@@ -341,7 +417,7 @@ export default function PipelinePage({
   function handleSaveView() {
     if (!viewName.trim()) return
     setViews(
-      saveView(window.localStorage, {
+      saveView(safeStorage, {
         name: viewName.trim(),
         marketFilter,
         sortKey,
@@ -428,6 +504,17 @@ export default function PipelinePage({
             : `Closed/stabilized/dead hidden${hiddenCount ? ` (${hiddenCount})` : ''}`}
         </button>
         <button
+          onClick={() => setShowArchived((v) => !v)}
+          aria-pressed={showArchived}
+          className={`rounded border px-2 py-1 ${
+            showArchived
+              ? 'border-slate-400 bg-slate-100 text-slate-600'
+              : 'border-slate-200 text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          {showArchived ? `Showing archived (${archivedDeals.length})` : 'Show archived'}
+        </button>
+        <button
           onClick={handleExportCsv}
           className="rounded border border-slate-200 px-2 py-1 text-slate-500 hover:bg-slate-50"
         >
@@ -440,7 +527,7 @@ export default function PipelinePage({
               {view.name}
             </button>
             <button
-              onClick={() => setViews(deleteView(window.localStorage, view.name))}
+              onClick={() => setViews(deleteView(safeStorage, view.name))}
               aria-label={`Delete saved view ${view.name}`}
               className="pr-1.5 text-sky-400 hover:text-red-600"
             >
@@ -504,6 +591,7 @@ export default function PipelinePage({
       <Board
         type="acquisition"
         deals={acquisitions}
+        archivedDeals={archivedByType.acquisition}
         hiddenCount={hiddenCount}
         activeDealId={activeDealId}
         selected={selected}
@@ -512,11 +600,13 @@ export default function PipelinePage({
         onOpenDeal={onOpenDeal}
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
+        onUnarchive={(id) => void handleUnarchive(id)}
       />
 
       <Board
         type="development"
         deals={developments}
+        archivedDeals={archivedByType.development}
         hiddenCount={hiddenCount}
         activeDealId={activeDealId}
         selected={selected}
@@ -525,7 +615,27 @@ export default function PipelinePage({
         onOpenDeal={onOpenDeal}
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
+        onUnarchive={(id) => void handleUnarchive(id)}
       />
+
+      {archivedByType.untyped.length > 0 && (
+        <div className="rounded border border-slate-200 bg-white p-3 opacity-60">
+          <div className="text-xs font-semibold text-slate-500">ARCHIVED — UNTYPED</div>
+          <ul className="mt-2 space-y-1">
+            {archivedByType.untyped.map((deal) => (
+              <li key={deal.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium text-slate-600">{deal.name}</span>
+                <button
+                  onClick={() => void handleUnarchive(deal.id)}
+                  className="rounded border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+                >
+                  Unarchive
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {untyped.length > 0 && (
         <div className="rounded border border-amber-200 bg-amber-50 p-3">

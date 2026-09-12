@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  ACQUISITION_QUICK_SCREEN_INPUTS_KEY,
   QUICK_SCREEN_INPUTS_KEY,
+  QUICK_SCREEN_MODE_KEY,
   createAutosaver,
   hydrateDealState,
   serializeDealInputs,
 } from './dealPersistence'
-import { QUICK_SCREEN_DEFAULTS, serializeQuickScreenInputs } from './quickScreenMath'
+import {
+  ACQUISITION_QUICK_SCREEN_DEFAULTS,
+  QUICK_SCREEN_DEFAULTS,
+  serializeAcquisitionQuickScreenInputs,
+  serializeQuickScreenInputs,
+} from './quickScreenMath'
 
 describe('createAutosaver', () => {
   beforeEach(() => {
@@ -101,6 +108,42 @@ describe('createAutosaver', () => {
     await vi.advanceTimersByTimeAsync(3000)
     expect(save).not.toHaveBeenCalled()
   })
+
+  it('cancel drops the pending value but keeps the autosaver usable (B12)', async () => {
+    const save = vi.fn().mockResolvedValue(undefined)
+    const saver = createAutosaver<number>(save, 2000)
+    saver.schedule(1)
+    saver.cancel()
+    expect(saver.getState()).toBe('idle')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(save).not.toHaveBeenCalled()
+
+    saver.schedule(2)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledWith(2)
+  })
+
+  it('cancel during an in-flight save swallows its failure instead of surfacing error', async () => {
+    let rejectFirst!: (e: Error) => void
+    const save = vi
+      .fn<(v: number) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((_, reject) => (rejectFirst = reject)))
+      .mockResolvedValue(undefined)
+    const saver = createAutosaver<number>(save, 2000)
+    saver.schedule(1)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(saver.getState()).toBe('saving')
+
+    saver.cancel()
+    rejectFirst(new Error('404 deal deleted'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(saver.getState()).toBe('idle')
+
+    // Nothing left to retry — a flush is a no-op.
+    await saver.flush()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('hydrateDealState', () => {
@@ -155,5 +198,59 @@ describe('serializeDealInputs', () => {
     const hydrated = hydrateDealState({}, blob, new URLSearchParams())
     expect(hydrated.formValues).toEqual({ purchasePrice: 5 })
     expect(hydrated.quickScreen).toEqual(quickScreen)
+    expect(hydrated.acquisitionQuickScreen).toEqual(ACQUISITION_QUICK_SCREEN_DEFAULTS)
+    expect(hydrated.quickScreenMode).toBe('development')
+  })
+
+  it('B6: round-trips the acquisition napkin and the active screen', () => {
+    const acquisition = { ...ACQUISITION_QUICK_SCREEN_DEFAULTS, purchasePrice: 12_500_000 }
+    const blob = serializeDealInputs({}, QUICK_SCREEN_DEFAULTS, acquisition, 'acquisition')
+    expect(blob[ACQUISITION_QUICK_SCREEN_INPUTS_KEY]).toEqual(acquisition)
+    expect(blob[QUICK_SCREEN_MODE_KEY]).toBe('acquisition')
+
+    const hydrated = hydrateDealState({ dealType: 'acquisition' }, blob, new URLSearchParams())
+    expect(hydrated.acquisitionQuickScreen).toEqual(acquisition)
+    expect(hydrated.quickScreenMode).toBe('acquisition')
+    // Neither persistence key leaks into the Deal Inputs form values.
+    expect(ACQUISITION_QUICK_SCREEN_INPUTS_KEY in hydrated.formValues).toBe(false)
+    expect(QUICK_SCREEN_MODE_KEY in hydrated.formValues).toBe(false)
+    expect(hydrated.formValues).toEqual({ dealType: 'acquisition' })
+  })
+})
+
+describe('hydrateDealState (acquisition napkin + screen)', () => {
+  it('merges a partial stored acquisition napkin over defaults', () => {
+    const hydrated = hydrateDealState(
+      {},
+      { [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: { rent: 1_900 } },
+      new URLSearchParams(),
+    )
+    expect(hydrated.acquisitionQuickScreen.rent).toBe(1_900)
+    expect(hydrated.acquisitionQuickScreen.quantity).toBe(ACQUISITION_QUICK_SCREEN_DEFAULTS.quantity)
+    expect(hydrated.quickScreenFromUrl).toBe(false)
+  })
+
+  it('URL acq_ params and ?screen= win on first load and flag the URL override', () => {
+    const url = serializeAcquisitionQuickScreenInputs({
+      ...ACQUISITION_QUICK_SCREEN_DEFAULTS,
+      purchasePrice: 7_000_000,
+    })
+    url.set('screen', 'acquisition')
+    const hydrated = hydrateDealState(
+      {},
+      {
+        [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: { purchasePrice: 1 },
+        [QUICK_SCREEN_MODE_KEY]: 'development',
+      },
+      url,
+    )
+    expect(hydrated.acquisitionQuickScreen.purchasePrice).toBe(7_000_000)
+    expect(hydrated.quickScreenMode).toBe('acquisition')
+    expect(hydrated.quickScreenFromUrl).toBe(true)
+  })
+
+  it('ignores a junk stored mode', () => {
+    const hydrated = hydrateDealState({}, { [QUICK_SCREEN_MODE_KEY]: 'weird' }, new URLSearchParams())
+    expect(hydrated.quickScreenMode).toBe('development')
   })
 })

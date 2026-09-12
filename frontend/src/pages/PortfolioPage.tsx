@@ -38,7 +38,11 @@ export default function PortfolioPage({ active }: PortfolioPageProps) {
   useEffect(() => {
     if (!active) return
     fetchPortfolio()
-      .then(setData)
+      .then((rollup) => {
+        // B7: a later success clears an earlier failure.
+        setError(null)
+        setData(rollup)
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load portfolio.'))
   }, [active])
 

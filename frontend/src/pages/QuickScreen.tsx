@@ -130,7 +130,7 @@ export default function QuickScreen({
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,
       })
-      setSaveMessage('Saved — see it under "5. Scenarios".')
+      setSaveMessage('Saved — see it under "6. Scenarios".')
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {

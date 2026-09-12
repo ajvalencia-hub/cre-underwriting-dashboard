@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   dateStatus,
   daysUntil,
+  hasDate,
   readCriticalDates,
   sortByDate,
   upcomingDeadlines,
@@ -62,5 +63,18 @@ describe('readCriticalDates', () => {
     expect(
       readCriticalDates({ criticalDates: [null, 42, { id: 'a', label: 'x', date: '2026-01-01' }] }),
     ).toHaveLength(1)
+  })
+
+  it('B11: skips rows with an empty or blank date', () => {
+    const rows = readCriticalDates({
+      criticalDates: [
+        { id: 'a', label: 'Closing', date: '' },
+        { id: 'b', label: 'LOI', date: '   ' },
+        { id: 'c', label: 'DD end', date: '2026-07-10' },
+      ],
+    })
+    expect(rows.map((r) => r.id)).toEqual(['c'])
+    expect(hasDate({ date: '' })).toBe(false)
+    expect(hasDate({ date: '2026-07-10' })).toBe(true)
   })
 })

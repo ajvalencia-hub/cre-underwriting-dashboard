@@ -24,7 +24,8 @@ test('underwriting happy path', async ({ page }) => {
   // Quick Screen renders a feasibility verdict and the sidebar shows
   // Quick Screen estimates marked "est.".
   await expect(page.getByText(/Strong —|Marginal —|Weak —/).first()).toBeVisible()
-  await expect(page.getByText('est.').first()).toBeVisible()
+  // exact: every tab stays mounted, and Settings' hidden copy contains "…manifest."
+  await expect(page.getByText('est.', { exact: true }).first()).toBeVisible()
 
   // Nudge the rent input and confirm the verdict block is still live.
   const rentInput = inputNextToLabel(page, 'Monthly Rent per Unit')
@@ -84,12 +85,14 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await page.goto('/')
   await expect(page.locator('select').first()).toBeVisible()
 
-  // Deals (pipeline) tab: stage chips, the auto-created deal row, staleness-free.
+  // Deals (pipeline) tab: one board per dealflow, each with its own stage chips.
   await page.getByRole('button', { name: 'Deals' }).click()
-  await expect(page.getByText(/Screening · \d/)).toBeVisible()
-  // exact: the header's own "New Deal" button is a different control
-  await expect(page.getByRole('button', { name: 'New deal', exact: true })).toBeVisible()
-  const dealRow = page.locator('tr', { hasText: 'Default Deal' }).first()
+  await expect(page.getByText(/Screening · \d/).first()).toBeVisible()
+  // The auto-created "Default Deal" is untyped (the schema no longer defaults
+  // dealType), so it sits in the untyped box rather than on a board. Create a
+  // typed deal from the acquisition board — the header's "New Deal" is a chooser.
+  await page.getByRole('button', { name: 'New acquisition deal' }).click()
+  const dealRow = page.locator('tr', { hasText: 'Untitled Acquisition' }).first()
   await expect(dealRow).toBeVisible()
 
   // Status select persists a stage change.

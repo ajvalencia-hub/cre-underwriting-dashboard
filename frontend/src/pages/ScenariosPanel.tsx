@@ -8,6 +8,7 @@ import {
   updateScenario,
   type TornadoResponse,
 } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
 import { formatOutputValue, formatValue } from '../lib/formatValue'
 import { flattenFields } from '../lib/schemaFields'
 import {
@@ -147,6 +148,8 @@ export default function ScenariosPanel({
   }
 
   async function handleDelete(id: string) {
+    const target = [...scenarios, ...quickScreenScenarios].find((s) => s.id === id)
+    if (!confirmAction(`Delete scenario "${target?.scenarioName ?? id}"?`)) return
     try {
       await deleteScenario(id)
       setScenarios((prev) => prev.filter((s) => s.id !== id))

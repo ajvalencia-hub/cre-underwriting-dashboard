@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import {
   attachmentDownloadUrl,
   createNote,
+  deleteAttachment,
   deleteNote,
   fetchAttachmentPreview,
   fetchAttachments,
@@ -11,6 +12,8 @@ import {
   type DealAttachment,
   type DealNote,
 } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
+import { toastError } from '../lib/toast'
 
 const TYPE_ICONS: Record<string, string> = {
   pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
@@ -115,25 +118,63 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
       setPreview({ id: att.id, content: '__image__' })
       return
     }
-    const result = await fetchAttachmentPreview(dealId!, att.id)
-    setPreview({
-      id: att.id,
-      content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
-    })
+    try {
+      const result = await fetchAttachmentPreview(dealId!, att.id)
+      setPreview({
+        id: att.id,
+        content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
+      })
+    } catch (e) {
+      toastError(e, 'Could not load the preview.')
+    }
+  }
+
+  // F3: delete is only offered for the deal's own attachments — extraction
+  // sources belong to the document store and the backend refuses them.
+  async function handleDeleteAttachment(att: DealAttachment) {
+    if (!dealId) return
+    if (!confirmAction(`Delete attachment "${att.filename}"?`)) return
+    setError(null)
+    try {
+      await deleteAttachment(dealId, att.id)
+      setAttachments((prev) => prev.filter((a) => a.id !== att.id))
+      if (preview?.id === att.id) setPreview(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed.')
+    }
   }
 
   async function addNote() {
     if (!noteDraft.trim() || !dealId) return
-    const note = await createNote(dealId, noteDraft)
-    setNotes((prev) => [note, ...prev])
-    setNoteDraft('')
+    try {
+      const note = await createNote(dealId, noteDraft)
+      setNotes((prev) => [note, ...prev])
+      setNoteDraft('')
+    } catch (e) {
+      toastError(e, 'Could not add the note.')
+    }
   }
 
   async function saveEdit(noteId: string) {
     if (!dealId) return
-    const updated = await updateNote(dealId, noteId, editDraft)
-    setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
-    setEditingId(null)
+    try {
+      const updated = await updateNote(dealId, noteId, editDraft)
+      setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
+      setEditingId(null)
+    } catch (e) {
+      toastError(e, 'Could not save the note.')
+    }
+  }
+
+  async function removeNote(noteId: string) {
+    if (!dealId) return
+    if (!confirmAction('Delete this note?')) return
+    try {
+      await deleteNote(dealId, noteId)
+      setNotes((prev) => prev.filter((n) => n.id !== noteId))
+    } catch (e) {
+      toastError(e, 'Could not delete the note.')
+    }
   }
 
   return (
@@ -173,6 +214,15 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                   >
                     download
                   </a>
+                  {att.source === 'attachment' && (
+                    <button
+                      onClick={() => void handleDeleteAttachment(att)}
+                      aria-label={`Delete attachment ${att.filename}`}
+                      className="text-red-500 hover:underline"
+                    >
+                      delete
+                    </button>
+                  )}
                 </div>
                 {preview?.id === att.id && (
                   <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-2">
@@ -228,11 +278,7 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                     edit
                   </button>
                   <button
-                    onClick={() =>
-                      void deleteNote(dealId, note.id).then(() =>
-                        setNotes((prev) => prev.filter((n) => n.id !== note.id)),
-                      )
-                    }
+                    onClick={() => void removeNote(note.id)}
                     className="text-red-500 hover:underline"
                   >
                     delete

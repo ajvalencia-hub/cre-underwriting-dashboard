@@ -11,6 +11,7 @@ import {
   updateMappingProfile,
   uploadTemplate,
 } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
 import { describeMapping } from '../lib/mappingFormat'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
@@ -62,7 +63,17 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
     refreshRecentTemplates()
   }, [])
 
+  // B1: notify the parent only when the selection actually CHANGES — never
+  // on mount (nor on StrictMode's simulated remount), which used to fire
+  // (null, null) and wipe the deal's saved mapping profile on every load.
+  const lastNotifiedRef = useRef<{ template: TemplateSummary | null; profileId: string | null }>({
+    template: null,
+    profileId: null,
+  })
   useEffect(() => {
+    const last = lastNotifiedRef.current
+    if (last.template === template && last.profileId === profileId) return
+    lastNotifiedRef.current = { template, profileId }
     onTemplateReady?.(template, profileId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template, profileId])
@@ -135,6 +146,8 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
   }
 
   async function handleDeleteTemplate(id: string) {
+    const target = recentTemplates.find((t) => t.id === id)
+    if (!confirmAction(`Delete template "${target?.filename ?? id}" and its mapping profiles?`)) return
     try {
       await deleteTemplate(id)
       if (template?.id === id) {
@@ -150,6 +163,8 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
   }
 
   async function handleDeleteProfile(id: string) {
+    const target = profiles.find((p) => p.id === id)
+    if (!confirmAction(`Delete mapping profile "${target?.profileName ?? id}"?`)) return
     try {
       await deleteMappingProfile(id)
       setProfiles((prev) => prev.filter((p) => p.id !== id))

@@ -16,9 +16,13 @@ import SensitivityPanel from './pages/SensitivityPanel'
 import SettingsPage from './pages/SettingsPage'
 import TemplateUpload from './pages/TemplateUpload'
 import {
+  UNAUTHORIZED_EVENT,
+  archiveDeal,
+  cloneDeal,
   createDeal,
   deleteDeal,
   exportDeal,
+  fetchAuthStatus,
   fetchDeal,
   fetchDeals,
   bulkUpdateDealStatus,
@@ -36,6 +40,7 @@ import {
   serializeDealInputs,
   type Autosaver,
   type AutosaveState,
+  type QuickScreenMode,
 } from './lib/dealPersistence'
 import type { Statement } from './lib/cashflowStatement'
 import { formatOutputValue } from './lib/formatValue'
@@ -50,41 +55,56 @@ import {
   mapAcquisitionQuickScreenToOutputMetrics,
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
-  parseAcquisitionQuickScreenInputs,
   serializeAcquisitionQuickScreenInputs,
   serializeQuickScreenInputs,
   type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
+import AuthGate from './components/AuthGate'
 import CommandPalette from './components/CommandPalette'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
+import Toasts from './components/Toasts'
+import { confirmAction } from './lib/confirmAction'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
 import { dealTypeOf, type DealType } from './lib/dealStages'
+import { createLatestGuard } from './lib/latest'
+import { isOutputVisibleFor } from './lib/outputVisibility'
+import { loadRecent, recordRecent } from './lib/recentDeals'
+import { safeStorage } from './lib/safeStorage'
+import { toastError } from './lib/toast'
+import { loadLastTab, loadNewDealTypePref, saveLastTab } from './lib/workflowPrefs'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 
 type LoadState =
   | { status: 'loading' }
+  | { status: 'auth' }
   | { status: 'error'; message: string }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
-type Tab =
-  | 'pipeline'
-  | 'quickscreen'
-  | 'documents'
-  | 'setup'
-  | 'dashboard'
-  | 'cashflow'
-  | 'sensitivity'
-  | 'risk'
-  | 'scenarios'
-  | 'comps'
-  | 'portfolio'
-  | 'settings'
+/** Workflow tabs in display order; Cmd/Ctrl+1..9 map onto the first nine. */
+const TABS = [
+  ['pipeline', 'Deals'],
+  ['quickscreen', '0. Quick Screen'],
+  ['documents', '1. Documents'],
+  ['setup', '2. Template & Mapping'],
+  ['dashboard', '3. Deal Inputs'],
+  ['cashflow', '4. Cash Flow'],
+  ['sensitivity', '5. Sensitivity'],
+  ['risk', '5b. Risk'],
+  ['scenarios', '6. Scenarios'],
+  ['comps', '7. Comps'],
+  ['portfolio', 'Portfolio'],
+  ['settings', '⚙ Settings'],
+] as const
+
+type Tab = (typeof TABS)[number][0]
+
+const TAB_IDS: readonly Tab[] = TABS.map(([id]) => id)
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -104,7 +124,8 @@ const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
 
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [tab, setTab] = useState<Tab>('quickscreen')
+  // F8: boot to the last active tab (per browser).
+  const [tab, setTab] = useState<Tab>(() => loadLastTab(safeStorage, TAB_IDS, 'quickscreen'))
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
@@ -121,7 +142,7 @@ function App() {
   // estimates, same as the development inputs above).
   const [acquisitionQuickScreenInputs, setAcquisitionQuickScreenInputs] =
     useState<AcquisitionQuickScreenInputs>(ACQUISITION_QUICK_SCREEN_DEFAULTS)
-  const [quickScreenMode, setQuickScreenMode] = useState<'development' | 'acquisition'>('development')
+  const [quickScreenMode, setQuickScreenMode] = useState<QuickScreenMode>('development')
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -132,6 +153,12 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   // Typed New Deal chooser (header button popover).
   const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
+  // F2: deal actions popover (duplicate / archive).
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const newDealMenuRef = useRef<HTMLDivElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  // F9: recently viewed deal ids, newest first.
+  const [recentIds, setRecentIds] = useState<string[]>(() => loadRecent(safeStorage))
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -143,6 +170,10 @@ function App() {
 
   const activeDealIdRef = useRef<string | null>(null)
   const hydratedRef = useRef(false)
+  // B5: deal-switch + template-fetch sequencing — a stale resolution never
+  // lands on top of a newer one (A→B→C must end on C).
+  const switchGuardRef = useRef(createLatestGuard())
+  const templateGuardRef = useRef(createLatestGuard())
   // JSON of the state as last hydrated/saved — suppresses the no-op autosave
   // that hydration itself would otherwise trigger.
   const lastPersistedJsonRef = useRef('')
@@ -158,15 +189,18 @@ function App() {
     () => computeAcquisitionQuickScreen(acquisitionQuickScreenInputs),
     [acquisitionQuickScreenInputs],
   )
-  // Sidebar estimates follow the ACTIVE napkin.
+  // B6: sidebar estimates follow the DEAL's type; only an untyped deal falls
+  // back to whichever napkin is active on screen.
+  const activeDealType = useMemo(() => dealTypeOf({ inputs: formValues }), [formValues])
+  const estimateSource: QuickScreenMode = activeDealType ?? quickScreenMode
   const quickScreenOutputs = useMemo(
     () =>
-      quickScreenMode === 'acquisition'
+      estimateSource === 'acquisition'
         ? mapAcquisitionQuickScreenToOutputMetrics(
             acquisitionQuickScreenResults, acquisitionQuickScreenInputs,
           )
         : mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
-    [quickScreenMode, quickScreenResults, quickScreenInputs,
+    [estimateSource, quickScreenResults, quickScreenInputs,
      acquisitionQuickScreenResults, acquisitionQuickScreenInputs],
   )
   const quickScreenFullModelOnlyIds = useMemo(
@@ -182,24 +216,81 @@ function App() {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
     setFormValues(hydrated.formValues)
     setQuickScreenInputs(hydrated.quickScreen)
+    setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
+    setQuickScreenMode(hydrated.quickScreenMode)
     setServerOutputs({})
     setNativeOutputs({})
     setNativeDebt(null)
     setNativeIrrConvention(null)
     setNativeStatement(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
+    const templateToken = templateGuardRef.current.next()
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
-        .then(setActiveTemplate)
-        .catch(() => setActiveTemplate(null))
+        .then((template) => {
+          if (templateGuardRef.current.isCurrent(templateToken)) setActiveTemplate(template)
+        })
+        .catch(() => {
+          if (templateGuardRef.current.isCurrent(templateToken)) setActiveTemplate(null)
+        })
     } else {
       setActiveTemplate(null)
     }
     lastPersistedJsonRef.current = hydrated.quickScreenFromUrl
       ? '' // URL override differs from the stored deal — let the autosave sync it in
-      : JSON.stringify(serializeDealInputs(hydrated.formValues, hydrated.quickScreen))
+      : JSON.stringify(
+          serializeDealInputs(
+            hydrated.formValues,
+            hydrated.quickScreen,
+            hydrated.acquisitionQuickScreen,
+            hydrated.quickScreenMode,
+          ),
+        )
     activeDealIdRef.current = deal.id
     hydratedRef.current = true
+  }
+
+  /** Make `deal` the active deal: storage key, hydration, recent list, and
+   *  retire any in-flight switch so it cannot land on top of this one. */
+  function activateDeal(schema: InputSchema, deal: Deal, urlParams = new URLSearchParams()) {
+    switchGuardRef.current.invalidate()
+    safeStorage.set(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    applyDealState(schema, deal, urlParams)
+    setActiveDealId(deal.id)
+    setRecentIds(recordRecent(safeStorage, deal.id))
+  }
+
+  async function boot() {
+    setState({ status: 'loading' })
+    try {
+      // F1: a configured token with no session shows the gate instead of a
+      // wall of 401s. A failed status probe is not fatal — fall through and
+      // let the real fetches decide.
+      const auth = await fetchAuthStatus().catch(() => null)
+      if (auth && auth.required && !auth.authenticated) {
+        setState({ status: 'auth' })
+        return
+      }
+      const [schema, health, dealList] = await Promise.all([
+        fetchInputSchema(),
+        fetchHealth(),
+        fetchDeals(),
+      ])
+      let list = dealList
+      if (list.length === 0) {
+        list = [await createDeal({ name: 'Default Deal' })]
+      }
+      const storedId = safeStorage.get(ACTIVE_DEAL_STORAGE_KEY)
+      const active = list.find((d) => d.id === storedId) ?? list[0]
+      // URL quick-screen params (both napkins + the active screen) only
+      // override on first load; hydrateDealState reads them.
+      const urlParams = new URLSearchParams(window.location.search)
+      setDeals(list)
+      activateDeal(schema, active, urlParams)
+      setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
+    } catch (err) {
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   const bootStartedRef = useRef(false)
@@ -208,57 +299,101 @@ function App() {
     // would run twice and could create two "Default Deal" rows.
     if (bootStartedRef.current) return
     bootStartedRef.current = true
-    Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
-      .then(async ([schema, health, dealList]) => {
-        let list = dealList
-        if (list.length === 0) {
-          list = [await createDeal({ name: 'Default Deal' })]
-        }
-        const storedId = localStorage.getItem(ACTIVE_DEAL_STORAGE_KEY)
-        const active = list.find((d) => d.id === storedId) ?? list[0]
-        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
-        // URL quick-screen params only override on first load.
-        const urlParams = new URLSearchParams(window.location.search)
-        applyDealState(schema, active, urlParams)
-        // Acquisition-napkin params + the active screen ride the same URL
-        // (acq_-prefixed so shared development links keep their meaning).
-        const acqFromUrl = parseAcquisitionQuickScreenInputs(urlParams)
-        if (acqFromUrl) setAcquisitionQuickScreenInputs(acqFromUrl)
-        if (urlParams.get('screen') === 'acquisition') setQuickScreenMode('acquisition')
-        setDeals(list)
-        setActiveDealId(active.id)
-        setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
-      })
-      .catch((err: Error) => {
-        setState({ status: 'error', message: err.message })
-      })
+    void boot()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // J13: Cmd/Ctrl+K opens the global search palette.
+  // F1: any 401 from the API layer re-raises the gate.
+  useEffect(() => {
+    const onUnauthorized = () => setState({ status: 'auth' })
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
+
+  // F8: remember the last active tab.
+  useEffect(() => {
+    saveLastTab(safeStorage, tab)
+  }, [tab])
+
+  // J13: Cmd/Ctrl+K opens the global search palette; F6: Cmd/Ctrl+1..9 switch
+  // workflow tabs and Escape closes the header popovers.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((v) => !v)
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
+        const entry = TABS[Number(e.key) - 1]
+        if (entry) {
+          e.preventDefault()
+          setTab(entry[0])
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        setNewDealMenuOpen(false)
+        setMoreMenuOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // F6: outside-click closes the header popovers.
+  useEffect(() => {
+    if (!newDealMenuOpen && !moreMenuOpen) return
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as Node
+      if (newDealMenuRef.current && !newDealMenuRef.current.contains(target)) setNewDealMenuOpen(false)
+      if (moreMenuRef.current && !moreMenuRef.current.contains(target)) setMoreMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [newDealMenuOpen, moreMenuOpen])
+
+  // F5: warn before leaving with an unsaved autosave; flush when the tab hides.
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      const s = autosaverRef.current!.getState()
+      if (s === 'pending' || s === 'saving' || s === 'error') {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === 'hidden') void autosaverRef.current!.flush()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
     if (!hydratedRef.current || activeDealId === null) return
-    const blob = serializeDealInputs(formValues, quickScreenInputs)
+    const blob = serializeDealInputs(
+      formValues,
+      quickScreenInputs,
+      acquisitionQuickScreenInputs,
+      quickScreenMode,
+    )
     const json = JSON.stringify(blob)
     if (json === lastPersistedJsonRef.current) return
     lastPersistedJsonRef.current = json
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
-  }, [formValues, quickScreenInputs, activeDealId])
+  }, [formValues, quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode, activeDealId])
 
   // Keep the sharable URL in sync with BOTH napkins + the active screen.
+  // B2: never before boot resolves and the deal is hydrated — otherwise the
+  // defaults land in the URL, boot reads them as a shared link, and the
+  // autosave overwrites the deal's saved quick screen with defaults.
   useEffect(() => {
+    if (state.status !== 'ready' || !hydratedRef.current) return
     const handle = setTimeout(() => {
       const params = serializeQuickScreenInputs(quickScreenInputs)
       serializeAcquisitionQuickScreenInputs(acquisitionQuickScreenInputs, params)
@@ -266,17 +401,22 @@ function App() {
       window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
     }, 500)
     return () => clearTimeout(handle)
-  }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode])
+  }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode, state.status])
 
   async function switchDeal(dealId: string) {
     if (state.status !== 'ready' || dealId === activeDealId) return
-    await autosaverRef.current!.flush()
-    const deal = await fetchDeal(dealId)
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    // Deal switches never re-apply URL params — those are first-load-only.
-    applyDealState(state.schema, deal, new URLSearchParams())
-    setActiveDealId(deal.id)
-    setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+    // B5: only the newest switch may land.
+    const token = switchGuardRef.current.next()
+    try {
+      await autosaverRef.current!.flush()
+      const deal = await fetchDeal(dealId)
+      if (!switchGuardRef.current.isCurrent(token)) return
+      // Deal switches never re-apply URL params — those are first-load-only.
+      activateDeal(state.schema, deal)
+      setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+    } catch (err) {
+      if (switchGuardRef.current.isCurrent(token)) toastError(err, 'Could not open that deal.')
+    }
   }
 
   // Typed creation: every new deal carries its dealflow (acquisition |
@@ -285,17 +425,33 @@ function App() {
   // "missing dealType" and a silent acquisition default.
   async function handleNewDeal(type: DealType) {
     if (state.status !== 'ready') return
-    await autosaverRef.current!.flush()
     setNewDealMenuOpen(false)
-    const label = type === 'development' ? 'Development' : 'Acquisition'
-    const deal = await createDeal({
-      name: `Untitled ${label} ${deals.length + 1}`,
-      inputs: { dealType: type },
-    })
-    setDeals((prev) => [deal, ...prev])
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal, new URLSearchParams())
-    setActiveDealId(deal.id)
+    try {
+      await autosaverRef.current!.flush()
+      const label = type === 'development' ? 'Development' : 'Acquisition'
+      const deal = await createDeal({
+        name: `Untitled ${label} ${deals.length + 1}`,
+        inputs: { dealType: type },
+      })
+      // A stale rename box must never apply to the new deal; open a fresh
+      // one so the placeholder name can be replaced immediately.
+      setRenamingName('')
+      setDeals((prev) => [deal, ...prev])
+      activateDeal(state.schema, deal)
+    } catch (err) {
+      toastError(err, 'Could not create the deal.')
+    }
+  }
+
+  /** Header "New Deal": F8 default type from Settings > Workflow, or ask. */
+  function handleNewDealClick() {
+    const pref = loadNewDealTypePref(safeStorage)
+    if (pref === 'ask') {
+      setMoreMenuOpen(false)
+      setNewDealMenuOpen((v) => !v)
+      return
+    }
+    void handleNewDeal(pref)
   }
 
   // Assign a dealflow to an untyped (legacy) deal. The active deal routes
@@ -308,15 +464,23 @@ function App() {
     }
     const deal = deals.find((d) => d.id === dealId)
     if (!deal) return
-    const updated = await updateDeal(dealId, {
-      inputs: { ...deal.inputs, dealType: type },
-    })
-    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    try {
+      const updated = await updateDeal(dealId, {
+        inputs: { ...deal.inputs, dealType: type },
+      })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    } catch (err) {
+      toastError(err, 'Could not set the deal type.')
+    }
   }
 
   async function refreshDeals() {
-    const list = await fetchDeals()
-    setDeals(list)
+    try {
+      const list = await fetchDeals()
+      setDeals(list)
+    } catch (err) {
+      toastError(err, 'Could not refresh the deal list.')
+    }
   }
 
   // J10: the wizard finalized a deal — adopt it as the active deal.
@@ -324,9 +488,7 @@ function App() {
     if (state.status !== 'ready') return
     setOmWizardOpen(false)
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal, new URLSearchParams())
-    setActiveDealId(deal.id)
+    activateDeal(state.schema, deal)
     setTab('dashboard')
   }
 
@@ -335,44 +497,101 @@ function App() {
       setRenamingName(null)
       return
     }
-    const updated = await updateDeal(activeDealId, { name: name.trim() })
-    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-    setRenamingName(null)
+    try {
+      const updated = await updateDeal(activeDealId, { name: name.trim() })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    } catch (err) {
+      toastError(err, 'Rename failed.')
+    } finally {
+      setRenamingName(null)
+    }
+  }
+
+  /** After the active deal is gone (deleted/archived): open the next one, or
+   *  seed a fresh default so the app is never dealless. */
+  async function activateNextAfterRemoval(schema: InputSchema, removedId: string) {
+    const remaining = deals.filter((d) => d.id !== removedId)
+    if (remaining.length === 0) {
+      const fresh = await createDeal({ name: 'Default Deal' })
+      setDeals([fresh])
+      activateDeal(schema, fresh)
+      return
+    }
+    setDeals(remaining)
+    activateDeal(schema, remaining[0])
   }
 
   async function handleDeleteDeal() {
     if (state.status !== 'ready' || !activeDealId) return
     const deal = deals.find((d) => d.id === activeDealId)
-    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?`)) return
-    await deleteDeal(activeDealId)
-    const remaining = deals.filter((d) => d.id !== activeDealId)
-    if (remaining.length === 0) {
-      const fresh = await createDeal({ name: 'Default Deal' })
-      setDeals([fresh])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
-      applyDealState(state.schema, fresh, new URLSearchParams())
-      setActiveDealId(fresh.id)
+    if (!confirmAction(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?`)) return
+    // B12: a pending autosave for this id would PUT to a deleted deal and
+    // surface "Save failed" on whichever deal comes next.
+    autosaverRef.current!.cancel()
+    try {
+      await deleteDeal(activeDealId)
+      await activateNextAfterRemoval(state.schema, activeDealId)
+    } catch (err) {
+      toastError(err, 'Delete failed.')
+    }
+  }
+
+  // F2: archive keeps the deal (restorable from Deals › Show archived) but
+  // removes it from the working list exactly like delete does.
+  async function handleArchiveDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    setMoreMenuOpen(false)
+    const deal = deals.find((d) => d.id === activeDealId)
+    if (
+      !confirmAction(
+        `Archive "${deal?.name ?? 'this deal'}"? It leaves the pipeline, portfolio and search; restore it any time from Deals › Show archived.`,
+      )
+    ) {
       return
     }
-    setDeals(remaining)
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, remaining[0].id)
-    applyDealState(state.schema, remaining[0], new URLSearchParams())
-    setActiveDealId(remaining[0].id)
+    try {
+      await autosaverRef.current!.flush()
+      await archiveDeal(activeDealId)
+      await activateNextAfterRemoval(state.schema, activeDealId)
+    } catch (err) {
+      toastError(err, 'Archive failed.')
+    }
+  }
+
+  // F2: duplicate the active deal (server-side clone) and switch to the copy.
+  async function handleCloneDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    setMoreMenuOpen(false)
+    const deal = deals.find((d) => d.id === activeDealId)
+    const proposed = window.prompt('Name for the copy', `Copy of ${deal?.name ?? 'deal'}`)
+    if (proposed === null) return
+    try {
+      await autosaverRef.current!.flush()
+      const clone = await cloneDeal(activeDealId, proposed.trim() || undefined)
+      setDeals((prev) => [clone, ...prev.filter((d) => d.id !== clone.id)])
+      activateDeal(state.schema, clone)
+    } catch (err) {
+      toastError(err, 'Duplicate failed.')
+    }
   }
 
   async function handleExportDeal() {
     if (!activeDealId) return
-    await autosaverRef.current!.flush()
-    const bundle = await exportDeal(activeDealId)
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    try {
+      await autosaverRef.current!.flush()
+      const bundle = await exportDeal(activeDealId)
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toastError(err, 'Export failed.')
+    }
   }
 
   function handleImportFile(file: File) {
@@ -401,9 +620,7 @@ function App() {
           : `Imported "${imported.name}" with ${imported.importedScenarios} scenario(s).`,
       )
       setDeals((prev) => [imported, ...prev])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, imported.id)
-      applyDealState(state.schema, imported, new URLSearchParams())
-      setActiveDealId(imported.id)
+      activateDeal(state.schema, imported)
     } catch (err) {
       setImportNotice(err instanceof Error ? err.message : 'Import failed')
       setImportPreview(null)
@@ -427,6 +644,8 @@ function App() {
 
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
     setQuickScreenInputs(inputs)
+    // B10: a saved quick-screen scenario is development-shaped — show that napkin.
+    setQuickScreenMode('development')
     setTab('quickscreen')
   }
 
@@ -435,8 +654,21 @@ function App() {
     return state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues))
   }, [state, formValues])
 
+  // P1: sidebar metrics for this dealflow (untyped deals see everything).
+  const visibleMetrics = useMemo(
+    () =>
+      state.status === 'ready'
+        ? state.schema.outputs.filter((m) => isOutputVisibleFor(m.id, activeDealType))
+        : [],
+    [state, activeDealType],
+  )
+
   if (state.status === 'loading') {
     return <div className="p-8 text-slate-500">Loading…</div>
+  }
+
+  if (state.status === 'auth') {
+    return <AuthGate onAuthenticated={() => void boot()} />
   }
 
   if (state.status === 'error') {
@@ -447,6 +679,12 @@ function App() {
           <div className="mt-1 text-sm text-red-500">
             Is the FastAPI server running at http://127.0.0.1:8000?
           </div>
+          <button
+            onClick={() => void boot()}
+            className="mt-3 rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
         </div>
       </div>
     )
@@ -454,6 +692,10 @@ function App() {
 
   const { schema, apiOk } = state
   const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
+  const recentDeals = recentIds
+    .map((id) => deals.find((d) => d.id === id))
+    .filter((d): d is Deal => d !== undefined)
+    .map((d) => ({ id: d.id, name: d.name, dealType: dealTypeOf(d) }))
 
   function handleFieldChange(fieldId: string, value: unknown) {
     setFormValues((prev) => ({ ...prev, [fieldId]: value }))
@@ -491,13 +733,13 @@ function App() {
           >
             API {apiOk ? 'connected' : 'unreachable'}
           </div>
-          {Array.from(new Set(schema.outputs.map((m) => m.group ?? 'Metrics'))).map((group) => (
+          {Array.from(new Set(visibleMetrics.map((m) => m.group ?? 'Metrics'))).map((group) => (
             <div key={group} className="mb-4">
               <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-slate-400">
                 {group.toUpperCase()}
               </div>
               <ul className="space-y-1.5 text-sm">
-                {schema.outputs
+                {visibleMetrics
                   .filter((m) => (m.group ?? 'Metrics') === group)
                   .map((metric) => {
                     // Provenance ladder: server-recalc > native engine >
@@ -616,52 +858,117 @@ function App() {
         ) : (
           <input
             autoFocus
+            aria-label="Deal name"
             value={renamingName}
             onChange={(e) => setRenamingName(e.target.value)}
-            onBlur={() => void handleRenameDeal(renamingName)}
+            // B14: read the live DOM value — the `renamingName` closure can be
+            // one keystroke stale when blur follows input in the same tick.
+            onBlur={(e) => void handleRenameDeal(e.currentTarget.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleRenameDeal(renamingName)
+              if (e.key === 'Enter') void handleRenameDeal(e.currentTarget.value)
               if (e.key === 'Escape') setRenamingName(null)
             }}
             className="rounded border border-slate-300 px-2 py-1 text-sm"
           />
         )}
-        {/* Type badge: which dealflow the active deal belongs to. */}
-        {(() => {
-          const type = dealTypeOf({ inputs: formValues })
-          if (!type) return null
-          return (
+        {/* Type badge: which dealflow the active deal belongs to. B3: an
+            untyped deal gets an explicit set-type affordance instead of a
+            silent blank — the engine cannot compute without one. */}
+        {activeDealType ? (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+              activeDealType === 'development'
+                ? 'bg-orange-100 text-orange-700'
+                : 'bg-sky-100 text-sky-700'
+            }`}
+          >
+            {activeDealType === 'development' ? 'DEV' : 'ACQ'}
+          </span>
+        ) : (
+          activeDealId && (
             <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                type === 'development'
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-sky-100 text-sky-700'
-              }`}
+              role="group"
+              aria-label="Set deal type"
+              className="flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
             >
-              {type === 'development' ? 'DEV' : 'ACQ'}
+              Untyped — set type:
+              <button
+                onClick={() => void handleSetDealType(activeDealId, 'acquisition')}
+                className="rounded border border-sky-400 bg-white px-1.5 py-0.5 text-sky-700 hover:bg-sky-50"
+              >
+                Acquisition
+              </button>
+              <button
+                onClick={() => void handleSetDealType(activeDealId, 'development')}
+                className="rounded border border-orange-400 bg-white px-1.5 py-0.5 text-orange-700 hover:bg-orange-50"
+              >
+                Development
+              </button>
             </span>
           )
-        })()}
-        <div className="relative">
+        )}
+        <div className="relative" ref={newDealMenuRef}>
           <button
-            onClick={() => setNewDealMenuOpen((v) => !v)}
+            onClick={handleNewDealClick}
+            aria-haspopup="menu"
+            aria-expanded={newDealMenuOpen}
             className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
           >
             New Deal ▾
           </button>
           {newDealMenuOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1 w-36 rounded border border-slate-200 bg-white py-1 shadow-lg">
+            <div
+              role="menu"
+              className="absolute left-0 top-full z-40 mt-1 w-36 rounded border border-slate-200 bg-white py-1 shadow-lg"
+            >
               <button
+                role="menuitem"
                 onClick={() => void handleNewDeal('acquisition')}
                 className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-sky-50"
               >
                 Acquisition
               </button>
               <button
+                role="menuitem"
                 onClick={() => void handleNewDeal('development')}
                 className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-orange-50"
               >
                 Development
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="relative" ref={moreMenuRef}>
+          <button
+            onClick={() => {
+              setNewDealMenuOpen(false)
+              setMoreMenuOpen((v) => !v)
+            }}
+            aria-haspopup="menu"
+            aria-expanded={moreMenuOpen}
+            aria-label="More deal actions"
+            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+          >
+            More ▾
+          </button>
+          {moreMenuOpen && (
+            <div
+              role="menu"
+              className="absolute left-0 top-full z-40 mt-1 w-40 rounded border border-slate-200 bg-white py-1 shadow-lg"
+            >
+              <button
+                role="menuitem"
+                onClick={() => void handleCloneDeal()}
+                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Duplicate deal…
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => void handleArchiveDeal()}
+                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
+              >
+                Archive deal
               </button>
             </div>
           )}
@@ -763,26 +1070,12 @@ function App() {
         aria-label="Workflow steps"
         className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200"
       >
-        {(
-          [
-            ['pipeline', 'Deals'],
-            ['quickscreen', '0. Quick Screen'],
-            ['documents', '1. Documents'],
-            ['setup', '2. Template & Mapping'],
-            ['dashboard', '3. Deal Inputs'],
-            ['cashflow', '4. Cash Flow'],
-            ['sensitivity', '5. Sensitivity'],
-            ['risk', '5b. Risk'],
-            ['scenarios', '6. Scenarios'],
-            ['comps', '7. Comps'],
-            ['portfolio', 'Portfolio'],
-            ['settings', '⚙ Settings'],
-          ] as const
-        ).map(([id, label]) => (
+        {TABS.map(([id, label], index) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             aria-current={tab === id ? 'page' : undefined}
+            title={index < 9 ? `Ctrl/Cmd+${index + 1}` : undefined}
             className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${
               tab === id
                 ? 'border-slate-900 text-slate-900'
@@ -805,9 +1098,11 @@ function App() {
             void switchDeal(dealId).then(() => setTab('dashboard'))
           }}
           onStatusChange={(dealId, status) => {
-            void updateDeal(dealId, { status }).then((updated) =>
-              setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
-            )
+            updateDeal(dealId, { status })
+              .then((updated) =>
+                setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
+              )
+              .catch((err) => toastError(err, 'Could not change the stage.'))
           }}
           onBulkStatus={async (dealIds, status) => {
             const { updated } = await bulkUpdateDealStatus(dealIds, status)
@@ -817,11 +1112,15 @@ function App() {
           onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
           onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
+          onDealsChanged={() => void refreshDeals()}
         />
       </div>
 
+      <Toasts />
+
       <CommandPalette
         open={paletteOpen}
+        recent={recentDeals}
         onClose={() => setPaletteOpen(false)}
         onNavigate={(item, kind) => {
           // Deals/tenants/notes deep-link to their deal's dashboard; comps
@@ -885,10 +1184,10 @@ function App() {
             setActiveTemplate(template)
             setActiveMappingProfileId(mappingProfileId)
             if (activeDealId) {
-              void updateDeal(activeDealId, {
+              updateDeal(activeDealId, {
                 activeTemplateId: template?.id ?? null,
                 activeMappingProfileId: mappingProfileId,
-              })
+              }).catch((err) => toastError(err, 'Could not save the template selection.'))
             }
           }}
         />
@@ -910,12 +1209,20 @@ function App() {
           onApply={(patch) => setFormValues((prev) => ({ ...prev, ...patch }))}
         />
         <DealInputForm schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        {/* B4: per-deal panels remount on switch so results never leak across
+            deals; a compute that resolves after a switch is dropped because
+            the closure's deal id no longer matches the active one. */}
         <GeneratePanel
+          key={activeDealId ?? 'none'}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
           values={formValues}
-          onGenerated={setServerOutputs}
+          onGenerated={(outputs) => {
+            if (activeDealIdRef.current !== activeDealId) return
+            setServerOutputs(outputs)
+          }}
           onComputedNative={(outputs, debt, irrConvention, statement) => {
+            if (activeDealIdRef.current !== activeDealId) return
             setNativeOutputs(outputs)
             setNativeDebt(debt as Record<string, unknown> | null)
             setNativeIrrConvention(irrConvention ?? null)
@@ -926,6 +1233,7 @@ function App() {
 
       <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
         <CashFlowTab
+          key={activeDealId ?? 'none'}
           statement={nativeStatement}
           values={formValues}
           onGoToCompute={() => setTab('dashboard')}
@@ -934,6 +1242,7 @@ function App() {
 
       <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>
         <SensitivityPanel
+          key={activeDealId ?? 'none'}
           schema={schema}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
@@ -943,11 +1252,17 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
-        <RiskPanel schema={schema} values={formValues} dealId={activeDealId} />
+        <RiskPanel
+          key={activeDealId ?? 'none'}
+          schema={schema}
+          values={formValues}
+          dealId={activeDealId}
+        />
       </div>
 
       <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>
         <ScenariosPanel
+          key={activeDealId ?? 'none'}
           schema={schema}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}

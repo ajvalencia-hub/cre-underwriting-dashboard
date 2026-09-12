@@ -10,6 +10,8 @@ import {
   type CompMapPoint,
   type CompsImportResult,
 } from '../lib/api'
+import { confirmAction } from '../lib/confirmAction'
+import { createLatestGuard } from '../lib/latest'
 import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
 
@@ -121,7 +123,15 @@ const EMPTY_RENT = { name: '', market: '', avgRent: '', unitType: '', occupancyP
 export default function CompsPage({ dealMarket }: CompsPageProps) {
   const [kind, setKind] = useState<CompKind>('sale')
   const [marketFilter, setMarketFilter] = useState(dealMarket)
+  // B8: the tab stays mounted across deal switches, so the filter follows
+  // the active deal's market until the user types their own filter.
+  const [filterDirty, setFilterDirty] = useState(false)
+  useEffect(() => {
+    if (!filterDirty) setMarketFilter(dealMarket)
+  }, [dealMarket, filterDirty])
   const [comps, setComps] = useState<Comp[]>([])
+  // B5: only the newest list fetch may land.
+  const loadGuard = useRef(createLatestGuard())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -169,12 +179,21 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   )
 
   const load = useCallback(() => {
+    const token = loadGuard.current.next()
     setLoading(true)
     setError(null)
     fetchComps(kind, marketFilter)
-      .then(setComps)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load comps'))
-      .finally(() => setLoading(false))
+      .then((list) => {
+        if (loadGuard.current.isCurrent(token)) setComps(list)
+      })
+      .catch((err) => {
+        if (loadGuard.current.isCurrent(token)) {
+          setError(err instanceof Error ? err.message : 'Failed to load comps')
+        }
+      })
+      .finally(() => {
+        if (loadGuard.current.isCurrent(token)) setLoading(false)
+      })
   }, [kind, marketFilter])
 
   useEffect(() => {
@@ -226,6 +245,8 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   }
 
   async function handleDelete(compId: string) {
+    const target = comps.find((c) => c.id === compId)
+    if (!confirmAction(`Delete ${kind} comp "${target?.name ?? compId}"?`)) return
     try {
       await deleteComp(kind, compId)
       load()
@@ -293,10 +314,22 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
         </div>
         <input
           value={marketFilter}
-          onChange={(e) => setMarketFilter(e.target.value)}
+          onChange={(e) => {
+            setFilterDirty(true)
+            setMarketFilter(e.target.value)
+          }}
           placeholder="Filter by market"
           className="rounded border border-slate-200 px-2 py-1.5 text-sm"
         />
+        {filterDirty && dealMarket && marketFilter !== dealMarket && (
+          <button
+            onClick={() => setFilterDirty(false)}
+            className="text-xs text-sky-600 hover:underline"
+            title="Follow the active deal's market again"
+          >
+            Use deal market ({dealMarket})
+          </button>
+        )}
         <button
           onClick={() => void handleToggleMap()}
           className={`rounded border px-2 py-1.5 text-xs ${

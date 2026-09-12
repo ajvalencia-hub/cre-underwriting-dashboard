@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react'
 import {
+  UNAUTHORIZED_EVENT,
+  backupDownloadUrl,
+  fetchAuthStatus,
   fetchBackups,
   fetchIntegrations,
+  logout,
   restoreBackup,
   runBackupNow,
+  type AuthStatus,
   type BackupSnapshot,
   type IntegrationStatus,
 } from '../lib/api'
+import { safeStorage } from '../lib/safeStorage'
 import { loadThemePref, setThemePref, type ThemePref } from '../lib/uiPrefs'
+import {
+  loadNewDealTypePref,
+  saveNewDealTypePref,
+  type NewDealTypePref,
+} from '../lib/workflowPrefs'
 
 interface SettingsPageProps {
   active: boolean
@@ -17,6 +28,12 @@ const THEME_OPTIONS: { value: ThemePref; label: string; hint: string }[] = [
   { value: 'light', label: 'Light', hint: 'Always light' },
   { value: 'dark', label: 'Dark', hint: 'Always dark' },
   { value: 'system', label: 'System', hint: 'Follow the OS setting' },
+]
+
+const NEW_DEAL_TYPE_OPTIONS: { value: NewDealTypePref; label: string; hint: string }[] = [
+  { value: 'ask', label: 'Ask each time', hint: 'The New Deal button opens the type chooser' },
+  { value: 'acquisition', label: 'Acquisition', hint: 'One click creates an acquisition' },
+  { value: 'development', label: 'Development', hint: 'One click creates a development' },
 ]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -67,6 +84,16 @@ function SnapshotTable({
                 <td className="pr-3 text-right tabular-nums">{snap.uploadCount}</td>
                 <td className="pr-3">{snap.hasDb ? '✓' : '—'}</td>
                 <td className="text-right">
+                  {snap.hasDb && (
+                    // F4: plain link — the session cookie authenticates it.
+                    <a
+                      href={backupDownloadUrl(kind, snap.name)}
+                      download={`${snap.name}.sqlite3`}
+                      className="mr-2 rounded border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+                    >
+                      Download
+                    </a>
+                  )}
                   <button
                     onClick={() => onRestore(kind, snap.name)}
                     disabled={busy || !snap.hasDb}
@@ -86,9 +113,12 @@ function SnapshotTable({
 
 /** Settings v1: appearance (theme), backups (J16 endpoints), integrations. */
 export default function SettingsPage({ active }: SettingsPageProps) {
-  const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(window.localStorage))
+  // B13: prefs read through safeStorage.
+  const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(safeStorage))
+  const [newDealType, setNewDealType] = useState<NewDealTypePref>(() => loadNewDealTypePref(safeStorage))
   const [backups, setBackups] = useState<{ daily: BackupSnapshot[]; weekly: BackupSnapshot[] } | null>(null)
   const [integrations, setIntegrations] = useState<IntegrationStatus[] | null>(null)
+  const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -97,11 +127,28 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     if (!active) return
     fetchBackups().then(setBackups).catch(() => setBackups(null))
     fetchIntegrations().then(setIntegrations).catch(() => setIntegrations(null))
+    fetchAuthStatus().then(setAuth).catch(() => setAuth(null))
   }, [active])
 
   function handleTheme(pref: ThemePref) {
     setTheme(pref)
     setThemePref(pref)
+  }
+
+  function handleNewDealType(pref: NewDealTypePref) {
+    setNewDealType(pref)
+    saveNewDealTypePref(safeStorage, pref)
+  }
+
+  // F1: end the cookie session, then raise the gate (same path as a 401).
+  async function handleSignOut() {
+    setError(null)
+    try {
+      await logout()
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sign out failed.')
+    }
   }
 
   async function handleBackupNow() {
@@ -176,6 +223,44 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           their light rendering by design.
         </p>
       </Section>
+
+      <Section title="WORKFLOW">
+        <div className="text-xs font-medium text-slate-600">Default type for "New Deal"</div>
+        <div className="mt-1 flex flex-wrap gap-4">
+          {NEW_DEAL_TYPE_OPTIONS.map((option) => (
+            <label key={option.value} className="flex items-center gap-1.5 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="newDealType"
+                checked={newDealType === option.value}
+                onChange={() => handleNewDealType(option.value)}
+              />
+              {option.label}
+              <span className="text-[11px] text-slate-400">({option.hint})</span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-slate-400">
+          The last workflow tab you were on is remembered automatically and reopened on the
+          next visit. Both prefs are stored in this browser.
+        </p>
+      </Section>
+
+      {auth?.required && (
+        <Section title="SESSION">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void handleSignOut()}
+              className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+            <span className="text-[11px] text-slate-400">
+              Ends this browser's API-token session; you will be asked for the token again.
+            </span>
+          </div>
+        </Section>
+      )}
 
       <Section title="BACKUPS">
         <div className="flex items-center gap-3">

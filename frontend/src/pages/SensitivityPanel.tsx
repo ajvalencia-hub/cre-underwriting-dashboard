@@ -6,6 +6,7 @@ import {
   saveScenarioSensitivity,
   type SavedSensitivity,
 } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
 import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
 import { boundsReady, heatColor, linspace } from '../lib/sensitivityMath'
@@ -152,7 +153,7 @@ export default function SensitivityPanel({
       })
       setPoints(result.points)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sensitivity analysis failed')
+      setError(friendlyEngineError(err instanceof Error ? err.message : 'Sensitivity analysis failed'))
     } finally {
       setRunning(false)
     }
@@ -539,10 +540,11 @@ function SensitivityResults({
             </tr>
           </thead>
           <tbody>
-            {driver1Values.map((v1) => {
+            {driver1Values.map((v1, i) => {
               const point = findPoint(v1)
+              // B16: min === max yields repeated values — key on index too.
               return (
-                <tr key={v1} className="border-b border-slate-50">
+                <tr key={`${i}-${v1}`} className="border-b border-slate-50">
                   <td className="py-1.5 pr-4 font-medium">{formatDriverValue(field1, toRawValue(field1, v1))}</td>
                   {outputs.map((m) => (
                     <td key={m.id} className="py-1.5 pr-4">
@@ -573,26 +575,26 @@ function SensitivityResults({
               <thead>
                 <tr>
                   <th className="border border-slate-200 px-2 py-1"></th>
-                  {driver2Values.map((v2) => (
-                    <th key={v2} className="border border-slate-200 px-2 py-1 font-medium">
+                  {driver2Values.map((v2, j) => (
+                    <th key={`${j}-${v2}`} className="border border-slate-200 px-2 py-1 font-medium">
                       {formatDriverValue(field2, toRawValue(field2, v2))}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {driver1Values.map((v1) => (
-                  <tr key={v1}>
+                {driver1Values.map((v1, i) => (
+                  <tr key={`${i}-${v1}`}>
                     <td className="border border-slate-200 bg-slate-50 px-2 py-1 font-medium">
                       {formatDriverValue(field1, toRawValue(field1, v1))}
                     </td>
-                    {driver2Values.map((v2) => {
+                    {driver2Values.map((v2, j) => {
                       const point = findPoint(v1, v2)
                       const rawValue = point ? Number(point.outputs[m.id]) : NaN
                       const t = Number.isFinite(rawValue) && max > min ? (rawValue - min) / (max - min) : 0.5
                       return (
                         <td
-                          key={v2}
+                          key={`${j}-${v2}`}
                           className="border border-slate-200 px-2 py-1 text-center"
                           style={{ backgroundColor: point ? heatColor(t) : undefined }}
                         >

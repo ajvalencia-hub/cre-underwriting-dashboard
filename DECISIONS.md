@@ -3,6 +3,175 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Run 6 — Financial-engine fixes + prepayment penalty
+
+- **[FIN] The perm takeout requires a month to live before exit.** The
+  development takeout now fires only when `takeout_month < total_months`
+  (was `<=`). A deal sold IN its stabilization month — exactly what the
+  refi-vs-sale "sale" leg models with hold = stabilizationMonth/12 —
+  repays the construction balance from sale proceeds with NO refi costs
+  and NO one-month perm schedule (a seller at stabilization never
+  originates the perm loan). The sale leg's IRR is therefore invariant to
+  refiCostsPct, and its exit month shows loanFees = debtDraws = 0. The
+  Excel export refuses this shape alongside the existing sold-before-
+  stabilization refusal. Rejected: a private "skip takeout" flag passed
+  only by hold.py — the one-month perm loan was wrong for ANY deal whose
+  hold ends in the stabilization month, not just the fork's sale leg.
+- **Legacy stabilized NOI honors useReassessedTaxes.** The flat-field
+  `stabilized_annual_noi` now substitutes the H4 reassessed tax figure
+  exactly as `_fixed_expense_vectors` does, so sizingNoi / yieldOnCost /
+  debtYield / breakEvenRatio move with the toggle in legacy mode too
+  (detail and lease modes already went through the vectors). Toggle off
+  is byte-identical.
+- **avgCashOnCash / cashOnCashYear1 strip every exit-month capital event**
+  — net sale proceeds (as before) plus the junior-tranche payoff and the
+  escrow release; the insurance-stress `leveredCfDeltaAnnual` helper
+  applies the same strip. A flat-NOI deal with a mezz tranche or escrows
+  now reports avg CoC == year-1 CoC.
+- **[FIN] amortYears = 0 means interest-only everywhere.** `monthly_payment`
+  returns the month's interest (the old branch returned the WHOLE
+  principal, ballooning the loan in month ioMonths+1), the fixed schedule
+  never amortizes (the floating one already didn't), `annual_loan_constant`
+  == rate, and the engine's reported loanConstant follows. The Excel PMT
+  emits the IO formula (`IF(ROUND(amort*12,0)<=0, loan*rate/12, …)`)
+  rather than a refusal — the IO case is one clean branch. Rejected: an
+  unsupported_features refusal for amortYears=0.
+- **Development with constructionMonths <= 0**: the engine warns (the
+  whole budget lands at close as one draw — enter a construction period)
+  and the Excel export REFUSES (its Draws sheet models month 0 as land
+  only, so the workbook IRR would be silently wrong). Warning only, never
+  an error, in the engine.
+- **[FIN] Construction origination fee basis — new input
+  `constructionFeeBasis` ["first_draw" | "commitment"], default
+  first_draw.** The fee was charged on the first DRAW while its comment
+  claimed a commitment basis. "commitment" charges it on the LTC-sized
+  construction loan (total budget ex financing x LTC — the amount the
+  lender commits to fund; capitalized interest/fee are loan-funded on top
+  and are NOT in the fee base, since the fee itself capitalizes and a
+  balance-based fee would be circular). The Draws sheet mirrors the
+  selected basis. Ships behind the flag because the analytic_development
+  regression fixture carries originationFeePct = 0.01 and the commitment
+  basis would change its baseline VALUES; the default reproduces every
+  payload exactly. Rejected: making commitment the only behavior
+  (baseline VALUE change), and a fee base on the ending balance.
+- **Detail-mode year-1 recoveries (B7) — implemented but OFF pending the
+  baseline decision.** For lease deals in expense-detail mode,
+  `annual_gpr_and_other_income` built the year-1 recovery pool from the
+  FLAT recoverable fields (usually zero when lines are used), so the
+  legacy breakEvenRatio put stabilized EGI and stabilized NOI on different
+  bases. The fix reuses `_fixed_expense_vectors(…, Timeline(12,0,0,1))
+  ["recoverable"]` — the same vector the NOI build uses — behind the
+  module constant `operations.DETAIL_MODE_YEAR1_RECOVERIES` (default
+  False). Flipping it changes exactly ONE Run-4 baseline value:
+  commercial_rollover.outputs.breakEvenRatio 0.8428964912579363 ->
+  0.8777284581419397 (breakEvenOccupancy is algebraically invariant: EGI
+  and opex rise by the same recovery amount; commercial_nnn and mixed_use
+  are flat-mode and unaffected). Flat mode is byte-for-byte unchanged in
+  both states. Rejected: also routing flat mode through the vectors
+  (would pick up non-ad-valorem / reassessed taxes in the year-1 pool — a
+  further baseline change not needed for the reported bug).
+- **Analysis callers skip the insurance-stress sub-computes** (P1). Hold
+  sweep, the refi-vs-sale fork, tornado, native sensitivity, and
+  goal-seek scan/bisection points read outputs (and, for the fork,
+  debt.loanAmount / governingConstraint) — none reads
+  debt.insuranceStress, whose only consumer is the GeneratePanel debt
+  card on the base compute. Each now passes `_skipCategoricalStress`, so
+  a detail-mode deal with an insurance line costs 1 engine pass per point
+  instead of 3 (tornado: 2 x drivers + 1 = 13 computes, pinned by a
+  call-counting test). The flag joins goal-seek's compute-cache key, so
+  its points cache separately from full computes — accepted.
+- **Run-6 validation warnings** (all warnings, never errors):
+  lossToLeasePct alongside a unit-mix annualTurnoverPct burn-off (double
+  count risk); flat replacementReserves with per-unit / PSF reserves
+  (charged twice); sizingNoiBasis = in_place on a development with no
+  explicit inPlaceNoi (resolves to construction-period NOI, sizing
+  constraints vanish); exitCapRatePct below 1% (terminal value explodes).
+- **[FIN] Prepayment penalty at exit — new financing input
+  `prepaymentPenaltyPct` (percent of the senior balance repaid at exit,
+  default 0, visible on both deal types next to refiCostsPct).** It rides
+  INSIDE the exit payoff: net sale proceeds = gross net of costs − exit
+  balance − balance x pct, the same place the payoff itself is netted
+  today, so the levered statement identity is unchanged and netSaleProceeds
+  / leveredIrr / equityMultiple / totalProfit / npv all fall by it.
+  Levered only — unlevered flows and the terminal value never see it. It
+  applies to whatever senior balance is repaid at exit (the perm loan, or
+  the construction balance when a development is sold before takeout);
+  the junior tranche payoff is not subject to it. Reported as output
+  `prepaymentPenalty` and a display-only statement row `prepaymentPenalty`
+  ONLY when > 0 (conditional keys — baseline-safe). The Excel export
+  mirrors it (`B8 = B6 − B7 × (1 + pct)`; the Model exit flow uses
+  `O × (1 + pct)`); acquisition and development variants recalc clean in
+  LibreOffice. Rejected: a separate payoff row in the statement (the exit
+  payoff has never been its own row — adding one for the penalty alone
+  would show a partial payoff), and a yield-maintenance formula (needs a
+  Treasury curve input; a flat percent is how the term sheet quotes it).
+
+## Run 6 — audit hardening: API, token gate, archive + clone
+
+- **Audit method**: five parallel read-only reviews (engine math, API/
+  security, frontend, tests/CI/docs, agent-branch port scope) produced
+  verified findings with file:line evidence; every fix below shipped with
+  a failing-first test. Findings the audit could not verify were left as
+  "suspicious" and not changed.
+- **Backup restore validates by construction**: kind must be daily|weekly,
+  name must match the snapshot-name regex, and the resolved path must stay
+  inside the backups root. Rejected: only the containment check — a regex
+  on the name refuses traversal before any filesystem call and gives a
+  400 (malformed) distinct from 404 (missing). The same resolver backs the
+  new download endpoint.
+- **Daily backups are skipped when one younger than 20h exists**
+  (`MIN_DAILY_INTERVAL_SECONDS`). The scheduler runs immediately on
+  process start; with `restart: unless-stopped` a crash loop rotated every
+  older daily away. Rejected: computing the initial sleep from the newest
+  snapshot — a restart would then never take a backup at all if the
+  process died before the sleep elapsed; the age guard also protects the
+  manual "back up now" path from a hammering client.
+- **Monte Carlo jobs run on a 2-worker pool with a queue cap** (429 +
+  Retry-After when saturated) and ANY worker exception marks the job
+  failed. Rejected: one daemon thread per POST (unbounded CPU, threads
+  outliving their evicted job entry) and catching only MonteCarloError (a
+  negative seed raised ValueError inside numpy and hung the job forever).
+- **Content-addressed files unlink only when the last row referencing the
+  hash goes away** — both the global documents route and the new cabinet
+  delete. Deal deletion already had this guard; the routes did not.
+- **File cabinet isolation**: provenance-linked documents are restricted
+  to global (deal_id IS NULL) rows; download/preview refuse another deal's
+  attachment; SVG is never served inline (a script-bearing SVG on the app
+  origin is stored XSS); inline responses carry `nosniff` and a sandbox
+  CSP; the stored extension is whitelisted to `[a-z0-9]{1,10}` (a
+  200-char suffix was an OSError, `name.txt:stream` an NTFS ADS).
+- **LIKE metacharacters are escaped** (services/sql_like.py) — `__`
+  matched every deal and `%` disabled the comps market filter.
+  Parametrization already prevented injection; this is correctness.
+- **Optional API token** (`CRE_API_TOKEN`, app/auth.py): header (Bearer /
+  X-API-Token) or an HttpOnly session cookie set by `/api/auth/login`.
+  The cookie holds an HMAC of the token, not the token, so rotating the
+  token invalidates every session and a leaked cookie is not the
+  credential. Health, the auth routes and the static SPA stay public so
+  `<a href>` downloads keep working. Unset means no gate — every existing
+  local install behaves exactly as before. Rejected: per-user accounts
+  (the app's single-operator posture is documented; a shared token is
+  what a LAN deployment actually needs) and a query-string token (leaks
+  into logs and share links).
+- **Deal archive is a soft delete** (`archived_at`): hidden from the
+  pipeline, portfolio and search, still fetchable by id, everything
+  attached kept; hard delete stays a separate explicit action. Rejected:
+  reusing the `dead` stage — dead is a pipeline outcome (a deal that was
+  pursued and lost), not housekeeping.
+- **Deal clone copies inputs (minus the wizard draft), stage, template
+  refs and scenarios — not notes, attachments or input history**: those
+  are the source record's audit trail; the copy starts a fresh history.
+  `dealName` inside inputs follows the new name so memos/decks title
+  correctly.
+- **dealType no longer has a schema default.** The dealflow segregation
+  introduced "untyped" deals that the pipeline deliberately does not
+  auto-assign, but the schema default typed every deal as acquisition on
+  its first edit (the header badge showed ACQ for a deal the pipeline
+  listed as untyped). The engine already requires dealType (422 with
+  missing=["dealType"]); the UI now surfaces "set type" instead of
+  silently choosing. Typed creation sets the field explicitly, so new
+  deals are unaffected.
+
 ## Settings v1 — scaffold, dark mode, backups panel, integrations (post-Run 5)
 
 - **Two-tier settings architecture**: per-browser UI preferences live in

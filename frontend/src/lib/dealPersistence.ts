@@ -3,8 +3,11 @@
 // React or the DOM (localStorage key excepted, used by App only).
 
 import {
+  ACQUISITION_QUICK_SCREEN_DEFAULTS,
   QUICK_SCREEN_DEFAULTS,
+  parseAcquisitionQuickScreenInputs,
   parseQuickScreenInputs,
+  type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './quickScreenMath'
 
@@ -13,6 +16,11 @@ export const ACTIVE_DEAL_STORAGE_KEY = 'cre-active-deal-id'
 /** Key inside Deal.inputs holding the Quick Screen state, beside the Deal
  *  Inputs field ids. No schema field id collides with it. */
 export const QUICK_SCREEN_INPUTS_KEY = 'quickScreen'
+/** B6: the acquisition napkin + which napkin is active ride the same blob. */
+export const ACQUISITION_QUICK_SCREEN_INPUTS_KEY = 'acquisitionQuickScreen'
+export const QUICK_SCREEN_MODE_KEY = 'quickScreenMode'
+
+export type QuickScreenMode = 'development' | 'acquisition'
 
 // ---------------------------------------------------------------------------
 // Autosave: debounced, coalescing, never overlapping saves.
@@ -25,6 +33,10 @@ export interface Autosaver<T> {
   schedule: (value: T) => void
   /** Save any unsaved value immediately (e.g. before switching deals). */
   flush: () => Promise<void>
+  /** Drop the pending value and timer without saving (B12: the deal was
+   *  deleted — a PUT to its id would only fail). An in-flight save's
+   *  failure is swallowed too; the autosaver stays usable afterwards. */
+  cancel: () => void
   dispose: () => void
   getState: () => AutosaveState
   subscribe: (listener: (state: AutosaveState) => void) => () => void
@@ -39,6 +51,8 @@ export function createAutosaver<T>(
   let latest: { value: T } | null = null // most recent value not yet saved
   let saving = false
   let disposed = false
+  // Set by cancel() while a save is in flight: its outcome is discarded.
+  let discardInFlight = false
   const listeners = new Set<(s: AutosaveState) => void>()
 
   function setState(next: AutosaveState) {
@@ -64,7 +78,10 @@ export function createAutosaver<T>(
     try {
       await save(value)
       saving = false
-      if (latest !== null) {
+      if (discardInFlight) {
+        discardInFlight = false
+        setState(latest === null ? 'idle' : 'pending')
+      } else if (latest !== null) {
         // A newer value arrived while this save was in flight — chain it.
         await saveNow()
       } else {
@@ -72,6 +89,11 @@ export function createAutosaver<T>(
       }
     } catch {
       saving = false
+      if (discardInFlight) {
+        discardInFlight = false
+        setState(latest === null ? 'idle' : 'pending')
+        return
+      }
       // Keep the failed value so a later schedule/flush retries it, unless a
       // newer one already superseded it.
       if (latest === null) latest = { value }
@@ -90,6 +112,13 @@ export function createAutosaver<T>(
       }, delayMs)
     },
     flush: () => saveNow(),
+    cancel() {
+      if (disposed) return
+      clearTimer()
+      latest = null
+      if (saving) discardInFlight = true
+      else setState('idle')
+    },
     dispose() {
       disposed = true
       clearTimer()
@@ -110,9 +139,19 @@ export function createAutosaver<T>(
 export interface HydratedDealState {
   formValues: Record<string, unknown>
   quickScreen: QuickScreenInputs
-  /** True when URL params supplied the quick screen (they win on first load,
-   *  then the autosave syncs them into the deal). */
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs
+  quickScreenMode: QuickScreenMode
+  /** True when URL params supplied any quick-screen state (they win on first
+   *  load, then the autosave syncs them into the deal). */
   quickScreenFromUrl: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parseQuickScreenMode(raw: unknown): QuickScreenMode | null {
+  return raw === 'development' || raw === 'acquisition' ? raw : null
 }
 
 export function hydrateDealState(
@@ -120,13 +159,18 @@ export function hydrateDealState(
   dealInputs: Record<string, unknown>,
   urlParams: URLSearchParams,
 ): HydratedDealState {
-  const { [QUICK_SCREEN_INPUTS_KEY]: stored, ...fieldValues } = dealInputs
+  const {
+    [QUICK_SCREEN_INPUTS_KEY]: stored,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: storedAcquisition,
+    [QUICK_SCREEN_MODE_KEY]: storedMode,
+    ...fieldValues
+  } = dealInputs
 
   const fromUrl = parseQuickScreenInputs(urlParams)
   let quickScreen: QuickScreenInputs
   if (fromUrl !== null) {
     quickScreen = fromUrl
-  } else if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
+  } else if (isRecord(stored)) {
     // Merge over defaults so a deal saved before a new quick-screen input
     // existed still hydrates every field.
     quickScreen = { ...QUICK_SCREEN_DEFAULTS, ...(stored as Partial<QuickScreenInputs>) }
@@ -134,10 +178,28 @@ export function hydrateDealState(
     quickScreen = QUICK_SCREEN_DEFAULTS
   }
 
+  const acquisitionFromUrl = parseAcquisitionQuickScreenInputs(urlParams)
+  let acquisitionQuickScreen: AcquisitionQuickScreenInputs
+  if (acquisitionFromUrl !== null) {
+    acquisitionQuickScreen = acquisitionFromUrl
+  } else if (isRecord(storedAcquisition)) {
+    acquisitionQuickScreen = {
+      ...ACQUISITION_QUICK_SCREEN_DEFAULTS,
+      ...(storedAcquisition as Partial<AcquisitionQuickScreenInputs>),
+    }
+  } else {
+    acquisitionQuickScreen = ACQUISITION_QUICK_SCREEN_DEFAULTS
+  }
+
+  const modeFromUrl = parseQuickScreenMode(urlParams.get('screen'))
+  const quickScreenMode = modeFromUrl ?? parseQuickScreenMode(storedMode) ?? 'development'
+
   return {
     formValues: { ...schemaDefaults, ...fieldValues },
     quickScreen,
-    quickScreenFromUrl: fromUrl !== null,
+    acquisitionQuickScreen,
+    quickScreenMode,
+    quickScreenFromUrl: fromUrl !== null || acquisitionFromUrl !== null || modeFromUrl !== null,
   }
 }
 
@@ -145,6 +207,13 @@ export function hydrateDealState(
 export function serializeDealInputs(
   formValues: Record<string, unknown>,
   quickScreen: QuickScreenInputs,
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs = ACQUISITION_QUICK_SCREEN_DEFAULTS,
+  quickScreenMode: QuickScreenMode = 'development',
 ): Record<string, unknown> {
-  return { ...formValues, [QUICK_SCREEN_INPUTS_KEY]: quickScreen }
+  return {
+    ...formValues,
+    [QUICK_SCREEN_INPUTS_KEY]: quickScreen,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: acquisitionQuickScreen,
+    [QUICK_SCREEN_MODE_KEY]: quickScreenMode,
+  }
 }

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchMarketContext, type BenchmarkResult, type BenchmarkVerdict } from '../lib/api'
+import { createLatestGuard } from '../lib/latest'
 import DemographicsPanel from './DemographicsPanel'
 import type { DataSection, MarketContext } from '../types/marketContext'
 
@@ -163,19 +164,31 @@ export default function MarketContextPanel({
   const [context, setContext] = useState<MarketContext | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // B5: a slow response for a previous market must not overwrite the current one.
+  const guard = useRef(createLatestGuard())
 
   useEffect(() => {
     if (!market.trim()) {
+      guard.current.invalidate()
       setContext(null)
       return
     }
     const handle = setTimeout(() => {
+      const token = guard.current.next()
       setLoading(true)
       setError(null)
       fetchMarketContext(market, submarket, assetClass)
-        .then(setContext)
-        .catch((err) => setError(err instanceof Error ? err.message : 'Could not load market context'))
-        .finally(() => setLoading(false))
+        .then((result) => {
+          if (guard.current.isCurrent(token)) setContext(result)
+        })
+        .catch((err) => {
+          if (guard.current.isCurrent(token)) {
+            setError(err instanceof Error ? err.message : 'Could not load market context')
+          }
+        })
+        .finally(() => {
+          if (guard.current.isCurrent(token)) setLoading(false)
+        })
     }, DEBOUNCE_MS)
     return () => clearTimeout(handle)
   }, [market, submarket, assetClass])

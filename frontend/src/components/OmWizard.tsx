@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ExtractionReview from './ExtractionReview'
+import { confirmAction } from '../lib/confirmAction'
 import {
   createDeal,
   createDealFromExtraction,
@@ -61,6 +62,15 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // F6: Escape closes the wizard (the draft deal keeps the flow resumable).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const wizardState: WizardState = draft
     ? ((draft.inputs as Record<string, unknown>)._omWizard as unknown as WizardState) ?? {
         step: 1,
@@ -116,9 +126,16 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
   }
 
   async function discardDraft(d: Deal) {
-    await deleteDeal(d.id)
-    if (draft?.id === d.id) setDraft(null)
-    onDealsChanged()
+    // F7: discarding deletes the draft deal and everything the flow saved.
+    if (!confirmAction(`Delete draft "${d.name}" and discard its wizard progress?`)) return
+    setError(null)
+    try {
+      await deleteDeal(d.id)
+      if (draft?.id === d.id) setDraft(null)
+      onDealsChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete the draft.')
+    }
   }
 
   async function handleUpload(files: FileList | null) {
@@ -141,9 +158,14 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
   }
 
   async function confirmType(doc: DocumentSummary, type: DocumentType) {
-    const updated = await updateDocumentType(doc.id, type)
-    setDocs(docs.map((d) => (d.id === doc.id ? updated : d)))
-    setConfirmedDocs(new Set([...confirmedDocs, doc.id]))
+    setError(null)
+    try {
+      const updated = await updateDocumentType(doc.id, type)
+      setDocs(docs.map((d) => (d.id === doc.id ? updated : d)))
+      setConfirmedDocs(new Set([...confirmedDocs, doc.id]))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not confirm the document type.')
+    }
   }
 
   async function handleExtract() {
@@ -195,15 +217,21 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6" onClick={onClose}>
-      <div className="w-full max-w-4xl rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="om-wizard-title"
+        className="w-full max-w-4xl rounded-lg bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">
+          <h2 id="om-wizard-title" className="text-sm font-semibold text-slate-700">
             New deal from documents{' '}
             <span className="ml-2 text-xs font-normal text-slate-400">
               {['start', 'upload & confirm types', 'extract', 'review', 'create'][step]}
             </span>
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={onClose} aria-label="Close wizard" className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         {error && <div className="mb-2 text-xs text-red-600">{error}</div>}
 

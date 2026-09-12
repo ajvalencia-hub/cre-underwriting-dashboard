@@ -11,6 +11,16 @@ import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivit
 
 const API_BASE = '/api'
 
+/** F1: fired on any 401 so App can show the token gate. Listen with
+ *  `window.addEventListener(UNAUTHORIZED_EVENT, …)`. */
+export const UNAUTHORIZED_EVENT = 'cre:unauthorized'
+
+function notifyUnauthorized() {
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  }
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json()
@@ -21,10 +31,16 @@ async function extractErrorMessage(res: Response): Promise<string> {
   return `${res.status} ${res.statusText}`
 }
 
+/** Build the Error for a failed response; a 401 also raises the gate. */
+async function failure(res: Response): Promise<Error> {
+  if (res.status === 401) notifyUnauthorized()
+  return new Error(await extractErrorMessage(res))
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`)
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   return res.json() as Promise<T>
 }
@@ -36,7 +52,7 @@ async function postJson<T>(path: string, body: unknown, method: 'POST' | 'PUT' =
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   return res.json() as Promise<T>
 }
@@ -44,8 +60,35 @@ async function postJson<T>(path: string, body: unknown, method: 'POST' | 'PUT' =
 async function del(path: string): Promise<void> {
   const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
+}
+
+// ---- F1: token session ----
+
+export interface AuthStatus {
+  required: boolean
+  authenticated: boolean
+}
+
+export function fetchAuthStatus() {
+  return getJson<AuthStatus>('/auth/status')
+}
+
+/** Deliberately NOT routed through `failure`: a wrong token is an inline
+ *  form error, not a reason to re-raise the gate. */
+export async function login(token: string): Promise<AuthStatus> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  return res.json() as Promise<AuthStatus>
+}
+
+export function logout() {
+  return postJson<AuthStatus>('/auth/logout', {}, 'POST')
 }
 
 export function fetchHealth() {
@@ -77,7 +120,7 @@ export async function uploadTemplate(file: File): Promise<TemplateSummary> {
   form.append('file', file)
   const res = await fetch(`${API_BASE}/templates/upload`, { method: 'POST', body: form })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   return res.json() as Promise<TemplateSummary>
 }
@@ -136,7 +179,7 @@ export async function generateWorkbook(payload: {
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   const warningsHeader = res.headers.get('X-Generation-Warnings')
   const warnings: string[] = warningsHeader ? JSON.parse(warningsHeader) : []
@@ -158,7 +201,7 @@ export async function exportNativeModel(
     body: JSON.stringify({ values }),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   const warningsHeader = res.headers.get('X-Generation-Warnings')
   const warnings: string[] = warningsHeader ? JSON.parse(warningsHeader) : []
@@ -602,8 +645,22 @@ export function importCompsCsv(payload: {
   return postJson<CompsImportResult>('/comps/import', payload, 'POST')
 }
 
-export function fetchDeals() {
-  return getJson<Deal[]>('/deals')
+export function fetchDeals(options: { includeArchived?: boolean } = {}) {
+  return getJson<Deal[]>(`/deals${options.includeArchived ? '?includeArchived=true' : ''}`)
+}
+
+// ---- F2: archive / unarchive / clone ----
+
+export function archiveDeal(dealId: string) {
+  return postJson<Deal>(`/deals/${dealId}/archive`, {}, 'POST')
+}
+
+export function unarchiveDeal(dealId: string) {
+  return postJson<Deal>(`/deals/${dealId}/unarchive`, {}, 'POST')
+}
+
+export function cloneDeal(dealId: string, name?: string) {
+  return postJson<Deal>(`/deals/${dealId}/clone`, name ? { name } : {}, 'POST')
 }
 
 export function fetchDeal(dealId: string) {
@@ -647,7 +704,7 @@ export async function exportBatchDeck(
     body: JSON.stringify({ dealIds }),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   const skippedHeader = res.headers.get('X-Deck-Skipped')
   const skipped: string[] = skippedHeader ? JSON.parse(skippedHeader) : []
@@ -668,7 +725,7 @@ export async function generateMemo(
     body: JSON.stringify({}),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   const disposition = res.headers.get('Content-Disposition') ?? ''
   const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? 'ic-memo.docx'
@@ -678,7 +735,7 @@ export async function generateMemo(
 export async function deleteScenario(scenarioId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/scenarios/${scenarioId}`, { method: 'DELETE' })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
 }
 
@@ -696,7 +753,7 @@ export async function uploadDocument(file: File): Promise<DocumentSummary> {
   form.append('file', file)
   const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await failure(res)
   }
   return res.json() as Promise<DocumentSummary>
 }
@@ -732,6 +789,12 @@ export function fetchBackups() {
 
 export function runBackupNow() {
   return postJson<{ created: string; kind: string }>('/admin/backups/run', {}, 'POST')
+}
+
+/** F4: plain-link download of a snapshot's .sqlite3 (the session cookie
+ *  carries auth, so no header is needed). */
+export function backupDownloadUrl(kind: string, name: string) {
+  return `${API_BASE}/admin/backups/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/download`
 }
 
 export function restoreBackup(kind: string, name: string) {
@@ -827,12 +890,18 @@ export async function uploadAttachment(dealId: string, file: File): Promise<Deal
   const form = new FormData()
   form.append('file', file)
   const res = await fetch(`${API_BASE}/deals/${dealId}/attachments`, { method: 'POST', body: form })
-  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  if (!res.ok) throw await failure(res)
   return res.json() as Promise<DealAttachment>
 }
 
 export function attachmentDownloadUrl(dealId: string, documentId: string, inline = false) {
   return `${API_BASE}/deals/${dealId}/attachments/${documentId}/download${inline ? '?inline=true' : ''}`
+}
+
+/** F3: only the deal's own attachments (source === 'attachment'); the
+ *  backend 404s for extraction-linked documents. */
+export function deleteAttachment(dealId: string, documentId: string) {
+  return del(`/deals/${dealId}/attachments/${documentId}`)
 }
 
 export function fetchAttachmentPreview(dealId: string, documentId: string) {

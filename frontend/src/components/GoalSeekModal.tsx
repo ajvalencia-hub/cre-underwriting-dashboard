@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchGoalSeekInputs, runGoalSeek, type GoalSeekResult } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
 import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema, OutputMetric } from '../types/schema'
@@ -29,6 +30,15 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
       .then(setInputs)
       .catch(() => setError('Could not load the input list.'))
   }, [])
+
+  // F6: Escape closes the modal.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   // Type-aware: intersect the backend's numeric-field list with the fields
   // VISIBLE for this deal — solving over the other dealflow's inputs (e.g.
@@ -69,7 +79,7 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
         }),
       )
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Goal seek failed.')
+      setError(friendlyEngineError(e instanceof Error ? e.message : 'Goal seek failed.'))
     } finally {
       setRunning(false)
     }
@@ -85,14 +95,17 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="goal-seek-title"
         className="w-[26rem] max-w-[90vw] rounded-lg bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">
+          <h2 id="goal-seek-title" className="text-sm font-semibold text-slate-700">
             Goal Seek — {metric.label}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} aria-label="Close goal seek" className="text-slate-400 hover:text-slate-600">
             ✕
           </button>
         </div>

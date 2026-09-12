@@ -7,6 +7,7 @@ import {
   type GpEconomics,
 } from '../lib/api'
 import type { Statement } from '../lib/cashflowStatement'
+import { friendlyEngineError } from '../lib/engineErrors'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
@@ -85,7 +86,7 @@ export default function GeneratePanel({
       URL.revokeObjectURL(url)
       if (warnings.length > 0) setComputeWarnings(warnings)
     } catch (err) {
-      setComputeError(err instanceof Error ? err.message : 'Excel model export failed')
+      setComputeError(friendlyEngineError(err instanceof Error ? err.message : 'Excel model export failed'))
     } finally {
       setExportingModel(false)
     }
@@ -103,7 +104,8 @@ export default function GeneratePanel({
       setGpEconomics(response.gpEconomics ?? null)
       onComputedNative?.(outputs, debt, irrConvention, statement ?? null)
     } catch (err) {
-      setComputeError(err instanceof Error ? err.message : 'Native compute failed')
+      // B3c: the engine's "missing dealType" 422 becomes the header action.
+      setComputeError(friendlyEngineError(err instanceof Error ? err.message : 'Native compute failed'))
       setDebtBlock(null)
       setGpEconomics(null)
     } finally {
@@ -134,7 +136,7 @@ export default function GeneratePanel({
       setResult({ warnings, writtenCount })
       if (Object.keys(outputs).length > 0) onGenerated?.(outputs)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generate failed')
+      setError(friendlyEngineError(err instanceof Error ? err.message : 'Generate failed'))
     } finally {
       setGenerating(false)
     }
@@ -145,7 +147,7 @@ export default function GeneratePanel({
       <div className="flex max-w-3xl items-center justify-between gap-4">
         <div className="text-xs text-slate-500">
           {!template && (
-            <>Upload a template and save a mapping profile under "1. Template &amp; Mapping".</>
+            <>Upload a template and save a mapping profile under "2. Template &amp; Mapping".</>
           )}
           {template && !mappingProfileId && (
             <>

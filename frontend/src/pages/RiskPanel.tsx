@@ -8,6 +8,8 @@ import {
   type McDriver,
   type MonteCarloResult,
 } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
+import { parseSeed } from '../lib/monteCarloSeed'
 import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
@@ -51,6 +53,10 @@ const fmtX = (v: number) => `${v.toFixed(2)}x`
 const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
 
 function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[] }) {
+  // B17: every trial can fail (empty bins) — render an empty state, not a crash.
+  if (bins.length === 0) {
+    return <div className="mt-2 text-xs text-slate-400">No distribution to plot — every trial failed.</div>
+  }
   const max = Math.max(...bins.map((b) => b.count), 1)
   const w = 460
   const h = 120
@@ -132,7 +138,11 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     setDrivers(drivers.map((d, idx) => (idx === i ? next : d)))
   }
 
+  // B18: validated seed — junk never silently becomes a random run.
+  const seedParse = parseSeed(seed)
+
   async function handleRun() {
+    if (!seedParse.ok) return
     setRunning(true)
     setError(null)
     setResult(null)
@@ -143,7 +153,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         values,
         drivers,
         n,
-        seed: seed.trim() ? Number(seed) : undefined,
+        seed: seedParse.seed,
       })
       pollTimer.current = window.setInterval(() => {
         void (async () => {
@@ -171,7 +181,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
       }, 400)
     } catch (e) {
       setRunning(false)
-      setError(e instanceof Error ? e.message : 'Could not start the run.')
+      setError(friendlyEngineError(e instanceof Error ? e.message : 'Could not start the run.'))
     }
   }
 
@@ -293,12 +303,17 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           <input
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
-            className="w-28 rounded border border-slate-300 px-1 py-0.5"
+            aria-invalid={!seedParse.ok}
+            inputMode="numeric"
+            className={`w-28 rounded border px-1 py-0.5 ${
+              seedParse.ok ? 'border-slate-300' : 'border-red-400'
+            }`}
           />
         </label>
+        {!seedParse.ok && <span className="text-red-600">{seedParse.error}</span>}
         <button
           onClick={() => void handleRun()}
-          disabled={running || drivers.length === 0}
+          disabled={running || drivers.length === 0 || !seedParse.ok}
           className="rounded bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-700 disabled:opacity-40"
         >
           {running ? `Running… ${progress}/${n}` : 'Run simulation'}

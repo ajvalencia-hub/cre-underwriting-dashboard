@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   PRESETS_BY_TYPE,
+  hasDate,
   readCriticalDates,
   sortByDate,
   type CriticalDate,
@@ -17,9 +18,20 @@ interface CriticalDatesEditorProps {
 export default function CriticalDatesEditor({ values, onChange, onClose }: CriticalDatesEditorProps) {
   const [rows, setRows] = useState<CriticalDate[]>(() => sortByDate(readCriticalDates(values)))
 
+  // F6: Escape closes the editor.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   function commit(next: CriticalDate[]) {
     setRows(next)
-    onChange(next)
+    // B11: rows still waiting for a date stay local — only dated rows are
+    // written to the deal (chips, pipeline strip, share).
+    onChange(next.filter(hasDate))
   }
 
   function addRow(label: string) {
@@ -35,10 +47,16 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="critical-dates-title"
+        className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Critical dates</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <h2 id="critical-dates-title" className="text-sm font-semibold text-slate-700">Critical dates</h2>
+          <button onClick={onClose} aria-label="Close critical dates" className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <div className="flex flex-wrap gap-1 text-xs">
           {(values.dealType === 'development'
@@ -62,6 +80,11 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
         </div>
         {rows.length === 0 && (
           <p className="mt-3 text-xs text-slate-400">No dates yet — add one above.</p>
+        )}
+        {rows.some((r) => !hasDate(r)) && (
+          <p className="mt-3 text-xs text-amber-600">
+            Rows without a date are not saved until you pick one.
+          </p>
         )}
         {rows.map((row) => (
           <div key={row.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs">

@@ -1,6 +1,8 @@
 // UI preferences (Settings > Appearance). Pure/injectable for unit tests —
 // localStorage tier only: these are per-browser prefs, never server state.
 
+import { safeStorage } from './safeStorage'
+
 export type ThemePref = 'light' | 'dark' | 'system'
 
 const THEME_KEY = 'cre.themePref'
@@ -36,11 +38,13 @@ export function applyThemeClass(root: RootLike, isDark: boolean): void {
 /** Boot-time wiring: apply the stored pref immediately (before first paint)
  *  and follow OS changes while the pref is 'system'. Returns the pref. */
 export function initTheme(): ThemePref {
-  const pref = loadThemePref(window.localStorage)
+  // B13: storage access goes through safeStorage — a SecurityError here
+  // runs outside the ErrorBoundary and would otherwise be a blank page.
+  const pref = loadThemePref(safeStorage)
   const media = window.matchMedia('(prefers-color-scheme: dark)')
   applyThemeClass(document.documentElement, effectiveTheme(pref, media.matches) === 'dark')
   media.addEventListener('change', (e) => {
-    if (loadThemePref(window.localStorage) === 'system') {
+    if (loadThemePref(safeStorage) === 'system') {
       applyThemeClass(document.documentElement, e.matches)
     }
   })
@@ -49,7 +53,7 @@ export function initTheme(): ThemePref {
 
 /** Settings-page setter: persist + apply in one step. */
 export function setThemePref(pref: ThemePref): void {
-  saveThemePref(window.localStorage, pref)
+  saveThemePref(safeStorage, pref)
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
   applyThemeClass(document.documentElement, effectiveTheme(pref, systemDark) === 'dark')
 }

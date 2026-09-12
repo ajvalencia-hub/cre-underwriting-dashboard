@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
 import LeaseDrilldown from '../components/LeaseDrilldown'
+import { dealTypeOf } from '../lib/dealStages'
+import { friendlyEngineError } from '../lib/engineErrors'
 import {
   cellValue,
   filterComponent,
@@ -150,7 +152,7 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
     try {
       setHoldSweep(await fetchHoldSweep(values))
     } catch (err) {
-      setHoldError(err instanceof Error ? err.message : 'Hold sweep failed')
+      setHoldError(friendlyEngineError(err instanceof Error ? err.message : 'Hold sweep failed'))
     } finally {
       setHoldBusy(false)
     }
@@ -485,9 +487,12 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
         <summary className="cursor-pointer select-none text-sm font-semibold text-slate-600">
           Hold-period &amp; refi analysis
         </summary>
+        {/* P2: type-aware framing — an acquisition is stabilized at close, so
+            the sweep runs from year 1 and the stabilization fork rarely applies. */}
         <p className="mt-1 text-xs text-slate-400">
-          Re-evaluates the deal at every whole exit year after stabilization (modeled hold marked),
-          and compares selling at stabilization vs refinancing and holding.
+          {dealTypeOf({ inputs: values }) === 'acquisition'
+            ? 'Re-evaluates the deal at every whole exit year across the hold (modeled hold marked). The refi-vs-sale fork applies only when the asset stabilizes after close (lease-up or value-add).'
+            : 'Re-evaluates the deal at every whole exit year after stabilization (modeled hold marked), and compares selling at stabilization vs refinancing and holding.'}
         </p>
         <button
           onClick={() => void handleRunHoldSweep()}
@@ -544,7 +549,9 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
             {(holdSweep.refiVsSale.saleAtStabilization || holdSweep.refiVsSale.holdThroughRefi) && (
               <div>
                 <div className="text-xs font-semibold tracking-wide text-slate-500">
-                  REFI VS SALE AT STABILIZATION
+                  {dealTypeOf({ inputs: values }) === 'acquisition'
+                    ? 'REFI VS SALE ONCE STABILIZED'
+                    : 'REFI VS SALE AT STABILIZATION'}
                 </div>
                 <table className="mt-1 text-xs">
                   <thead>
