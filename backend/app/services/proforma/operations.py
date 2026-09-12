@@ -512,6 +512,17 @@ def _build_lease_noi_vector(
         occupancy_vec.append(income["occupancy"][i])
         leasing_capital[i] = income["leasingCapital"][i]
 
+    lease_detail = {
+        "walt": income["walt"],
+        "totalSf": income["totalSf"],
+        "occupancyYear1": income["occupancyYear1"],
+        "occupancyStabilized": income["occupancyStabilized"],
+        "expirationSchedule": income["expirationSchedule"],
+        "perLease": income["perLease"],
+    }
+    if income.get("buildingRsf"):
+        # Run 6: conditional key — only when a valid buildingRsf applied.
+        lease_detail["buildingRsf"] = income["buildingRsf"]
     return {
         "noi": noi_vec,
         "egi": egi_vec,
@@ -525,14 +536,7 @@ def _build_lease_noi_vector(
         "fixedOpexByCategory": expenses["byCategory"],
         "recoveries": income["recoveries"],
         "leasingCapital": leasing_capital,
-        "leaseDetail": {
-            "walt": income["walt"],
-            "totalSf": income["totalSf"],
-            "occupancyYear1": income["occupancyYear1"],
-            "occupancyStabilized": income["occupancyStabilized"],
-            "expirationSchedule": income["expirationSchedule"],
-            "perLease": income["perLease"],
-        },
+        "leaseDetail": lease_detail,
         "gprSource": "commercialLeases",
         "warnings": warnings,
     }

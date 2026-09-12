@@ -76,6 +76,127 @@ def periodic_irr(flows: list[float], periods_per_year: int = 12) -> float | None
     return (1 + rate) ** periods_per_year - 1
 
 
+def sign_changes(flows: list[float]) -> int:
+    """Descartes count: sign flips between consecutive NON-ZERO flows. A
+    conventional investment (one outlay, then inflows) has exactly one; a
+    series with more may have several IRRs (Run 6 [FIN] diagnostics)."""
+    signs = [cf > 0 for cf in flows if cf != 0]
+    return sum(1 for a, b in zip(signs, signs[1:], strict=False) if a != b)
+
+
+# Root-scan band, ANNUAL: -99% .. +300%. Anything outside is not an IRR a
+# deal team would act on; the band exists so the scan is finite.
+ROOT_SCAN_LOW_ANNUAL = -0.99
+ROOT_SCAN_HIGH_ANNUAL = 3.0
+_ROOT_SCAN_STEPS = 600
+
+
+def _scan_roots(f, low: float, high: float, steps: int = _ROOT_SCAN_STEPS) -> list[float]:
+    """Every sign change of f on a uniform grid over [low, high], each
+    refined by bisection. Ascending. Deliberately walks the WHOLE band —
+    Newton finds one root; the diagnostics need all of them."""
+    roots: list[float] = []
+    prev_x, prev_v = low, f(low)
+    for i in range(1, steps + 1):
+        x = low + (high - low) * i / steps
+        v = f(x)
+        if prev_v == 0:
+            roots.append(prev_x)
+        elif prev_v * v < 0:
+            a, fa, b = prev_x, prev_v, x
+            for _ in range(100):
+                mid = (a + b) / 2
+                fm = f(mid)
+                if abs(fm) < _TOLERANCE:
+                    break
+                if fa * fm < 0:
+                    b = mid
+                else:
+                    a, fa = mid, fm
+            roots.append((a + b) / 2)
+        prev_x, prev_v = x, v
+    return roots
+
+
+def periodic_irr_roots(
+    flows: list[float],
+    periods_per_year: int = 12,
+    low_annual: float = ROOT_SCAN_LOW_ANNUAL,
+    high_annual: float = ROOT_SCAN_HIGH_ANNUAL,
+) -> list[float]:
+    """All annualized IRRs of a periodic series inside the annual band,
+    ascending (empty when no root lies in the band)."""
+    if not flows:
+        return []
+    low = (1 + low_annual) ** (1 / periods_per_year) - 1
+    high = (1 + high_annual) ** (1 / periods_per_year) - 1
+    roots = _scan_roots(lambda r: _npv_periodic(r, flows), low, high)
+    return [(1 + r) ** periods_per_year - 1 for r in roots]
+
+
+def xirr_roots(
+    dates: list[date],
+    amounts: list[float],
+    low_annual: float = ROOT_SCAN_LOW_ANNUAL,
+    high_annual: float = ROOT_SCAN_HIGH_ANNUAL,
+) -> list[float]:
+    """All dated (Excel-convention) IRRs inside the annual band, ascending."""
+    if len(dates) != len(amounts) or len(dates) < 2:
+        return []
+    pairs = sorted(zip(dates, amounts, strict=False), key=lambda p: p[0])
+    sorted_dates = [p[0] for p in pairs]
+    sorted_amounts = [p[1] for p in pairs]
+    return _scan_roots(
+        lambda r: _npv_dated(r, sorted_dates, sorted_amounts), low_annual, high_annual
+    )
+
+
+def select_economic_root(roots: list[float], anchor: float | None) -> float:
+    """[FIN] Multiple-IRR rule (Run 6): the economic root is the one nearest
+    the ANCHOR — the unlevered IRR when the levered series is being solved
+    (leverage shifts the return away from the asset's own; the root closest
+    to the asset return is the one the capital structure actually produced).
+    Without an anchor (the unlevered series itself has several roots) the
+    root nearest 0% wins — the conventional root a small-guess Newton search
+    lands on. Rejected: the smallest root (an artifact near -100% would win)
+    and the root nearest the discount rate (the IRR would then depend on an
+    input it should be independent of)."""
+    if not roots:
+        raise ValueError("select_economic_root needs at least one root")
+    target = anchor if anchor is not None else 0.0
+    return min(roots, key=lambda r: abs(r - target))
+
+
+def irr_diagnostics(
+    flows: list[float],
+    anchor: float | None = None,
+    dates: list[date] | None = None,
+    periods_per_year: int = 12,
+) -> dict | None:
+    """Run 6 [FIN]: when a series has MORE THAN ONE sign change, scan the
+    band for every IRR. Returns None for a conventional series (exactly one
+    sign change — the IRR is untouched, by design) or when at most one root
+    exists in the band (the Newton answer is the only candidate). Otherwise
+    {"signChanges", "roots" (ascending, annualized), "selected", "otherRoots"}
+    with `selected` chosen by select_economic_root()."""
+    changes = sign_changes(flows)
+    if changes <= 1:
+        return None
+    if dates is not None:
+        roots = xirr_roots(dates, flows)
+    else:
+        roots = periodic_irr_roots(flows, periods_per_year)
+    if len(roots) <= 1:
+        return None
+    selected = select_economic_root(roots, anchor)
+    return {
+        "signChanges": changes,
+        "roots": roots,
+        "selected": selected,
+        "otherRoots": [r for r in roots if r != selected],
+    }
+
+
 def xirr(dates: list[date], amounts: list[float]) -> float | None:
     """Excel-convention XIRR: actual/365 exponents from the first date."""
     if len(dates) != len(amounts) or len(dates) < 2:

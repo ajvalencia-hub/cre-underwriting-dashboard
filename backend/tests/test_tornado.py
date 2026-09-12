@@ -88,6 +88,65 @@ def test_bars_sorted_by_impact_and_consistent_with_direct_computes(analytic):
     assert rent_bar["high"] > result["base"] > rent_bar["low"]
 
 
+REG_FIXTURES = Path(__file__).parent / "regression" / "fixtures"
+
+
+def _bars(values: dict) -> dict:
+    return {b["key"]: b for b in tornado_service.run_tornado(values, "leveredIrr")["bars"]}
+
+
+def test_live_drivers_are_not_inert(analytic):
+    """Flat-expense, GPR-driven, fixed-rate acquisition: every driver moves
+    the deal — no inert flags, no reasons."""
+    bars = _bars(analytic)
+    assert all(b["inert"] is False for b in bars.values())
+    assert all("reason" not in b for b in bars.values())
+
+
+def test_opex_driver_is_inert_in_expense_detail_mode():
+    rollover = json.loads((REG_FIXTURES / "commercial_rollover.json").read_text())
+    bar = _bars(rollover)["opex"]
+    assert bar["inert"] is True
+    assert "opexLineItems" in bar["reason"]
+    assert bar["impact"] == 0.0  # the computed swing corroborates the rule
+    # The same deal with its lines removed (flat fields read) is live again.
+    flat = {**rollover, "opexLineItems": [], "realEstateTaxes": 50_000}
+    assert _bars(flat)["opex"]["inert"] is False
+
+
+def test_rent_and_vacancy_drivers_are_inert_on_a_pure_lease_deal():
+    rollover = json.loads((REG_FIXTURES / "commercial_rollover.json").read_text())
+    bars = _bars(rollover)
+    assert bars["rent"]["inert"] is True
+    assert "rent roll" in bars["rent"]["reason"]
+    assert bars["rent"]["impact"] == 0.0
+    assert bars["vacancy"]["inert"] is True
+    assert "downtime" in bars["vacancy"]["reason"]
+    assert bars["vacancy"]["impact"] == 0.0
+    # A mixed deal with a unit mix scales the residential rents — live.
+    mixed = json.loads((REG_FIXTURES / "mixed_use.json").read_text())
+    assert _bars(mixed)["rent"]["inert"] is False
+
+
+def test_rate_driver_is_inert_in_floating_mode():
+    feature_on = json.loads((REG_FIXTURES / "feature_on_value_add.json").read_text())
+    bar = _bars(feature_on)["rate"]
+    assert bar["inert"] is True
+    assert "interestRate" in bar["reason"]
+    assert bar["impact"] == 0.0
+    assert _bars({**feature_on, "rateMode": "fixed"})["rate"]["inert"] is False
+
+
+def test_exit_cap_driver_is_inert_when_both_component_caps_price_the_exit():
+    mixed = json.loads((REG_FIXTURES / "mixed_use.json").read_text())
+    bar = _bars(mixed)["exitCap"]
+    assert bar["inert"] is True
+    assert "component exit caps" in bar["reason"]
+    assert bar["impact"] == 0.0
+    single_cap = {**mixed, "commercialExitCapPct": None}
+    assert _bars(single_cap)["exitCap"]["inert"] is False
+
+
 def test_endpoint_and_bad_metric(analytic):
     client = TestClient(app)
     ok = client.post("/api/compute/tornado", json={"values": analytic, "metric": "leveredIrr"})

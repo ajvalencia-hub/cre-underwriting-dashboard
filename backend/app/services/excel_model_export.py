@@ -123,6 +123,18 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("per-unit / PSF replacement reserves (convention-dependent placement)")
     if _num(inputs, "monthsOfTaxesAndInsurance") > 0:
         features.append("tax & insurance escrows (close/exit cash timing)")
+    maturity_mode = inputs.get("loanMaturityBehavior") or "ignore"
+    if maturity_mode in ("balloon", "refinance"):
+        # Run 6: the Model sheet's debt columns run one schedule from the
+        # funding event to exit. A mid-hold balloon would need the balloon
+        # kept out of the DSCR column, and a refinance a second sized loan
+        # and schedule — neither is mirrored; refuse rather than export a
+        # workbook whose debt path silently differs from the engine's.
+        # (loanMaturityBehavior=ignore, the default, exports as before.)
+        features.append(
+            f"loan maturity inside the hold (loanMaturityBehavior={maturity_mode}: "
+            "the workbook runs one debt schedule to exit — set ignore to export)"
+        )
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(

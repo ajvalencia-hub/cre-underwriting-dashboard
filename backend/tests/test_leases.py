@@ -97,6 +97,39 @@ def test_base_year_stop_never_negative_on_declining_opex():
     assert result["recoveries"][12] == pytest.approx(0)
 
 
+def test_building_rsf_sets_the_pro_rata_denominator():
+    """Run 6: 10,000sf listed in a 12,500sf building -> NNN share 0.8 of the
+    $5,000/mo pool = $4,000; occupancy 0.8; base rent untouched."""
+    result = build([lease()], buildingRsf=12_500)
+    assert result["recoveries"][0] == pytest.approx(4_000)
+    assert result["scheduledBaseRent"][0] == pytest.approx(25_000)
+    assert result["occupancy"][0] == pytest.approx(0.8)
+    assert result["occupancyYear1"] == pytest.approx(0.8)
+    assert result["totalSf"] == pytest.approx(SF)
+    assert result["shareDenominatorSf"] == pytest.approx(12_500)
+    assert result["buildingRsf"] == pytest.approx(12_500)
+    assert result["warnings"] == []
+    # Base-year stop shares the same denominator: 0.8 x (63,000-60,000)/12.
+    recoverable = [5_000 * 1.05 ** ((m - 1) // 12) for m in range(1, 25)]
+    stop = build([lease(recoveryType="base_year_stop")], recoverable=recoverable,
+                 growth=0.05, buildingRsf=12_500)
+    assert stop["recoveries"][12] == pytest.approx(200)
+    # fixed_psf is a stated contract amount — no denominator involved.
+    fixed = build([lease(recoveryType="fixed_psf", recoveryValue=4.0)], buildingRsf=12_500)
+    assert fixed["recoveries"][0] == pytest.approx(4.0 * SF / 12)
+
+
+def test_building_rsf_blank_or_below_listed_sf_keeps_listed_share():
+    base = build([lease()])
+    assert base["shareDenominatorSf"] == pytest.approx(SF)
+    assert base["buildingRsf"] is None
+    below = build([lease()], buildingRsf=8_000)
+    assert below["recoveries"] == base["recoveries"]
+    assert below["occupancy"] == base["occupancy"]
+    assert below["buildingRsf"] is None
+    assert any("buildingRsf" in w and "below the listed" in w for w in below["warnings"])
+
+
 def test_fixed_psf_and_gross_recoveries():
     fixed = build([lease(recoveryType="fixed_psf", recoveryValue=4.0)])
     assert fixed["recoveries"][0] == pytest.approx(4.0 * SF / 12)  # 3,333.33

@@ -12,6 +12,7 @@ from app.main import app
 from app.services.proforma import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
+REG_FIXTURES = Path(__file__).parent / "regression" / "fixtures"
 
 
 @pytest.fixture
@@ -22,6 +23,14 @@ def analytic() -> dict:
 @pytest.fixture
 def development() -> dict:
     return json.loads((FIXTURES / "analytic_development.json").read_text())
+
+
+@pytest.fixture
+def feature_on() -> dict:
+    """Every feature row at once: floating debt + cap premium, mezz (current
+    pay), renovation funded at close, loss-to-lease, reserves above NOI, T&I
+    escrows, AM fee, acquisition fee, prepayment penalty."""
+    return json.loads((REG_FIXTURES / "feature_on_value_add.json").read_text())
 
 
 _SERIES_KEYS = [
@@ -57,16 +66,37 @@ def _assert_identities(statement: dict) -> None:
             statement["egi"][m] - statement["opexTotal"][m], abs=1e-6
         ), f"NOI identity @ {m}"
 
-        levered = (
-            statement["noi"][m]
-            - statement["debtService"][m]
-            + statement["debtDraws"][m]
-            - statement["costs"][m]
-            - statement["loanFees"][m]
-            - statement["leasingCapital"][m]
-            + statement["saleProceedsNet"][m]
-        )
+        levered = _levered_identity(statement, m)
         assert statement["levered"][m] == pytest.approx(levered, abs=1e-6), f"levered tie @ {m}"
+
+
+# The FULL levered identity (engine.py, statement block). Feature rows are
+# conditional keys — absent rows contribute zero. prepaymentPenalty is a
+# DISPLAY row already netted inside saleProceedsNet; juniorBalance and
+# loanBalance are balances, not flows; renovation.spendSchedule is timing
+# detail, not cash.
+_FEATURE_DEDUCTIONS = (
+    "renovationCapex", "juniorInterest", "juniorPayoff", "assetMgmtFee",
+    "replacementReserves", "loanPayoff",
+)
+
+
+def _levered_identity(statement: dict, m: int) -> float:
+    value = (
+        statement["noi"][m]
+        - statement["debtService"][m]
+        + statement["debtDraws"][m]
+        - statement["costs"][m]
+        - statement["loanFees"][m]
+        - statement["leasingCapital"][m]
+        + statement["saleProceedsNet"][m]
+    )
+    for key in _FEATURE_DEDUCTIONS:
+        if key in statement:
+            value -= statement[key][m]
+    if "escrowFlows" in statement:
+        value += statement["escrowFlows"][m]
+    return value
 
 
 def test_acquisition_statement_identities(analytic):
@@ -77,6 +107,52 @@ def test_acquisition_statement_identities(analytic):
 def test_development_statement_identities(development):
     result = engine.compute(development)
     _assert_identities(result["statement"])
+
+
+def test_feature_on_statement_identities(feature_on):
+    """Run 6: the full identity holds month by month with EVERY feature row
+    present (and the renovation budget is displayed once — it used to sit in
+    both costs[0] and renovationCapex[0], breaking the tie at close by the
+    budget)."""
+    statement = engine.compute(feature_on)["statement"]
+    for key in ("renovationCapex", "juniorInterest", "juniorPayoff", "assetMgmtFee",
+                "escrowFlows", "prepaymentPenalty"):
+        assert key in statement, key
+    _assert_identities(statement)
+    budget = statement["renovation"]["budget"]
+    assert statement["renovationCapex"][0] == pytest.approx(budget)
+    # Direct check of the fix: costs at close = the acquisition basis only.
+    price = feature_on["purchasePrice"]
+    basis = (
+        price * (1 + feature_on["closingCostsPct"] + feature_on["acquisitionFeePct"])
+        + feature_on["dueDiligenceCosts"] + feature_on["dayOneCapex"]
+    )
+    assert statement["costs"][0] == pytest.approx(basis)
+    # The prepayment penalty is netted inside saleProceedsNet, never a second
+    # deduction: adding it to the identity would break the tie at exit.
+    exit_month = statement["exitMonth"]
+    assert statement["prepaymentPenalty"][exit_month] > 0
+    assert statement["levered"][exit_month] != pytest.approx(
+        _levered_identity(statement, exit_month) - statement["prepaymentPenalty"][exit_month],
+        abs=1e-6,
+    )
+
+
+def test_feature_on_identities_with_below_noi_reserves_and_maturity(feature_on):
+    """The two rows the fixture does not exercise: below-NOI reserves and the
+    loan-maturity payoff (balloon and refinance), each on top of everything
+    else."""
+    below = {**feature_on, "reservesConvention": "below_noi"}
+    statement = engine.compute(below)["statement"]
+    assert "replacementReserves" in statement
+    _assert_identities(statement)
+    for mode in ("balloon", "refinance"):
+        maturing = {**below, "holdPeriodYears": 7, "loanTermYears": 5,
+                    "loanMaturityBehavior": mode}
+        statement = engine.compute(maturing)["statement"]
+        assert "loanPayoff" in statement
+        assert statement["loanPayoff"][60] > 0
+        _assert_identities(statement)
 
 
 def test_statement_totals_tie_to_scalar_outputs(analytic):

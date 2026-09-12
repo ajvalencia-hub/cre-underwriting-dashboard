@@ -238,6 +238,26 @@ def build_lease_income(
     occupied_sf = [0.0] * months
 
     total_sf = sum(_num(lease, "sf") for lease in leases)
+    # Run 6 [FIN]: buildingRsf — the pro-rata denominator for NNN /
+    # base-year shares AND the occupancy basis. Blank (the default) keeps
+    # the listed-SF denominator (share = sf / Σ lease sf, i.e. the listed
+    # tenants absorb 100% of the pool). When the building is larger than
+    # the listed leases, the unlisted vacant suites' share of recoverable
+    # opex is NOT recovered from anyone (it is the owner's vacancy cost),
+    # and physical occupancy is occupied SF over the whole building. A
+    # value BELOW the listed SF is a data error — ignored with a warning.
+    building_rsf = _num(inputs, "buildingRsf")
+    share_denominator = total_sf
+    if building_rsf > 0:
+        if building_rsf + 1e-9 >= total_sf:
+            share_denominator = building_rsf
+        else:
+            warnings.append(
+                f"buildingRsf ({building_rsf:,.0f}) is below the listed lease SF "
+                f"({total_sf:,.0f}) — ignored; pro-rata recovery shares use the "
+                "listed SF."
+            )
+            building_rsf = 0.0
     annual_recoverable = _annual_recoverable_by_calendar_year(
         recoverable_opex_monthly, expense_growth
     )
@@ -246,7 +266,7 @@ def build_lease_income(
     # the raw pool (actual expenses are what they are).
     annual_recoverable_stop = annual_recoverable
     if gross_up_to is not None and gross_up_to > 0 and variable_recoverable_monthly:
-        projected_occupancy = _occupancy_projection(leases, rollover, months, total_sf)
+        projected_occupancy = _occupancy_projection(leases, rollover, months, share_denominator)
         adjusted_pool = _grossed_up_pool(
             recoverable_opex_monthly, variable_recoverable_monthly,
             projected_occupancy, gross_up_to,
@@ -291,7 +311,7 @@ def build_lease_income(
 
     for lease_index, lease in enumerate(leases):
         sf = _num(lease, "sf")
-        share = sf / total_sf if total_sf > 0 else 0.0
+        share = sf / share_denominator if share_denominator > 0 else 0.0
         slice_scheduled = [0.0] * months
         slice_free = [0.0] * months
         slice_downtime = [0.0] * months
@@ -451,7 +471,8 @@ def build_lease_income(
 
     walt = walt_weighted / total_sf if total_sf > 0 else 0.0
     occupancy = [
-        (occupied_sf[m] / total_sf if total_sf > 0 else 0.0) for m in range(months)
+        (occupied_sf[m] / share_denominator if share_denominator > 0 else 0.0)
+        for m in range(months)
     ]
     year1 = occupancy[: min(12, months)]
     occupancy_year1 = sum(year1) / len(year1) if year1 else 0.0
@@ -482,6 +503,10 @@ def build_lease_income(
         "occupiedSf": occupied_sf,
         "occupancy": occupancy,
         "totalSf": total_sf,
+        # Run 6: the effective pro-rata denominator (== totalSf unless a
+        # valid buildingRsf is set) and the raw input when it applied.
+        "shareDenominatorSf": share_denominator,
+        "buildingRsf": building_rsf if building_rsf > 0 else None,
         "walt": round(walt, 2),
         "occupancyYear1": round(occupancy_year1, 4),
         "occupancyStabilized": round(occupancy_stabilized, 4),

@@ -135,6 +135,173 @@ def _operating_break_evens(statement: dict, total: int) -> dict:
     return {"years": years}
 
 
+_MATURITY_MODES = ("ignore", "balloon", "refinance")
+
+
+def _apply_loan_maturity(
+    *,
+    mode: str,
+    term_months: int,
+    start_month: int,
+    total: int,
+    schedule: list,
+    noi_full: list[float],
+    exit_cap: float,
+    rate_vec: list[float] | None,
+    interest_rate: float,
+    refi_spread: float,
+    refi_costs_pct: float,
+    ltc_or_ltv: float,
+    dscr_constraint: float,
+    debt_yield_constraint: float,
+    amort_years: float,
+    levered: list[float],
+    debt_service: list,
+    stmt: dict[str, list[float]],
+    warnings: list[str],
+) -> dict | None:
+    """Run 6 [FIN]: senior-loan maturity inside the hold. The loan (an
+    acquisition's senior loan from month 1, or a development's perm loan
+    from its takeout month) matures at start_month + term - 1; when that
+    month precedes the exit month, the mode decides what happens:
+
+    - balloon: the remaining balance is repaid from levered cash in the
+      maturity month (statement row `loanPayoff`, the juniorPayoff
+      convention: a positive amount subtracted in the levered identity),
+      debt service stops, and the deal runs unlevered to exit.
+    - refinance: the balance is repaid the same way and a NEW loan funds
+      in the same month, sized with the deal's own constraints (LTV / DSCR /
+      debt yield) on the TRAILING-12-month NOI ending at maturity (the
+      in-place NOI a refinance lender underwrites — deliberately NOT the
+      forward-12 the exit cap uses) and a value of that NOI / exitCapRatePct,
+      priced at interestRate + refiRateSpreadPct (floating: the in-force
+      curve rate + spread), with refiCostsPct x new loan in costs, a fresh
+      amortYears schedule and no IO. The new loan is a gross debtDraw; the
+      old balance is the loanPayoff; the difference (cash-out or paydown)
+      and the costs flow through levered in the maturity month.
+
+    Mutates the cash-flow / statement vectors in place. Returns None when
+    nothing fires (mode ignore, term >= remaining hold, no balance) — every
+    existing payload is reproduced exactly in that case."""
+    if mode not in ("balloon", "refinance") or term_months <= 0 or not schedule:
+        return None
+    maturity_month = start_month + term_months - 1
+    if maturity_month < 1 or maturity_month >= total:
+        return None
+    idx = maturity_month - start_month
+    if idx >= len(schedule):
+        return None
+    balance = schedule[idx].balance
+    if balance <= 0:
+        return None
+
+    # Repay the balance from equity in the maturity month; the old schedule's
+    # later months are unwound (their payments were already netted).
+    levered[maturity_month] -= balance
+    stmt["loanPayoff"][maturity_month] += balance
+    stmt["balance"][maturity_month] = 0.0
+    for m in range(maturity_month + 1, total + 1):
+        old = schedule[m - start_month]
+        levered[m] += old.payment
+        debt_service[m] = None
+        stmt["interest"][m] = 0.0
+        stmt["principal"][m] = 0.0
+        stmt["service"][m] = 0.0
+        stmt["balance"][m] = 0.0
+
+    if mode == "balloon":
+        warnings.append(
+            f"Senior loan matures in month {maturity_month} (term "
+            f"{term_months / 12:g} yrs, before the month-{total} exit) — "
+            f"loanMaturityBehavior=balloon repays the ${balance:,.0f} balance "
+            "from equity; the deal runs unlevered thereafter."
+        )
+        return {
+            "kind": "balloon",
+            "month": maturity_month,
+            "exitBalance": 0.0,
+            "netFlow": -balance,
+            "block": {"month": maturity_month, "balance": balance},
+        }
+
+    # refinance
+    window = noi_full[max(0, maturity_month - 12) : maturity_month]
+    refi_noi = sum(window) * (12 / len(window)) if window else 0.0
+    refi_value = refi_noi / exit_cap if exit_cap > 0 else 0.0
+    if rate_vec is not None:
+        in_force = rate_vec[maturity_month] if maturity_month < len(rate_vec) else rate_vec[-1]
+        refi_rate = in_force + refi_spread
+    else:
+        refi_rate = interest_rate + refi_spread
+    sizing = debt.size_permanent_loan(
+        refi_noi, refi_value, ltc_or_ltv, dscr_constraint, debt_yield_constraint,
+        refi_rate, amort_years,
+    )
+    new_loan = sizing.amount
+    costs = new_loan * refi_costs_pct
+    levered[maturity_month] += new_loan - costs
+    stmt["debtDraws"][maturity_month] += new_loan
+    stmt["loanFees"][maturity_month] += costs
+    stmt["balance"][maturity_month] = new_loan
+    exit_balance = 0.0
+    if new_loan > 0:
+        n = total - maturity_month
+        if rate_vec is not None:
+            new_vec = [
+                (rate_vec[m - 1] if m - 1 < len(rate_vec) else rate_vec[-1]) + refi_spread
+                for m in range(maturity_month + 1, total + 1)
+            ]
+            new_schedule = debt.amortization_schedule_floating(
+                new_loan, new_vec, amort_years, 0, n
+            )
+        else:
+            new_schedule = debt.amortization_schedule(new_loan, refi_rate, amort_years, 0, n)
+        for m in range(maturity_month + 1, total + 1):
+            entry = new_schedule[m - maturity_month - 1]
+            levered[m] -= entry.payment
+            debt_service[m] = entry
+            stmt["interest"][m] = entry.interest
+            stmt["principal"][m] = entry.principal
+            stmt["service"][m] = entry.payment
+            stmt["balance"][m] = entry.balance
+        exit_balance = new_schedule[-1].balance
+    else:
+        warnings.append(
+            f"Refinance at month {maturity_month}: no constraint sizes a new loan "
+            "(sizing NOI is not positive) — the balance is repaid as a balloon."
+        )
+    cash_out = new_loan - balance
+    if cash_out < 0:
+        warnings.append(
+            f"Refinance at month {maturity_month} sizes below the maturing balance "
+            f"— a ${-cash_out:,.0f} equity paydown is required (governed by "
+            f"{_GOVERNING_LABELS.get(sizing.governing_constraint, sizing.governing_constraint)})."
+        )
+    return {
+        "kind": "refinance",
+        "month": maturity_month,
+        "exitBalance": exit_balance,
+        "netFlow": cash_out - costs,
+        "block": {
+            "month": maturity_month,
+            "oldBalance": balance,
+            "newLoan": new_loan,
+            "costs": costs,
+            "cashOut": cash_out,
+            "netToEquity": cash_out - costs,
+            "governingConstraint": _GOVERNING_LABELS.get(
+                sizing.governing_constraint, sizing.governing_constraint
+            ),
+            "candidates": sizing.candidates,
+            "sizingNoi": refi_noi,
+            "sizingNoiBasis": "trailing_12",
+            "value": refi_value,
+            "ratePct": refi_rate,
+            "amortYears": amort_years,
+        },
+    }
+
+
 def compute(inputs: dict) -> dict:
     """Returns {"outputs": {<schema output id>: float}, "warnings": [str]}.
     Raises InsufficientInputsError naming every missing required field."""
@@ -311,6 +478,19 @@ def compute(inputs: dict) -> dict:
     stmt_principal = [0.0] * (total + 1)
     stmt_service = [0.0] * (total + 1)
     stmt_balance = [0.0] * (total + 1)
+    stmt_loan_payoff = [0.0] * (total + 1)  # Run 6: mid-hold maturity payoff
+
+    # Run 6 [FIN]: loan maturity inside the hold. loanTermYears was never
+    # read before; "ignore" (the default) keeps that exactly. The schedule
+    # and the month it starts are captured per branch and resolved once
+    # both branches are done (see _apply_loan_maturity).
+    maturity_mode = inputs.get("loanMaturityBehavior") or "ignore"
+    if maturity_mode not in _MATURITY_MODES:
+        warnings.append(f"Unknown loanMaturityBehavior '{maturity_mode}' — using ignore.")
+        maturity_mode = "ignore"
+    loan_term_months = int(round(_num(inputs, "loanTermYears") * 12))
+    maturity_schedule: list | None = None
+    maturity_start_month = 1
 
     if deal_type == "acquisition":
         purchase_price = _num(inputs, "purchasePrice")
@@ -370,6 +550,8 @@ def compute(inputs: dict) -> dict:
         takeout_month = 1
         perm_loan = loan_amount
         value_for_ltv = purchase_price
+        maturity_schedule = schedule if loan_amount > 0 else None
+        maturity_start_month = 1
 
         stmt_costs[0] = basis
         stmt_loan_fees[0] = loan_fees
@@ -562,6 +744,9 @@ def compute(inputs: dict) -> dict:
                 stmt_service[m] = entry.payment
                 stmt_balance[m] = entry.balance
             exit_debt_balance = schedule[-1].balance if schedule else 0.0
+            # Run 6: the perm loan's term is measured from takeout.
+            maturity_schedule = schedule if perm_loan > 0 else None
+            maturity_start_month = takeout_month
         else:
             # Sold before stabilizing: sweep through exit, pay off then.
             sizing = debt.size_permanent_loan(
@@ -582,6 +767,45 @@ def compute(inputs: dict) -> dict:
                 "No permanent takeout occurs before exit — construction debt "
                 "is repaid from sale proceeds."
             )
+
+    # Run 6 [FIN]: resolve the maturity now that the perm schedule exists.
+    # Fires only for a non-ignore mode with term < remaining hold; the
+    # payoff / new-loan flows land in the maturity month, before every
+    # below-NOI consumer of levered cash (junior interest, AM fee, the
+    # renovation funding check) so they see the post-maturity capital
+    # structure. refiRateSpreadPct / refiCostsPct are reused for the
+    # refinance pricing (acquisitions read them too under this mode).
+    maturity_info = _apply_loan_maturity(
+        mode=maturity_mode,
+        term_months=loan_term_months,
+        start_month=maturity_start_month,
+        total=total,
+        schedule=maturity_schedule or [],
+        noi_full=ops["noi"],
+        exit_cap=exit_cap,
+        rate_vec=rate_vec,
+        interest_rate=interest_rate,
+        refi_spread=_num(inputs, "refiRateSpreadPct"),
+        refi_costs_pct=_num(inputs, "refiCostsPct"),
+        ltc_or_ltv=ltc_or_ltv,
+        dscr_constraint=dscr_constraint,
+        debt_yield_constraint=debt_yield_constraint,
+        amort_years=amort_years,
+        levered=levered,
+        debt_service=debt_service,
+        stmt={
+            "interest": stmt_interest,
+            "principal": stmt_principal,
+            "service": stmt_service,
+            "balance": stmt_balance,
+            "debtDraws": stmt_debt_draws,
+            "loanFees": stmt_loan_fees,
+            "loanPayoff": stmt_loan_payoff,
+        },
+        warnings=warnings,
+    )
+    if maturity_info is not None:
+        exit_debt_balance = maturity_info["exitBalance"]
 
     # J5: rate-cap premium — a financing cost paid by equity at close.
     # [FIN]: it rides the loanFees statement row (levered only, never
@@ -667,7 +891,10 @@ def compute(inputs: dict) -> dict:
             unlevered[0] -= reno_budget
             levered[0] -= reno_budget
             initial_equity += reno_budget
-            stmt_costs[0] += reno_budget
+            # Run 6: the budget is shown ONCE — on the renovationCapex row
+            # (the cash leaves at close; renovation.spendSchedule reports
+            # the timing). It used to also land in costs[0], which broke the
+            # levered identity at close by exactly the budget.
             stmt_equity_funded[0] += reno_budget
             reno_capex_stmt[0] = reno_budget
             sources_and_uses["uses"].append(("Renovation budget (equity escrow)", reno_budget))
@@ -737,6 +964,20 @@ def compute(inputs: dict) -> dict:
                 "Junior tranche configured with no amount (set juniorAmount or "
                 "juniorFillToLtcPct above the senior) — ignored."
             )
+        elif deal_type == "development" and takeout_month >= total:
+            # Run 6 [FIN]: the tranche funds at the perm takeout, and this
+            # development never takes out before exit — it would fund and
+            # repay in the exit month, a loan that never exists. Skipped
+            # entirely: no funding, no interest, and NO origination fee (a
+            # fee for a loan never made is a phantom cost). Rejected:
+            # charging the fee anyway (it would be the tranche's only
+            # cash effect, and pure noise in the levered IRR).
+            warnings.append(
+                "Junior tranche would fund in the exit month (no permanent "
+                "takeout occurs before exit) — ignored: no tranche is funded "
+                "and no origination fee is charged."
+            )
+            junior_amount = 0.0
     if junior_kind in ("mezz", "pref_equity") and junior_amount > 0:
         junior_fee = junior_amount * _num(inputs, "juniorOriginationFeePct")
         pay_mode = inputs.get("juniorPayMode") or "current"
@@ -856,8 +1097,32 @@ def compute(inputs: dict) -> dict:
         irr_convention = "periodic_monthly"
         irr_of = returns.periodic_irr
 
-    put("unleveredIrr", irr_of(unlevered))
+    unlevered_irr = irr_of(unlevered)
     levered_irr = irr_of(levered)
+    # Run 6 [FIN]: multiple-IRR diagnostics. Only a series with MORE than one
+    # sign change AND more than one root in the -99%..300% band is touched;
+    # a conventional series keeps its Newton answer exactly. The unlevered
+    # root nearest 0% anchors the levered selection (see returns.py).
+    irr_diagnostics: dict = {}
+    diag_dates = flow_dates if irr_convention == "xirr" else None
+    unlev_diag = returns.irr_diagnostics(unlevered, anchor=None, dates=diag_dates)
+    if unlev_diag is not None:
+        unlevered_irr = unlev_diag["selected"]
+        irr_diagnostics["unlevered"] = unlev_diag
+    lev_diag = returns.irr_diagnostics(levered, anchor=unlevered_irr, dates=diag_dates)
+    if lev_diag is not None:
+        levered_irr = lev_diag["selected"]
+        irr_diagnostics["levered"] = lev_diag
+    for series_name, diag in irr_diagnostics.items():
+        others = ", ".join(f"{r:.1%}" for r in diag["otherRoots"])
+        warnings.append(
+            f"The {series_name} cash flows change sign {diag['signChanges']} times "
+            f"and have {len(diag['roots'])} IRRs in the -99%..300% band — reporting "
+            f"{diag['selected']:.1%} (the root nearest the "
+            f"{'unlevered IRR' if series_name == 'levered' else 'zero rate'}); "
+            f"other root(s): {others}. Use NPV / equity multiple to compare."
+        )
+    put("unleveredIrr", unlevered_irr)
     put("leveredIrr", levered_irr)
 
     em = returns.equity_multiple(levered)
@@ -879,6 +1144,10 @@ def compute(inputs: dict) -> dict:
             operating[-1] -= escrow_amount
             if junior_block is not None:
                 operating[-1] += junior_block["payoff"]
+        if maturity_info is not None:
+            # Run 6: the maturity payoff / refinance proceeds are a capital
+            # event in the maturity month — stripped like the exit ones.
+            operating[maturity_info["month"] - 1] -= maturity_info["netFlow"]
         year1_window = operating[: min(12, len(operating))]
         if year1_window:
             annualized_y1 = sum(year1_window) * (12 / len(year1_window))
@@ -1073,6 +1342,11 @@ def compute(inputs: dict) -> dict:
             "value": value_for_ltv,
             "stress": stress,
         }
+        if maturity_info is not None:
+            # Run 6: conditional maturity detail — `balloon` or `refinance`
+            # (month, oldBalance, newLoan, costs, cashOut, ...), only when
+            # the maturity actually fired.
+            debt_block[maturity_info["kind"]] = maturity_info["block"]
         if rate_vec is not None:
             # J5: floating-rate detail — conditional, fixed deals unchanged.
             strike = _num(inputs, "rateCapStrikePct")
@@ -1112,11 +1386,17 @@ def compute(inputs: dict) -> dict:
 
     # ------------------------------------------------------------------
     # Period-level statement (G2): the vectors above, packaged. Index 0 =
-    # close. Identities hold by construction:
+    # close. Identities hold by construction (asserted month by month at
+    # 1e-6 in test_statement_detail.py, feature rows included):
     #   egi = gpr - vacancyLoss - creditLoss + otherIncome
     #   noi = egi - opexTotal
     #   levered = noi - debtService + debtDraws - costs - loanFees
     #             - leasingCapital + saleProceedsNet
+    #             - renovationCapex - juniorInterest - juniorPayoff
+    #             - assetMgmtFee - replacementReserves (below_noi row only)
+    #             + escrowFlows - loanPayoff
+    #   (prepaymentPenalty is a DISPLAY row already netted inside
+    #   saleProceedsNet; juniorBalance / loanBalance are balances, not flows)
     # ------------------------------------------------------------------
     def _padded(key: str) -> list[float]:
         return [0.0] + ops[key][:total]
@@ -1183,6 +1463,9 @@ def compute(inputs: dict) -> dict:
         escrow_vec[0] = -escrow_amount
         escrow_vec[total] += escrow_amount
         statement["escrowFlows"] = escrow_vec
+    if maturity_info is not None:
+        # Run 6: conditional maturity payoff row (levered = ... − loanPayoff).
+        statement["loanPayoff"] = stmt_loan_payoff
     if prepayment_penalty > 0:
         # Run 6: conditional DISPLAY row — the penalty is already netted
         # inside saleProceedsNet (the exit payoff line), so the levered
@@ -1239,6 +1522,13 @@ def compute(inputs: dict) -> dict:
                     operating -= stmt["escrowFlows"][months]
                 if "juniorPayoff" in stmt:
                     operating += stmt["juniorPayoff"][months]
+                if maturity_info is not None:
+                    # Run 6: the maturity-month capital flows (payoff, new
+                    # loan, costs) — the same month in every sub-compute.
+                    mm = maturity_info["month"]
+                    operating -= (
+                        stmt["debtDraws"][mm] - stmt["loanPayoff"][mm] - stmt["loanFees"][mm]
+                    )
                 return operating / (months / 12) if months else 0.0
 
             base_cf = _avg_annual_operating_cf(statement)
@@ -1284,7 +1574,7 @@ def compute(inputs: dict) -> dict:
             for name, comp in components.items()
         }
 
-    return {
+    result = {
         "outputs": outputs,
         "warnings": warnings,
         "gprSource": gpr_source,
@@ -1300,3 +1590,7 @@ def compute(inputs: dict) -> dict:
         ),
         "statement": statement,
     }
+    if irr_diagnostics:
+        # Run 6: conditional — present only when a series has several IRRs.
+        result["irrDiagnostics"] = {"irrMultipleRoots": True, **irr_diagnostics}
+    return result
