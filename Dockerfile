@@ -28,12 +28,29 @@ WORKDIR /app
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install -r backend/requirements.txt
 
-COPY backend/ ./backend/
+# Only the application package (+ the seed script) — tests, fixtures and the
+# parity corpus stay out of the runtime image.
+COPY backend/app/ ./backend/app/
+COPY backend/scripts/ ./backend/scripts/
 COPY --from=frontend /app/frontend/dist /app/frontend_dist
+
+# Run as an unprivileged user. /data (the volume) and HOME must be writable:
+# LibreOffice bootstraps a per-run profile and matplotlib a font cache under
+# HOME. Upgrading a volume created by an older (root) image? Run once:
+#   docker compose run --rm --user root app chown -R app:app /data
+RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin app \
+    && mkdir -p /data \
+    && chown -R app:app /data /app
+USER app
 
 WORKDIR /app/backend
 VOLUME ["/data"]
 EXPOSE 8000
+
+# Container-level liveness: the same /api/health the CI smoke curls. Uses the
+# interpreter already in the image (no curl in python:*-slim).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
 
 # The data volume holds the SQLite DB, uploads, and rotating backups.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

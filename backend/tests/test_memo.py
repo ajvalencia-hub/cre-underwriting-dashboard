@@ -113,31 +113,17 @@ def test_custom_limitations_text_replaces_boilerplate(analytic):
 # ------------------------------------------------------------------ route
 
 @pytest.fixture
-def client(monkeypatch):
-    sql_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(sql_engine)
-    TestSession = sessionmaker(bind=sql_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    # The memo route consults benchmarks when an address/market exists — keep
-    # tests offline.
+def client(client, monkeypatch):
+    """Extends the shared conftest `client` (same name, requested as a
+    parameter): the memo route consults benchmarks when an address/market
+    exists — keep tests offline."""
     from app.routers import scenarios as scenarios_router
 
     monkeypatch.setattr(
         scenarios_router.benchmarks, "build_benchmarks",
         lambda *a, **k: {"location": {}, "flags": [], "unavailable": []},
     )
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
+    return client
     sql_engine.dispose()
 
 

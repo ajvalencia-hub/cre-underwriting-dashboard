@@ -1,32 +1,25 @@
-# React + TypeScript + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite + Tailwind 4 single-page app for the CRE
+Underwriting Dashboard. No router: `src/App.tsx` owns the tab state and all
+cross-tab state; see [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the module
+map and state ownership.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev        # http://localhost:5173 — proxies /api to http://127.0.0.1:8000
+npm test           # vitest over src/lib/*.test.ts
+npm run build      # tsc -b && vite build → dist/
+npm run lint       # oxlint
+npm run e2e        # Playwright smoke (boots a scratch-DB backend + Vite on 8123/5273)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Node 22+ (`.nvmrc` at the repo root; `engines.node` in `package.json`).
+`VITE_API_PORT` points the dev proxy at a different backend port (the e2e
+harness uses it). In the Docker image the backend serves `dist/` itself.
+
+Layout: `src/pages/` one component per tab, `src/components/` shared UI
+(the schema-driven `DealInputForm` and its `fields/` primitives, modals,
+drawers), `src/lib/` framework-free pure modules each with a `*.test.ts`,
+`src/lib/api.ts` the typed fetch layer, `src/types/` API payload types,
+`e2e/` the Playwright canary.

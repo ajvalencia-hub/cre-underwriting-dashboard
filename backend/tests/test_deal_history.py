@@ -16,30 +16,6 @@ from app.services import deal_history
 from app.services.deal_history import changed_paths
 
 
-@pytest.fixture
-def session_factory():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    yield sessionmaker(bind=engine)
-    engine.dispose()
-
-
-@pytest.fixture
-def client(session_factory):
-    def _override():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-
-
 def test_changed_paths_drills_one_level_into_dicts():
     old = {"purchasePrice": 1, "quickScreen": {"rent": 1800, "units": 20}, "gone": True}
     new = {"purchasePrice": 2, "quickScreen": {"rent": 1900, "units": 20}, "added": 1}

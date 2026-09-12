@@ -38,6 +38,10 @@ CASES = {
     "commercial_rollover": _FIXTURES / "commercial_rollover.json",
     "mixed_use": _FIXTURES / "mixed_use.json",
     "value_add_multifamily": _FIXTURES / "value_add_multifamily.json",
+    # Run 6: the value-add fixture with its optional features switched ON
+    # (renovation / loss-to-lease / fees / tranche / reserves), so the
+    # feature paths themselves are pinned, not only their defaults.
+    "feature_on_value_add": _FIXTURES / "feature_on_value_add.json",
 }
 
 FLOAT_TOL = 1e-9
@@ -75,6 +79,16 @@ def _diff(expected, actual, path: str, problems: list[str]) -> None:
         problems.append(f"{path}: {expected!r} -> {actual!r}")
 
 
+def expansion_violations(expected, actual, name: str) -> list[str]:
+    """Pure guard for UPDATE_BASELINE: the problems in `actual` vs `expected`
+    that are NOT pure key additions. New dict keys (at any depth) are the only
+    permitted difference; changed values, vanished keys, type changes and
+    list-length changes are all violations. Empty list = regeneration allowed."""
+    problems: list[str] = []
+    _diff(expected, actual, name, problems)
+    return [p for p in problems if not p.endswith(": unexpected new key")]
+
+
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_run4_baseline(name: str):
     inputs = json.loads(CASES[name].read_text())
@@ -82,6 +96,19 @@ def test_run4_baseline(name: str):
 
     baseline_path = _BASELINE / f"{name}.json"
     if os.environ.get("UPDATE_BASELINE") == "1":
+        # Regeneration is an EXPANSION-only operation: any existing value that
+        # moved is a behavior change and the request is refused outright —
+        # nothing is written. See expansion_violations().
+        if baseline_path.exists():
+            violations = expansion_violations(
+                json.loads(baseline_path.read_text()), payload, name
+            )
+            if violations:
+                raise AssertionError(
+                    f"UPDATE_BASELINE refused for {name}: {len(violations)} existing "
+                    f"value(s) differ — only key additions may regenerate the baseline "
+                    f"(first 20):\n" + "\n".join(violations[:20])
+                )
         _BASELINE.mkdir(exist_ok=True)
         baseline_path.write_text(json.dumps(payload, indent=1, sort_keys=True))
         pytest.skip(f"baseline regenerated: {baseline_path.name}")

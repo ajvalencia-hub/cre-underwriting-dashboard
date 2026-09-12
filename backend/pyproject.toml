@@ -1,0 +1,17 @@
+# Tool configuration only — the backend is not packaged. Dependencies live in
+# requirements.txt (runtime) and requirements-dev.txt (tests + linters).
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["B008", "B023", "E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["tests/"]

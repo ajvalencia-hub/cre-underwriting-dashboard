@@ -40,27 +40,6 @@ def test_deal_update_validates_against_union():
         DealUpdate(status="flipping")
 
 
-@pytest.fixture
-def client():
-    db_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(db_engine)
-    TestSession = sessionmaker(bind=db_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    db_engine.dispose()
-
-
 def test_development_stages_round_trip_the_api(client):
     deal = client.post("/api/deals", json={
         "name": "Tower Site", "inputs": {"dealType": "development"},

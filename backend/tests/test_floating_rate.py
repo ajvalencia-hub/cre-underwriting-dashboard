@@ -134,27 +134,6 @@ def test_construction_interest_honors_rate_vector():
     assert financing.interest_capitalized == pytest.approx(1.0 + 2.02)
 
 
-@pytest.fixture
-def client():
-    db_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(db_engine)
-    TestSession = sessionmaker(bind=db_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    db_engine.dispose()
-
-
 def test_forward_curve_round_trips_deal_save(client):
     deal = client.post("/api/deals", json={"name": "Floater"}).json()
     inputs = floating(

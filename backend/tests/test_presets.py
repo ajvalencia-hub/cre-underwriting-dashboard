@@ -12,30 +12,6 @@ from app.main import app
 from app.services.presets import PRESET_FIELD_IDS, SEED_PRESETS, seed_presets
 
 
-@pytest.fixture
-def session_factory():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    yield sessionmaker(bind=engine)
-    engine.dispose()
-
-
-@pytest.fixture
-def client(session_factory):
-    def _override():
-        db = session_factory()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-
-
 def test_seed_values_are_whitelisted():
     """Every seed field must be capturable, or the seeds would fail their own
     whitelist on edit."""

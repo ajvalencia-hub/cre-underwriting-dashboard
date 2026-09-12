@@ -15,27 +15,6 @@ from app.main import app
 from app.models import Template
 
 
-@pytest.fixture
-def client():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    engine.dispose()
-
-
 def _make_template(client) -> str:
     db = next(app.dependency_overrides[get_db]())
     template = Template(filename="t.xlsx", file_hash="h", stored_path="/tmp/t.xlsx")

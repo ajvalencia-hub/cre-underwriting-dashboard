@@ -83,27 +83,6 @@ def test_chart_renderers_return_none_on_unusable_data():
 
 # ------------------------------------------------------------------ PDF
 
-@pytest.fixture
-def client():
-    sql_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(sql_engine)
-    TestSession = sessionmaker(bind=sql_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    sql_engine.dispose()
-
-
 def _full_scenario(client, analytic) -> str:
     from app.models import Scenario
 

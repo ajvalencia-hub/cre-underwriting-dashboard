@@ -21,27 +21,6 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture
-def client():
-    eng = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(eng)
-    TestSession = sessionmaker(bind=eng)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    eng.dispose()
-
-
-@pytest.fixture
 def analytic() -> dict:
     return json.loads((FIXTURES / "analytic_acquisition.json").read_text())
 

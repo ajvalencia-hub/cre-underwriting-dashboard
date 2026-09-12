@@ -11,27 +11,6 @@ from app.main import app
 from app.routers import upload_limit
 
 
-@pytest.fixture
-def client():
-    db_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(db_engine)
-    TestSession = sessionmaker(bind=db_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    db_engine.dispose()
-
-
 def _deal(client) -> str:
     return client.post("/api/deals", json={"name": "Cabinet Deal"}).json()["id"]
 

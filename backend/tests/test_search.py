@@ -12,30 +12,6 @@ from app.main import app
 from app.models import SaleComp
 
 
-@pytest.fixture
-def client():
-    db_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(db_engine)
-    run_migrations(db_engine)  # adds the J13 search indexes
-    TestSession = sessionmaker(bind=db_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    client = TestClient(app)
-    client._session = TestSession  # type: ignore[attr-defined]
-    yield client
-    app.dependency_overrides.pop(get_db)
-    db_engine.dispose()
-
-
 def test_short_query_returns_nothing(client):
     assert client.get("/api/search?q=a").json()["groups"] == []
 

@@ -7,9 +7,15 @@ backend/.env
 backend/.venv/
 **/__pycache__/
 *.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
 
 # Backend runtime data (uploaded documents, generated files, database)
 backend/storage/
+# Scratch databases (Playwright smoke, seed_demo runs, ad-hoc CRE_DB_PATH)
+*.sqlite3
+frontend/.e2e-scratch/
 
 # Real underwriting templates dropped into the parity harness stay local
 backend/tests/parity/corpus/dropin/*
@@ -18,12 +24,15 @@ backend/tests/parity/corpus/dropin/*
 # Frontend (Node)
 frontend/node_modules/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
 
 # Claude Code local settings
 .claude/settings.local.json
 
-# Leftover local test fixture (not used by the app)
-/sample_template.xlsx
+# Editors
+.vscode/
+.idea/
 
 # OS / editor cruft
 .DS_Store

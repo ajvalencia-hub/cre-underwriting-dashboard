@@ -2,13 +2,26 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+# One live run per ref: a newer push to the same branch / PR cancels the run
+# still in progress instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # apt caching deliberately NOT attempted: actions/cache over
+      # /var/cache/apt is unreliable (package lists go stale and apt prunes
+      # the .deb files it just restored), and the third-party apt-cache
+      # actions choke on LibreOffice's dependency tree. A fresh install is
+      # ~1-2 minutes; accepted.
       - name: Install LibreOffice + Tesseract (parity, memo PDF, OCR paths)
         run: |
           sudo apt-get update
@@ -17,18 +30,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install backend dependencies (runtime + dev: pytest, ruff, mypy, pip-audit)
+        run: pip install -r backend/requirements-dev.txt
       - name: Run pytest (includes Excel parity via LibreOffice)
         working-directory: backend
         run: python -m pytest tests -q
-      - name: Parity CLI (divergence table)
+      - name: Parity CLI (divergence table — LibreOffice is mandatory here, no silent SKIPPED)
         working-directory: backend
-        run: python -m tests.parity.run
+        run: python -m tests.parity.run --require-libreoffice
+      # Advisory only: a freshly published CVE against a pinned dependency
+      # must not block unrelated PRs — the step annotates the run and
+      # Dependabot proposes the bump. Flip continue-on-error off once the
+      # current pins have been triaged.
+      - name: pip-audit (advisory, non-blocking)
+        continue-on-error: true
+        run: pip-audit
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,22 +71,44 @@ jobs:
       - name: Unit tests
         working-directory: frontend
         run: npm test
+      # Advisory only, same reasoning as pip-audit above.
+      - name: npm audit (advisory, non-blocking)
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
-  # J16: catch Dockerfile / compose rot — validate the compose file and build
-  # the image (build only; we don't run the container in CI).
+  # J16: catch Dockerfile / compose rot — validate the compose file, build the
+  # image, then boot it once and hit /api/health.
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose config
         run: docker compose config
       - name: Build the image
         run: docker build -t cre-dashboard:ci .
+      - name: Smoke-test the image (/api/health)
+        run: |
+          docker run -d --name cre-smoke -p 8000:8000 cre-dashboard:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health; then
+              echo; echo "healthy after ~$((i * 2))s"
+              docker rm -f cre-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/api/health never answered"
+          docker logs cre-smoke
+          docker rm -f cre-smoke
+          exit 1
 
   # Separate job so unit-test feedback stays fast — one chromium happy path
   # through the real stack (scratch-DB backend + Vite dev server).
   frontend-e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

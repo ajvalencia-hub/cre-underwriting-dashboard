@@ -12,27 +12,6 @@ from app.database import Base, get_db, run_migrations
 from app.main import app
 
 
-@pytest.fixture
-def client():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    engine.dispose()
-
-
 def test_deal_crud_round_trip(client):
     created = client.post("/api/deals", json={"name": "Maple Street"}).json()
     assert created["name"] == "Maple Street"

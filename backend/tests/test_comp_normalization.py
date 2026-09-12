@@ -13,16 +13,6 @@ from app.services import comps as comps_service
 from app.services.comps import weighted_type_median
 
 
-@pytest.fixture
-def session_factory():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    yield sessionmaker(bind=engine)
-    engine.dispose()
-
-
 def _rent(name, rent, unit_type="", sf=None):
     return RentComp(name=name, market="Miami", avg_rent=rent, unit_type=unit_type, avg_sf=sf)
 

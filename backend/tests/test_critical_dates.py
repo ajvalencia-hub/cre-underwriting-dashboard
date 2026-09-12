@@ -23,27 +23,6 @@ DATES = [
 ]
 
 
-@pytest.fixture
-def client():
-    db_engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(db_engine)
-    TestSession = sessionmaker(bind=db_engine)
-
-    def _override():
-        db = TestSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
-    app.dependency_overrides.pop(get_db)
-    db_engine.dispose()
-
-
 def _dated_deal(client) -> dict:
     inputs = json.loads((FIXTURES / "analytic_acquisition.json").read_text())
     inputs["criticalDates"] = DATES
