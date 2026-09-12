@@ -53,6 +53,10 @@ class MonteCarloBusy(RuntimeError):
     """The pool is saturated — the caller should retry later (429)."""
 
 
+class MonteCarloCancelled(Exception):
+    """Raised inside the trial loop when the job was cancelled by the client."""
+
+
 _jobs: "OrderedDict[str, dict]" = OrderedDict()
 _jobs_lock = threading.Lock()
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="monte-carlo")
@@ -236,6 +240,9 @@ def run_simulation(
     peaks: list[float] = []
     failed = 0
     for row in samples:
+        if progress is not None and progress.get("cancel"):
+            # Checked once per trial so a cancel lands within one engine pass.
+            raise MonteCarloCancelled()
         trial = {**values, "_skipCategoricalStress": True}
         for driver, value in zip(cleaned, row, strict=False):
             trial[driver["inputPath"]] = value
@@ -328,6 +335,8 @@ def start_job(
                 values, cleaned, correlations, n, seed, hurdle_irr, progress=job
             )
             job["status"] = "done"
+        except MonteCarloCancelled:
+            job["status"] = "cancelled"
         except MonteCarloError as exc:
             job["error"] = str(exc)
             job["status"] = "failed"
@@ -341,6 +350,21 @@ def start_job(
 
     _executor.submit(_run)
     return job_id
+
+
+def cancel_job(job_id: str) -> str | None:
+    """Ask a running job to stop after its current trial. Returns the job's
+    status after the request ('cancelling' while the worker winds down, or
+    its terminal status if it already finished), or None for an unknown id.
+    A queued-but-not-started job is cancelled before its first trial."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return None
+        if job["status"] != "running":
+            return str(job["status"])
+        job["cancel"] = True
+    return "cancelling"
 
 
 def pending_jobs() -> int:

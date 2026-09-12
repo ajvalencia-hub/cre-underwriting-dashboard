@@ -111,6 +111,16 @@ def monte_carlo_poll(job_id: str):
     return status
 
 
+@router.delete("/monte-carlo/{job_id}")
+def monte_carlo_cancel(job_id: str):
+    """Cancel a running job (it stops after the trial in flight). Idempotent:
+    a finished job reports its terminal status."""
+    status = monte_carlo.cancel_job(job_id)
+    if status is None:
+        raise HTTPException(404, "Unknown Monte Carlo job — it may have been evicted.")
+    return {"jobId": job_id, "status": status}
+
+
 @router.post("")
 def compute(payload: ComputeRequest, detail: bool = False):
     try:
