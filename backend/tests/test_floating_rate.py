@@ -15,13 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
-from app.main import app
 from app.services.proforma import debt, engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -117,7 +111,7 @@ def test_floating_amortization_matches_fixed_on_flat_vector():
     floating_sched = debt.amortization_schedule_floating(
         100_000, [0.06] * 24, 30, 0, 24
     )
-    for a, b in zip(fixed, floating_sched):
+    for a, b in zip(fixed, floating_sched, strict=False):
         assert b.interest == pytest.approx(a.interest, abs=1e-9)
         assert b.principal == pytest.approx(a.principal, abs=1e-9)
         assert b.balance == pytest.approx(a.balance, abs=1e-9)

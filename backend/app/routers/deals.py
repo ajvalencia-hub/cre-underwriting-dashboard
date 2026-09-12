@@ -1,14 +1,13 @@
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from fastapi.responses import HTMLResponse, Response
 
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
@@ -54,7 +53,7 @@ def archive_deal(deal_id: str, db: Session = Depends(get_db)):
     if deal is None:
         raise HTTPException(404, "Deal not found")
     if deal.archived_at is None:
-        deal.archived_at = datetime.now(timezone.utc)
+        deal.archived_at = datetime.now(UTC)
         db.commit()
         db.refresh(deal)
     return _to_out(deal)
@@ -191,7 +190,7 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
     # The existing confirm mechanics — the extraction records what was
     # reviewed and when, exactly as the standalone review gate does.
     stored.confirmed_values = payload.confirmedValues
-    stored.confirmed_at = datetime.now(timezone.utc)
+    stored.confirmed_at = datetime.now(UTC)
 
     if payload.dealId:
         deal = db.get(Deal, payload.dealId)
@@ -556,7 +555,7 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
     return {
         "exportKind": EXPORT_KIND,
         "schemaVersion": EXPORT_SCHEMA_VERSION,
-        "exportedAt": datetime.now(timezone.utc).isoformat(),
+        "exportedAt": datetime.now(UTC).isoformat(),
         "deal": {"name": deal.name, "inputs": deal.inputs,
                  "status": deal.status or "screening"},
         "activeTemplate": template_ref,

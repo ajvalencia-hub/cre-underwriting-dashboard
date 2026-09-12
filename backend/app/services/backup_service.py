@@ -19,7 +19,7 @@ import shutil
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import BACKUPS_DIR, DB_PATH, DOCUMENTS_DIR, TEMPLATES_DIR
@@ -41,13 +41,13 @@ MIN_DAILY_INTERVAL_SECONDS = 20 * 3600
 
 def _timestamp() -> str:
     # UTC, lexically sortable, filesystem-safe.
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _parse_snapshot_time(name: str) -> datetime | None:
     if not _SNAPSHOT_NAME_RE.fullmatch(name):
         return None
-    return datetime.strptime(name[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    return datetime.strptime(name[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
 
 
 def newest_snapshot_age_seconds(kind: str, *, backups_root: Path | None = None,
@@ -60,7 +60,7 @@ def newest_snapshot_age_seconds(kind: str, *, backups_root: Path | None = None,
     times = [t for p in kind_dir.iterdir() if p.is_dir() and (t := _parse_snapshot_time(p.name))]
     if not times:
         return None
-    return ((now or datetime.now(timezone.utc)) - max(times)).total_seconds()
+    return ((now or datetime.now(UTC)) - max(times)).total_seconds()
 
 
 def prune_names(names: list[str], keep: int) -> list[str]:
@@ -121,7 +121,7 @@ def perform_backup(kind: str = "daily", *, db_path: Path | None = None,
         _online_backup(db, snapshot_dir / _SNAPSHOT_NAME)
     (snapshot_dir / _MANIFEST_NAME).write_text(
         json.dumps({
-            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "createdAt": datetime.now(UTC).isoformat(),
             "kind": kind,
             "uploads": _uploads_manifest(),
         }, indent=2)
@@ -201,7 +201,7 @@ def run_scheduled_backup(*, backups_root: Path | None = None,
     if age is None or age >= MIN_DAILY_INTERVAL_SECONDS:
         perform_backup("daily", backups_root=backups_root, db_path=db_path)
         taken.append("daily")
-    week_tag = datetime.now(timezone.utc).strftime("%G-W%V")
+    week_tag = datetime.now(UTC).strftime("%G-W%V")
     if not _weekly_exists_this_week(week_tag, backups_root=backups_root):
         perform_backup("weekly", backups_root=backups_root, db_path=db_path)
         taken.append("weekly")

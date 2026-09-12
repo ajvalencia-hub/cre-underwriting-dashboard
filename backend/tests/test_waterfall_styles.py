@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.proforma import returns
+from app.services.proforma import engine, returns
 from app.services.proforma.equity import run_waterfall
-from app.services.proforma import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

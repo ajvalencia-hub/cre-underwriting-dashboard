@@ -4,13 +4,8 @@ applied (with create's validation); a kind change is rejected, and an update
 that omits kind keeps the stored one.
 """
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
+from app.database import get_db
 from app.main import app
 from app.models import Template
 

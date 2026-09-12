@@ -35,6 +35,12 @@ jobs:
             backend/requirements-dev.txt
       - name: Install backend dependencies (runtime + dev: pytest, ruff, mypy, pip-audit)
         run: pip install -r backend/requirements-dev.txt
+      - name: Lint (ruff)
+        working-directory: backend
+        run: python -m ruff check .
+      - name: Type-check (mypy, ratchet — see pyproject overrides)
+        working-directory: backend
+        run: python -m mypy app
       - name: Run pytest (includes Excel parity via LibreOffice)
         working-directory: backend
         run: python -m pytest tests -q

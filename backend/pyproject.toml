@@ -15,3 +15,37 @@ ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 exclude = ["tests/"]
+
+# Ratchet: modules below predate the type gate and are checked for syntax/
+# imports only. Remove an entry once its errors are fixed — new modules
+# are always fully checked, so the list can only shrink.
+[[tool.mypy.overrides]]
+module = [
+    "app.services.proforma.operations",
+    "app.services.proforma.engine",
+    "app.services.deck_service",
+    "app.services.memo_service",
+    "app.services.extraction.llm_extraction",
+    "app.services.document_classifier",
+    "app.routers.deals",
+    "app.services.proforma.hold",
+    "app.services.excel_model_export",
+    "app.services.extraction.ocr",
+    "app.services.comps",
+    "app.routers.templates",
+    "app.services.mapping_service",
+    "app.services.goal_seek",
+    "app.services.tornado_service",
+    "app.services.proforma.leases",
+    "app.services.extraction_service",
+    "app.routers.mappings",
+    "app.routers.documents",
+    "app.routers.comps",
+    "app.services.share_html",
+    "app.services.memo_charts",
+    "app.services.extraction.rent_roll_parser",
+    "app.services.benchmarks",
+    "app.routers.scenarios",
+    "app.services.extraction.t12_parser",
+]
+ignore_errors = true

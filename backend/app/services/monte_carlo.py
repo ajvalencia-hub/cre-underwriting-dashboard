@@ -237,7 +237,7 @@ def run_simulation(
     failed = 0
     for row in samples:
         trial = {**values, "_skipCategoricalStress": True}
-        for driver, value in zip(cleaned, row):
+        for driver, value in zip(cleaned, row, strict=False):
             trial[driver["inputPath"]] = value
         try:
             result = engine.compute(trial)

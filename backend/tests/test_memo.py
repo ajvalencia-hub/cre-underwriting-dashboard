@@ -9,12 +9,8 @@ from pathlib import Path
 
 import pytest
 from docx import Document
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
+from app.database import get_db
 from app.main import app
 from app.services import memo_service
 from app.services.proforma import engine
@@ -124,7 +120,6 @@ def client(client, monkeypatch):
         lambda *a, **k: {"location": {}, "flags": [], "unavailable": []},
     )
     return client
-    sql_engine.dispose()
 
 
 def test_memo_route_returns_docx_via_fresh_compute(client, analytic):

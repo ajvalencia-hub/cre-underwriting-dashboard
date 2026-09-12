@@ -1,14 +1,7 @@
 """H8: assumption presets — seeding (empty-table-only, deletions stick),
 CRUD, and the capturable-field whitelist enforcement."""
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
-from app.main import app
 from app.services.presets import PRESET_FIELD_IDS, SEED_PRESETS, seed_presets
 
 

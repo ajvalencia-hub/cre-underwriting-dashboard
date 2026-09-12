@@ -17,8 +17,8 @@ wild baked in on purpose:
 import openpyxl
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 MONTH_HEADERS = [
     "Jan 2026", "Feb 2026", "Mar 2026", "Apr 2026", "May 2026", "Jun 2026",

@@ -1,6 +1,7 @@
 """J16: backup rotation logic + restore round-trip on a scratch DB."""
 
 import sqlite3
+from datetime import UTC
 
 import pytest
 
@@ -152,8 +153,8 @@ def test_newest_snapshot_age_ignores_foreign_dirs(tmp_path):
     (root / "daily" / "notes").mkdir(parents=True)  # not a snapshot
     assert backup_service.newest_snapshot_age_seconds("daily", backups_root=root) is None
     (root / "daily" / "20260101T000000Z").mkdir()
-    from datetime import datetime, timezone
-    now = datetime(2026, 1, 1, 6, 0, tzinfo=timezone.utc)
+    from datetime import datetime
+    now = datetime(2026, 1, 1, 6, 0, tzinfo=UTC)
     age = backup_service.newest_snapshot_age_seconds("daily", backups_root=root, now=now)
     assert age == 6 * 3600
 

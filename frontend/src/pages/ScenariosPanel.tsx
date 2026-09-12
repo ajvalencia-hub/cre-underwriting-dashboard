@@ -38,6 +38,91 @@ interface ScenariosPanelProps {
 
 const MAX_COMPARE = 4
 
+// Hoisted to module scope: declared inside the panel it was a new component
+// type on every render, so the SVG subtree unmounted and remounted each
+// time the parent re-rendered (audit perf finding).
+function TornadoChart({
+  tornado,
+  format,
+}: {
+  tornado: TornadoResponse
+  format: (v: number) => string
+}) {
+  const width = 640
+  const rowHeight = 28
+  const labelWidth = 190
+  const chartWidth = width - labelWidth - 70
+  const bars = tornadoGeometry(tornado.bars, tornado.base, format)
+  const height = bars.length * rowHeight + 24
+  return (
+    <div className="mt-3 overflow-x-auto rounded border border-slate-200 bg-white p-3">
+      <div className="mb-1 text-xs text-slate-500">
+        Base {format(tornado.base)} — bar ends show the metric at the down/up perturbation.
+      </div>
+      <svg width={width} height={height} role="img" aria-label="Tornado chart">
+        {/* base line */}
+        <line
+          x1={labelWidth + chartWidth / 2}
+          y1={4}
+          x2={labelWidth + chartWidth / 2}
+          y2={height - 20}
+          className="stroke-chart-grid"
+          strokeDasharray="3 3"
+        />
+        {bars.map((bar, i) => {
+          const y = i * rowHeight + 8
+          const x0 = labelWidth + bar.x0 * chartWidth
+          const x1 = labelWidth + bar.x1 * chartWidth
+          return (
+            <g key={bar.key}>
+              <text x={0} y={y + 13} fontSize={11} className="fill-chart-label">
+                {bar.label}
+              </text>
+              <rect
+                x={Math.min(x0, x1)}
+                y={y}
+                width={Math.max(2, Math.abs(x1 - x0))}
+                height={16}
+                rx={2}
+                fill="#7dd3fc"
+                stroke="#0284c7"
+                strokeWidth={0.5}
+              />
+              {(() => {
+                const lowPx = labelWidth + bar.lowX * chartWidth
+                const highPx = labelWidth + bar.highX * chartWidth
+                const lowOnLeft = lowPx <= highPx
+                return (
+                  <>
+                    <text
+                      x={lowOnLeft ? Math.min(x0, x1) - 4 : Math.max(x0, x1) + 4}
+                      y={y + 12}
+                      fontSize={9}
+                      fill="#94a3b8"
+                      textAnchor={lowOnLeft ? 'end' : 'start'}
+                    >
+                      ↓ {bar.lowLabel}
+                    </text>
+                    <text
+                      x={lowOnLeft ? Math.max(x0, x1) + 4 : Math.min(x0, x1) - 4}
+                      y={y + 12}
+                      fontSize={9}
+                      fill="#94a3b8"
+                      textAnchor={lowOnLeft ? 'start' : 'end'}
+                    >
+                      ↑ {bar.highLabel}
+                    </text>
+                  </>
+                )
+              })()}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export default function ScenariosPanel({
   schema,
   template,
@@ -196,88 +281,6 @@ export default function ScenariosPanel({
     } finally {
       setTornadoBusy(false)
     }
-  }
-
-  function TornadoChart({
-    tornado,
-    format,
-  }: {
-    tornado: TornadoResponse
-    format: (v: number) => string
-  }) {
-    const width = 640
-    const rowHeight = 28
-    const labelWidth = 190
-    const chartWidth = width - labelWidth - 70
-    const bars = tornadoGeometry(tornado.bars, tornado.base, format)
-    const height = bars.length * rowHeight + 24
-    return (
-      <div className="mt-3 overflow-x-auto rounded border border-slate-200 bg-white p-3">
-        <div className="mb-1 text-xs text-slate-500">
-          Base {format(tornado.base)} — bar ends show the metric at the down/up perturbation.
-        </div>
-        <svg width={width} height={height} role="img" aria-label="Tornado chart">
-          {/* base line */}
-          <line
-            x1={labelWidth + chartWidth / 2}
-            y1={4}
-            x2={labelWidth + chartWidth / 2}
-            y2={height - 20}
-            stroke="#cbd5e1"
-            strokeDasharray="3 3"
-          />
-          {bars.map((bar, i) => {
-            const y = i * rowHeight + 8
-            const x0 = labelWidth + bar.x0 * chartWidth
-            const x1 = labelWidth + bar.x1 * chartWidth
-            return (
-              <g key={bar.key}>
-                <text x={0} y={y + 13} fontSize={11} fill="#475569">
-                  {bar.label}
-                </text>
-                <rect
-                  x={Math.min(x0, x1)}
-                  y={y}
-                  width={Math.max(2, Math.abs(x1 - x0))}
-                  height={16}
-                  rx={2}
-                  fill="#7dd3fc"
-                  stroke="#0284c7"
-                  strokeWidth={0.5}
-                />
-                {(() => {
-                  const lowPx = labelWidth + bar.lowX * chartWidth
-                  const highPx = labelWidth + bar.highX * chartWidth
-                  const lowOnLeft = lowPx <= highPx
-                  return (
-                    <>
-                      <text
-                        x={lowOnLeft ? Math.min(x0, x1) - 4 : Math.max(x0, x1) + 4}
-                        y={y + 12}
-                        fontSize={9}
-                        fill="#94a3b8"
-                        textAnchor={lowOnLeft ? 'end' : 'start'}
-                      >
-                        ↓ {bar.lowLabel}
-                      </text>
-                      <text
-                        x={lowOnLeft ? Math.max(x0, x1) + 4 : Math.min(x0, x1) - 4}
-                        y={y + 12}
-                        fontSize={9}
-                        fill="#94a3b8"
-                        textAnchor={lowOnLeft ? 'start' : 'end'}
-                      >
-                        ↑ {bar.highLabel}
-                      </text>
-                    </>
-                  )
-                })()}
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-    )
   }
 
   return (

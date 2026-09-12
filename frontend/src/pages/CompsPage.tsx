@@ -49,11 +49,11 @@ function CompsMap({ points, warnings }: { points: CompMapPoint[]; warnings: stri
         <div className="text-xs text-slate-400">No comps could be mapped.</div>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-xl" role="img" aria-label="Comp locations">
-          <rect x={0} y={0} width={W} height={H} fill="#f8fafc" rx={4} />
+          <rect x={0} y={0} width={W} height={H} className="fill-chart-bg" rx={4} />
           {points.map((p) => (
             <g key={p.id}>
               <circle cx={x(p.lon)} cy={y(p.lat)} r={5} fill="#0284c7" fillOpacity={0.75} />
-              <text x={x(p.lon) + 8} y={y(p.lat) + 3} fontSize={9} fill="#475569">
+              <text x={x(p.lon) + 8} y={y(p.lat) + 3} fontSize={9} className="fill-chart-label">
                 {p.name}
               </text>
             </g>

@@ -103,7 +103,7 @@ def sources_uses_bars(sources_and_uses: dict | None) -> bytes | None:
         return None
 
     fig, axes = plt.subplots(1, 2, figsize=(6.4, 2.6))
-    for ax, (title, entries) in zip(axes, (("Uses", uses), ("Sources", sources))):
+    for ax, (title, entries) in zip(axes, (("Uses", uses), ("Sources", sources)), strict=False):
         labels = [e[0] for e in entries]
         amounts = [e[1] for e in entries]
         ax.barh(labels, amounts, color=_BRAND)
@@ -135,7 +135,7 @@ def demographics_bars(demographics: dict | None) -> bytes | None:
     fig, axes = plt.subplots(len(bars), 1, figsize=(4.6, 0.55 * len(bars) + 0.4))
     if len(bars) == 1:
         axes = [axes]
-    for ax, (label, value) in zip(axes, bars):
+    for ax, (label, value) in zip(axes, bars, strict=False):
         ax.barh([0], [value], color=_BRAND, height=0.5)
         ax.set_yticks([0])
         ax.set_yticklabels([label], fontsize=8)
@@ -168,7 +168,7 @@ def tornado_bars(tornado: dict | None) -> bytes | None:
     highs = [(b.get("high") if b.get("high") is not None else base) - base for b in bars]
 
     fig, ax = plt.subplots(figsize=(6, 0.5 * len(bars) + 0.8))
-    for i, (lo, hi) in enumerate(zip(lows, highs)):
+    for i, (lo, hi) in enumerate(zip(lows, highs, strict=False)):
         left, width = min(lo, hi), abs(hi - lo)
         ax.barh(i, width, left=left, color=_BRAND, height=0.6)
     ax.axvline(0, color="#94a3b8", linewidth=0.8)

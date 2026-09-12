@@ -2,7 +2,6 @@
 backups endpoints' wiring (the backup mechanics themselves are covered in
 test_backup.py)."""
 
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

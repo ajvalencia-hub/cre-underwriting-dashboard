@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 GROUP_LIMIT = 8
 
 
-def _rank_key(text: str, q: str) -> tuple[int, str]:
+def _rank_key(text: str | None, q: str) -> tuple[int, str]:
     lowered = (text or "").lower()
     return (0 if lowered.startswith(q) else 1, lowered)
 
@@ -42,9 +42,9 @@ def _deal_type_of(inputs: dict) -> str | None:
 def search(q: str = "", db: Session = Depends(get_db)):
     q = q.strip().lower()
     type_filter = None
-    for prefix, deal_type in _TYPE_PREFIXES.items():
+    for prefix, facet_type in _TYPE_PREFIXES.items():
         if q.startswith(prefix):
-            type_filter = deal_type
+            type_filter = facet_type
             q = q[len(prefix):].strip()
             break
     if len(q) < 2:
@@ -132,7 +132,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
     )[:GROUP_LIMIT]
 
     # Tenants across deals: JSON arrays, Python scan (see module docstring).
-    tenant_items = []
+    tenant_items: list[dict] = []
     for deal in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars():
         deal_type = _deal_type_of(deal.inputs)
         if type_filter and deal_type != type_filter:

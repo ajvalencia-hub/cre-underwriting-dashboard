@@ -1,14 +1,10 @@
 """J13: global search endpoint — grouping, prefix>substring ranking, the
 tenant scan over lease rolls, and the LIKE-index migration."""
 
-import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db, run_migrations
-from app.main import app
+from app.database import Base, run_migrations
 from app.models import SaleComp
 
 

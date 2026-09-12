@@ -8,12 +8,8 @@ from pathlib import Path
 
 import pytest
 from docx import Document
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
+from app.database import get_db
 from app.main import app
 from app.services import memo_charts, memo_service, soffice
 from app.services.proforma import engine, hold

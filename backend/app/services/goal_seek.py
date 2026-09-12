@@ -10,9 +10,9 @@ is pure, so repeated goal-seeks over the same deal re-use prior points.
 """
 
 import json
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
 
 from app.services import compute_cache
 from app.services.proforma import engine
@@ -107,7 +107,7 @@ def _solve(
     # Every adjacent pair of VALID points with a sign change brackets a
     # solution (a None between two points breaks the bracket).
     crossings: list[tuple[float, float, float, float]] = []
-    for a, b in zip(scanned, scanned[1:]):
+    for a, b in zip(scanned, scanned[1:], strict=False):
         if a["metric"] is None or b["metric"] is None:
             continue
         fa, fb = a["metric"] - target, b["metric"] - target

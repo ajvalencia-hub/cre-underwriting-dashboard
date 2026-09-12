@@ -3,11 +3,7 @@ $/SF -> pooled with a low-confidence note), the per-tier minimum-3 rule,
 and the sale-comp basis note."""
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base
 from app.models import RentComp, SaleComp
 from app.services import comps as comps_service
 from app.services.comps import weighted_type_median

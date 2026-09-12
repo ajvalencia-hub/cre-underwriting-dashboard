@@ -1,13 +1,8 @@
 """G7: deal export/import — round-trip equality, version rejection, id
 rewriting, and template-placeholder handling."""
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
+from app.database import get_db
 from app.main import app
 from app.models import Template
 

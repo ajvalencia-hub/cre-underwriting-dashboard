@@ -596,6 +596,7 @@ function SensitivityResults({
                         <td
                           key={`${j}-${v2}`}
                           className="border border-slate-200 px-2 py-1 text-center"
+                          data-heat-cell={point ? "" : undefined}
                           style={{ backgroundColor: point ? heatColor(t) : undefined }}
                         >
                           {point ? formatOutputValue(m, point.outputs[m.id]) : '—'}

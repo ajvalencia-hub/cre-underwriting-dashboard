@@ -82,7 +82,7 @@ function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
       {rows.map((r) => (
         <g key={r.holdYear}>
           {r.leveredIrr != null && <circle cx={xFor(r.holdYear)} cy={yIrr(r.leveredIrr)} r={2.5} fill="#0284c7" />}
-          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} fill="#64748b" textAnchor="middle">
+          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} className="fill-chart-muted" textAnchor="middle">
             Y{r.holdYear}
           </text>
         </g>
@@ -447,10 +447,10 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
                         stroke="#0284c7"
                         strokeWidth={0.5}
                       />
-                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} fill="#475569" textAnchor="middle">
+                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} className="fill-chart-label" textAnchor="middle">
                         {Math.round(row.pctOfRent * 100)}%
                       </text>
-                      <text x={i * 56 + 26} y={102} fontSize={10} fill="#64748b" textAnchor="middle">
+                      <text x={i * 56 + 26} y={102} fontSize={10} className="fill-chart-muted" textAnchor="middle">
                         {row.year}
                       </text>
                     </g>

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.config import DOCUMENTS_DIR
 from app.database import get_db
 from app.models import Document
-from app.schemas import DocumentSummary, DocumentTypeUpdate
 from app.routers.upload_limit import read_upload_limited
+from app.schemas import DocumentSummary, DocumentTypeUpdate
 from app.services import document_classifier
 from app.services.template_service import compute_file_hash
 

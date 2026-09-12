@@ -131,7 +131,7 @@ def parse_label_value_pairs(headers: list[str], data_rows: list[list], source_do
             continue
 
         row_matched = False
-        for label_str, value, value_col in pairs:
+        for label_str, value, _value_col in pairs:
             norm_label = _normalize(label_str)
             if not norm_label:
                 continue

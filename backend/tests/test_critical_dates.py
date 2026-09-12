@@ -6,15 +6,6 @@ export/import round-trip. Ordering/overdue logic lives in the frontend lib
 import json
 from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.database import Base, get_db
-from app.main import app
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 DATES = [

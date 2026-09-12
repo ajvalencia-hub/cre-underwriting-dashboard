@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -211,7 +213,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
     deal-scoped scenario list still shows them. Only creates the Default Deal
     when orphans actually exist."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     inspector = inspect(eng)
     tables = inspector.get_table_names()
@@ -229,7 +231,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
         ).scalar()
         if default_deal_id is None:
             default_deal_id = str(uuid.uuid4())
-            now = datetime.now(timezone.utc).isoformat(sep=" ")
+            now = datetime.now(UTC).isoformat(sep=" ")
             # status only exists once create_all/_migrate_deals_status has run;
             # both happen before this backfill, but a hand-built legacy table
             # may still lack it — probe instead of assuming.

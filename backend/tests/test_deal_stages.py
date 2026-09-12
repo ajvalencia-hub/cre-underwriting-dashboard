@@ -3,14 +3,8 @@ input_schema.json), status validation against the union, and typed
 portfolio aggregation."""
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
-from app.main import app
 from app.schemas import DEAL_STAGES_BY_TYPE, DEAL_STATUSES, DealUpdate
 
 

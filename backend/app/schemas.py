@@ -117,6 +117,7 @@ class DealIn(BaseModel):
 # never has an invalid status; each board's UI constrains to its own set.
 def _load_deal_stages() -> dict[str, list[str]]:
     import json
+
     from app.config import INPUT_SCHEMA_PATH
 
     return json.loads(INPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["dealStages"]

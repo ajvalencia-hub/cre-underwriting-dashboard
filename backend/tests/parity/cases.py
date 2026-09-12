@@ -3,9 +3,9 @@ real templates under corpus/dropin/<name>/{template.xlsx, mapping.json,
 inputs.json} (gitignored — put real firm templates there locally)."""
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from tests.parity import builders
 

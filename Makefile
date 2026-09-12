@@ -3,8 +3,8 @@
 #   make test        backend pytest (full suite incl. parity + goldens)
 #   make parity      native-vs-Excel divergence table (needs LibreOffice)
 #   make baseline    regenerate the Run-4 regression baseline (expansion only)
-#   make lint        placeholder until the ruff pass lands
-#   make typecheck   placeholder until the mypy pass lands
+#   make lint        ruff (backend) + oxlint (frontend)
+#   make typecheck   mypy (backend) + tsc (frontend)
 #   make e2e         Playwright smoke (boots scratch-DB backend + Vite)
 #   make build       frontend typecheck + production bundle
 #   make docker      build the single-image app
@@ -39,11 +39,11 @@ baseline:
 # formatted against them yet. A later pass swaps these echoes for the real
 # commands (ruff check backend / mypy backend/app).
 lint:
-	@echo "lint: ruff not enabled yet (see backend/pyproject.toml)"
+	cd backend && ../$(PY) -m ruff check .
 	cd frontend && npm run lint
 
 typecheck:
-	@echo "typecheck: mypy not enabled yet (see backend/pyproject.toml)"
+	cd backend && ../$(PY) -m mypy app
 	cd frontend && npx tsc -b
 
 e2e:

@@ -17,7 +17,7 @@ def _normalize(name: str) -> str:
 
 
 def load_flat_fields(include_outputs: bool = False) -> list[dict]:
-    with open(INPUT_SCHEMA_PATH, "r", encoding="utf-8") as f:
+    with open(INPUT_SCHEMA_PATH, encoding="utf-8") as f:
         schema = json.load(f)
     fields = []
     for section in schema["sections"]:
@@ -28,7 +28,7 @@ def load_flat_fields(include_outputs: bool = False) -> list[dict]:
 
 
 def load_output_fields() -> list[dict]:
-    with open(INPUT_SCHEMA_PATH, "r", encoding="utf-8") as f:
+    with open(INPUT_SCHEMA_PATH, encoding="utf-8") as f:
         schema = json.load(f)
     return schema.get("outputs", [])
 

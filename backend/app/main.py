@@ -5,17 +5,14 @@ import time
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import auth
 from app.config import CORS_ORIGINS
 from app.database import Base, SessionLocal, engine, run_migrations
-from app.services.presets import seed_presets
-from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
     admin,
-    auth as auth_router,
     client_errors,
     comps,
     compute,
@@ -31,12 +28,17 @@ from app.routers import (
     portfolio,
     presets,
     property_tax,
-    schema,
     scenarios,
+    schema,
     search,
     sensitivity,
     templates,
 )
+from app.routers import (
+    auth as auth_router,
+)
+from app.services.presets import seed_presets
+from app.services.storage_maintenance import sweep_generated_files
 
 logging.basicConfig(
     level=logging.INFO,
