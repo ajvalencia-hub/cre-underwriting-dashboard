@@ -30,6 +30,16 @@ def parse_numeric(value) -> float | None:
     # letting "12%" flow through as 12.0 (100x too large).
     is_percent = "%" in text
     text = text.replace("%", "")
+    # A letter anywhere outside the $/,/space formatting chars means this
+    # isn't a number at all — "JUN 25" or "12 Month Recap" must return None,
+    # not silently parse whatever digits they happen to contain. Without
+    # this guard, _NUMERIC_RE.sub below strips the letters and "JUN 25"
+    # parses as 25.0, which previously broke the T-12 header-row
+    # auto-detector (it relies on parse_numeric to tell text cells from
+    # number cells) into picking a decorative title row over the real
+    # month-header row.
+    if re.search(r"[a-zA-Z]", re.sub(r"[$,\s]", "", text)):
+        return None
     cleaned = _NUMERIC_RE.sub("", text)
     if cleaned in ("", "-", "."):
         return None

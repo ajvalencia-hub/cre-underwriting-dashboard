@@ -11,7 +11,6 @@ from app.database import get_db
 from app.models import RentComp, SaleComp
 from app.routers.upload_limit import read_upload_limited
 from app.services import comps as comps_service
-from app.services.sql_like import LIKE_ESCAPE, contains
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
@@ -164,12 +163,11 @@ def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     from app.services.data_sources.source_cache import cached_fetch
 
     model = _model_for(kind)
-    query = select(model).order_by(model.created_at.desc())
-    if market.strip():
-        query = query.where(model.market.ilike(contains(market.strip()), escape=LIKE_ESCAPE))
+    query = comps_service.market_prefilter(select(model).order_by(model.created_at.desc()), model, market)
+    comps = [c for c in db.execute(query).scalars() if comps_service.market_matches(c.market, market)]
     points: list[dict] = []
     warnings: list[str] = []
-    for comp in db.execute(query).scalars():
+    for comp in comps:
         if not comp.address:
             warnings.append(f"{comp.name}: no address — not mapped.")
             continue
@@ -216,10 +214,9 @@ async def import_csv_file(
 @router.get("/{kind}")
 def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
-    query = select(model).order_by(model.created_at.desc())
-    if market.strip():
-        query = query.where(model.market.ilike(contains(market.strip()), escape=LIKE_ESCAPE))
-    return [_to_out(c, kind) for c in db.execute(query).scalars()]
+    query = comps_service.market_prefilter(select(model).order_by(model.created_at.desc()), model, market)
+    comps = [c for c in db.execute(query).scalars() if comps_service.market_matches(c.market, market)]
+    return [_to_out(c, kind) for c in comps]
 
 
 @router.post("/{kind}")
