@@ -16,13 +16,15 @@ from dataclasses import dataclass
 
 
 def monthly_payment(principal: float, annual_rate: float, amort_years: float) -> float:
-    """Standard level-payment mortgage PMT."""
+    """Standard level-payment mortgage PMT. amort_years <= 0 means a fully
+    interest-only loan (Run 6 [FIN]): the payment is the month's interest —
+    never the whole principal balloon the old degenerate branch returned."""
     if principal <= 0:
         return 0.0
     n = round(amort_years * 12)
-    if n <= 0:
-        return principal  # degenerate: no amortization period -> due now
     r = annual_rate / 12
+    if n <= 0:
+        return principal * r
     if r == 0:
         return principal / n
     return principal * r / (1 - (1 + r) ** -n)
@@ -144,10 +146,11 @@ def amortization_schedule(
     r = annual_rate / 12
     balance = principal
     payment = monthly_payment(principal, annual_rate, amort_years)
+    fully_io = round(amort_years * 12) <= 0  # Run 6: amort 0 = IO for the whole term
 
     for month in range(1, months + 1):
         interest = balance * r
-        if month <= io_months:
+        if month <= io_months or fully_io:
             principal_paid = 0.0
         else:
             principal_paid = min(payment - interest, balance)
@@ -261,12 +264,18 @@ def construction_financing(
     annual_rate: float,
     origination_fee_pct: float = 0.0,
     rate_vector: list[float] | None = None,
+    fee_basis_amount: float | None = None,
 ) -> ConstructionFinancing:
     """Equity-first funding of a monthly cost schedule; loan interest accrues
     on the drawn balance and is capitalized (added to the balance). The
     origination fee is drawn at the first loan draw. J5: when rate_vector is
     given (annual rate per deal month 1..n), construction interest accrues at
-    that month's floating rate instead of the fixed annual_rate."""
+    that month's floating rate instead of the fixed annual_rate.
+
+    Run 6: `fee_basis_amount` is the fee base — the sized construction-loan
+    COMMITMENT when the deal selects constructionFeeBasis=commitment. None
+    (the compat default) keeps the original first-draw basis, so every
+    existing payload reproduces exactly."""
     r = annual_rate / 12
     equity_remaining = total_equity
     balance = 0.0
@@ -283,10 +292,12 @@ def construction_financing(
         draw = cost - equity_used
 
         if draw > 0 and fee_total == 0.0 and origination_fee_pct > 0:
-            # Fee is computed on the eventual commitment; charging it on the
-            # first draw against the drawn balance is the simplification here
-            # (F2); it capitalizes like interest.
-            fee_total = draw * origination_fee_pct
+            # Charged once, at the first loan draw, and capitalized like
+            # interest. Base = the commitment when the caller passes one
+            # (constructionFeeBasis=commitment), else the first draw itself
+            # (the F2 simplification, kept as the compat default).
+            fee_base = fee_basis_amount if fee_basis_amount is not None else draw
+            fee_total = fee_base * origination_fee_pct
             balance += fee_total
 
         balance += draw

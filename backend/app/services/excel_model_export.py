@@ -131,9 +131,22 @@ def unsupported_features(inputs: dict) -> list[str]:
             lease_up_months=_num(inputs, "leaseUpMonths") or None,
             stabilization_month=_num(inputs, "stabilizationMonth") or None,
         )
-        if timeline.stabilization_month > timeline.total_months:
+        if timeline.construction_months <= 0:
+            # Run 6 (B5): the Draws sheet models month 0 as land only; the
+            # engine puts the WHOLE budget at month 0 when there is no
+            # construction period — the workbook would be silently wrong.
             features.append(
-                "development sold before stabilization (no permanent takeout occurs)"
+                "development with no construction period (enter a Construction "
+                "Period in months — constructionMonths must be at least 1)"
+            )
+        elif timeline.stabilization_month >= timeline.total_months:
+            # Run 6 (B1): the engine takes out the perm loan only when it has
+            # a month to live before exit; a sale IN the stabilization month
+            # repays construction debt from proceeds — a path this workbook
+            # does not mirror.
+            features.append(
+                "development sold before stabilization or in its stabilization "
+                "month (no permanent takeout occurs)"
             )
     return features
 
@@ -288,6 +301,15 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         put("equityTarget", "Equity (funds first)", f"={R['totalExFin']}*(1-{R['ltc']})")
         put("spread", "Refi/perm rate spread", _num(inputs, "refiRateSpreadPct"))
         put("refiCostsPct", "Refi costs % (of perm loan)", _num(inputs, "refiCostsPct"))
+        # Run 6 (B6): the construction fee base — mirrors the engine's
+        # constructionFeeBasis (first_draw = compat default, commitment =
+        # LTC x total budget ex financing).
+        fee_basis = inputs.get("constructionFeeBasis") or "first_draw"
+        if fee_basis not in ("first_draw", "commitment"):
+            fee_basis = "first_draw"
+        put("feeBasis", "Construction fee basis (first_draw | commitment)", fee_basis)
+        put("commitment", "Construction loan commitment (LTC x budget)",
+            f"={R['totalExFin']}*{R['ltc']}")
     else:
         put("price", "Purchase price", _num(inputs, "purchasePrice"))
         put("closingPct", "Closing costs %", _num(inputs, "closingCostsPct"))
@@ -317,6 +339,8 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     put("ramp", "Lease-up ramp (months)", ramp)
     put("exitCap", "Exit cap rate", _num(inputs, "exitCapRatePct"))
     put("cos", "Cost of sale %", _num(inputs, "costOfSalePct"))
+    put("prepay", "Prepayment penalty % (of exit loan balance)",
+        _num(inputs, "prepaymentPenaltyPct"))
     put("disc", "Discount rate", _num(inputs, "discountRatePct", 0.10))
     put("inPlaceNoi", "In-place NOI (0 = use year 1)", _num(inputs, "inPlaceNoi"))
     put("totalUnits", "Total units (per_unit basis)", total_units)
@@ -387,9 +411,13 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             )
             draws.cell(row=r, column=5, value=f"=C{r}-D{r}")
             prior_draws = f"SUM(E$2:E{r - 1})" if r > 2 else "0"
+            # Run 6 (B6): fee at the first draw on the selected base.
             draws.cell(
                 row=r, column=6,
-                value=f"=IF(AND(E{r}>0,{prior_draws}=0),{R['origFee']}*E{r},0)",
+                value=(
+                    f"=IF(AND(E{r}>0,{prior_draws}=0),{R['origFee']}"
+                    f'*IF({R["feeBasis"]}="commitment",{R["commitment"]},E{r}),0)'
+                ),
             )
             prev_bal = f"H{r - 1}" if r > 2 else "0"
             pre_interest = f"({prev_bal}+F{r}+E{r})"
@@ -443,7 +471,8 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             continue  # forward window: income only, no debt or cash flows
 
         exit_u = f"+IF($A{r}={R['hold']},Outputs!$B$6,0)"
-        exit_l = f"+IF($A{r}={R['hold']},Outputs!$B$6-O{r},0)"
+        # Run 6: the exit payoff carries the prepayment penalty (balance x pct).
+        exit_l = f"+IF($A{r}={R['hold']},Outputs!$B$6-O{r}*(1+{R['prepay']}),0)"
 
         if not is_dev:
             begin = R["loan"] if m == 1 else f"O{r - 1}"
@@ -532,11 +561,14 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         equity_formula = f"=B2-{R['loan']}+B3"
         pmt_loan, pmt_rate = R["loan"], R["rate"]
 
+    # Run 6 (B4): amortYears = 0 is a fully interest-only loan — the PMT is
+    # the monthly interest (the old formula divided by zero periods).
+    amort_n = f"ROUND({R['amort']}*12,0)"
     helper_rows = [
         ("Monthly payment (PMT)",
-         f"=IF({pmt_loan}<=0,0,IF({pmt_rate}=0,"
-         f"{pmt_loan}/ROUND({R['amort']}*12,0),"
-         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-ROUND({R['amort']}*12,0))))"),
+         f"=IF({pmt_loan}<=0,0,IF({amort_n}<=0,{pmt_loan}*{pmt_rate}/12,IF({pmt_rate}=0,"
+         f"{pmt_loan}/{amort_n},"
+         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-{amort_n}))))"),
         ("Total cost basis", basis_formula),
         ("Loan fees", fees_formula),
         ("Initial equity", equity_formula),
@@ -544,7 +576,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
          f"=SUM(Model!$K${fwd_first}:$K${fwd_last})/{R['exitCap']}"),
         ("Gross sale net of costs", f"=B5*(1-{R['cos']})"),
         ("Exit loan balance", f"=Model!$O${hold_row}"),
-        ("Net sale proceeds", "=B6-B7"),
+        ("Net sale proceeds", f"=B6-B7*(1+{R['prepay']})"),
         ("Stabilized EGI (today's rents)",
          f"={R['gpr']}*(1-{R['vac']})*(1-{R['credit']})+{R['other']}"),
         ("Stabilized NOI",

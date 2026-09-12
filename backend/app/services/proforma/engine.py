@@ -177,6 +177,40 @@ def compute(inputs: dict) -> dict:
     warnings.extend(tl_warnings)
     total = timeline.total_months
 
+    # Run 6 validation warnings — cheap input-shape checks, never errors.
+    if _num(inputs, "lossToLeasePct") > 0 and any(
+        isinstance(r, dict) and _num(r, "annualTurnoverPct") > 0
+        for r in (inputs.get("unitMix") or [])
+    ):
+        warnings.append(
+            "lossToLeasePct is set alongside a unit-mix turnover burn-off "
+            "(annualTurnoverPct) — the GPR haircut and the burn-off both "
+            "model the in-place-vs-market gap; check for double counting."
+        )
+    if _num(inputs, "replacementReserves") > 0 and (
+        _num(inputs, "replacementReservesPerUnit") > 0
+        or _num(inputs, "replacementReservesPsf") > 0
+    ):
+        warnings.append(
+            "Flat replacementReserves (inside opex) and per-unit / PSF reserves "
+            "are both set — reserves are being charged twice."
+        )
+    if (
+        deal_type == "development"
+        and inputs.get("sizingNoiBasis") == "in_place"
+        and _num(inputs, "inPlaceNoi") <= 0
+    ):
+        warnings.append(
+            "sizingNoiBasis=in_place on a development resolves to year-1 NOI "
+            "(construction period, ~0) — the DSCR and debt-yield sizing "
+            "constraints vanish; use stabilized or underwritten."
+        )
+    if exit_cap < 0.01:
+        warnings.append(
+            f"exitCapRatePct {exit_cap:.2%} is below 1% — the terminal value "
+            "(forward NOI / cap) is implausibly large; check the input."
+        )
+
     # Operate 12 months past exit so the terminal value can be capped on
     # FORWARD 12-month NOI (institutional convention).
     extended = Timeline(
@@ -377,9 +411,24 @@ def compute(inputs: dict) -> dict:
         # LTC applies to the hard basis (ex financing); interest and fees are
         # loan-funded on top (interest-reserve convention). See DECISIONS.md.
         equity_target = budget.total_ex_financing * (1 - ltc_or_ltv)
+        # Run 6 (B6): the construction origination fee's base. "commitment"
+        # = the LTC-sized construction loan (total budget ex financing x
+        # LTC — the amount the lender commits to fund; capitalized carry is
+        # loan-funded on top and is NOT in the fee base). "first_draw" (the
+        # compat default) keeps the F2 simplification exactly.
+        fee_basis = inputs.get("constructionFeeBasis") or "first_draw"
+        if fee_basis not in ("first_draw", "commitment"):
+            warnings.append(
+                f"Unknown constructionFeeBasis '{fee_basis}' — using first_draw."
+            )
+            fee_basis = "first_draw"
+        construction_commitment = budget.total_ex_financing * ltc_or_ltv
         financing = debt.construction_financing(
             cost_schedule, equity_target, interest_rate, origination_fee_pct,
             rate_vector=rate_vec,
+            fee_basis_amount=(
+                construction_commitment if fee_basis == "commitment" else None
+            ),
         )
         total_cost_basis = (
             budget.total_ex_financing
@@ -451,13 +500,19 @@ def compute(inputs: dict) -> dict:
         # costs) preserve the original at-par behavior exactly.
         refi_spread = _num(inputs, "refiRateSpreadPct")
         perm_rate = interest_rate + refi_spread
-        if rate_vec is not None and takeout_month <= total:
+        if rate_vec is not None and takeout_month < total:
             # J5: the floating takeout prices at the in-force rate at the
             # takeout month plus the refi spread, and keeps floating.
             perm_rate = rate_vec[takeout_month - 1] + refi_spread
         refi_costs_pct = _num(inputs, "refiCostsPct")
 
-        if takeout_month <= total:
+        # Run 6 (B1) [FIN]: the perm takeout happens only when the loan has
+        # at least one month to live BEFORE the exit settles. A deal sold in
+        # its stabilization month (the refi-vs-sale "sale" leg sets the hold
+        # to exactly that month) never originates the perm loan — the
+        # construction balance is repaid from sale proceeds, with no refi
+        # costs and no one-month perm schedule.
+        if takeout_month < total:
             # Constraint-sized permanent takeout; the delta vs the
             # construction balance is a cash-out to equity (+) or a paydown
             # capital call (-). An all-equity build (LTC = 0) never takes on
@@ -642,7 +697,13 @@ def compute(inputs: dict) -> dict:
                 )
 
     unlevered[total] += gross_sale_net_of_costs
-    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
+    # Run 6 [FIN]: prepayment penalty = prepaymentPenaltyPct x the senior
+    # balance repaid at exit. It rides INSIDE the exit payoff (net sale
+    # proceeds = gross net of costs − balance − penalty), the same place the
+    # payoff itself is netted today — levered only; unlevered flows and the
+    # terminal value never see it. Default 0 reproduces every payload.
+    prepayment_penalty = exit_debt_balance * _num(inputs, "prepaymentPenaltyPct")
+    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance - prepayment_penalty
     levered[total] += net_sale_proceeds
     if net_sale_proceeds < 0:
         warnings.append(
@@ -809,10 +870,15 @@ def compute(inputs: dict) -> dict:
 
     total_equity_in = -sum(cf for cf in levered if cf < 0)
     if total_equity_in > 0:
-        # Operating-only cash flows (exclude the exit settlement).
+        # Operating-only cash flows (exclude the exit settlement). Run 6
+        # (B3): the junior-tranche payoff and the escrow release are capital
+        # events in the exit month too — stripped alongside the sale.
         operating = [levered[m] for m in range(1, total + 1)]
         if total >= 1:
             operating[-1] -= net_sale_proceeds
+            operating[-1] -= escrow_amount
+            if junior_block is not None:
+                operating[-1] += junior_block["payoff"]
         year1_window = operating[: min(12, len(operating))]
         if year1_window:
             annualized_y1 = sum(year1_window) * (12 / len(year1_window))
@@ -833,6 +899,8 @@ def compute(inputs: dict) -> dict:
 
     put("terminalValue", terminal_value)
     put("netSaleProceeds", net_sale_proceeds)
+    if prepayment_penalty > 0:
+        put("prepaymentPenalty", prepayment_penalty)  # conditional (Run 6)
     put("totalProfit", sum(levered))
 
     yield_on_cost = stabilized_noi / total_cost_basis if total_cost_basis > 0 else None
@@ -1115,6 +1183,13 @@ def compute(inputs: dict) -> dict:
         escrow_vec[0] = -escrow_amount
         escrow_vec[total] += escrow_amount
         statement["escrowFlows"] = escrow_vec
+    if prepayment_penalty > 0:
+        # Run 6: conditional DISPLAY row — the penalty is already netted
+        # inside saleProceedsNet (the exit payoff line), so the levered
+        # identity is unchanged; this row only makes the deduction visible.
+        penalty_vec = [0.0] * (total + 1)
+        penalty_vec[total] = prepayment_penalty
+        statement["prepaymentPenalty"] = penalty_vec
     if am_fees_total > 0:
         # J3: conditional partnership-expense row (below NOI, levered only).
         statement["assetMgmtFee"] = am_fee_vec
@@ -1159,6 +1234,11 @@ def compute(inputs: dict) -> dict:
             def _avg_annual_operating_cf(stmt: dict) -> float:
                 months = stmt["exitMonth"]
                 operating = sum(stmt["levered"][1 : months + 1]) - stmt["saleProceedsNet"][months]
+                # Run 6 (B3): same capital-event strip as avgCashOnCash.
+                if "escrowFlows" in stmt:
+                    operating -= stmt["escrowFlows"][months]
+                if "juniorPayoff" in stmt:
+                    operating += stmt["juniorPayoff"][months]
                 return operating / (months / 12) if months else 0.0
 
             base_cf = _avg_annual_operating_cf(statement)

@@ -92,7 +92,10 @@ def run_tornado(values: dict, metric: str = "leveredIrr") -> dict:
     sorted by impact descending. Drivers whose perturbed compute fails, or
     that don't move the metric, still appear (impact 0) so the chart is
     honest about what was tested."""
-    base_result = engine.compute(values)
+    # Run 6 (P1): the tornado reads outputs[metric] only — every compute
+    # skips the insurance-stress sub-computes (detail-mode deals with an
+    # insurance line would otherwise run 3 engine passes per bar end).
+    base_result = engine.compute({**values, "_skipCategoricalStress": True})
     base = base_result["outputs"].get(metric)
     if base is None:
         raise ValueError(
@@ -104,7 +107,9 @@ def run_tornado(values: dict, metric: str = "leveredIrr") -> dict:
         low = high = None
         for direction, slot in ((-1, "low"), (1, "high")):
             try:
-                perturbed = engine.compute(perturb(values, driver["key"], direction))
+                perturbed = engine.compute(
+                    {**perturb(values, driver["key"], direction), "_skipCategoricalStress": True}
+                )
                 value = perturbed["outputs"].get(metric)
             except engine.InsufficientInputsError:
                 value = None

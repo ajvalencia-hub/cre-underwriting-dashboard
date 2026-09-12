@@ -73,7 +73,9 @@ def run_native_sensitivity(
     for combo in combos:
         values = {**base_values, **combo}
         try:
-            result = engine.compute(values)
+            # Run 6 (P1): grid points read outputs only — skip the
+            # insurance-stress sub-computes.
+            result = engine.compute({**values, "_skipCategoricalStress": True})
             outputs = {
                 key: value
                 for key, value in result["outputs"].items()

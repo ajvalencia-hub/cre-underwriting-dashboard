@@ -51,7 +51,12 @@ def hold_sweep(inputs: dict) -> dict:
     rows = []
     for hold_year in range(first_year, int(modeled_hold) + 1):
         try:
-            result = engine.compute({**inputs, "holdPeriodYears": hold_year})
+            # Run 6 (P1): rows read outputs only — skip the insurance-stress
+            # sub-computes (3x cost in detail mode), whose only product is
+            # debt.insuranceStress.
+            result = engine.compute(
+                {**inputs, "holdPeriodYears": hold_year, "_skipCategoricalStress": True}
+            )
         except engine.InsufficientInputsError as exc:
             warnings.append(f"Hold year {hold_year}: not computable ({', '.join(exc.missing)})")
             continue
@@ -99,9 +104,15 @@ def refi_vs_sale(inputs: dict) -> dict:
             ],
         }
 
+    # Run 6 (B1): with the hold ending IN the stabilization month the engine
+    # skips the perm takeout (no refi costs, no one-month perm schedule) —
+    # a seller at stabilization never originates the perm loan. P1: neither
+    # leg reads debt.insuranceStress, so both skip the stress sub-computes.
     sale_hold_years = stabilization_month / 12
     try:
-        sale = engine.compute({**inputs, "holdPeriodYears": sale_hold_years})
+        sale = engine.compute(
+            {**inputs, "holdPeriodYears": sale_hold_years, "_skipCategoricalStress": True}
+        )
         sale_side = {
             "holdYears": round(sale_hold_years, 2),
             "leveredIrr": sale["outputs"].get("leveredIrr"),
@@ -113,7 +124,7 @@ def refi_vs_sale(inputs: dict) -> dict:
         warnings.append(f"Sale-at-stabilization not computable: {', '.join(exc.missing)}")
 
     try:
-        base = engine.compute(inputs)
+        base = engine.compute({**inputs, "_skipCategoricalStress": True})
         statement = base["statement"]
         takeout = min(stabilization_month, len(statement["debtDraws"]) - 1)
         refi_side = {
