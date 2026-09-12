@@ -79,7 +79,11 @@ def _to_out(comp, kind: str) -> dict:
 def _apply(comp, payload: dict, kind: str):
     for json_field, attr in _KIND_ATTRS[kind].items():
         if json_field in payload and payload[json_field] is not None:
-            setattr(comp, attr, payload[json_field])
+            value = payload[json_field]
+            # Text fields are stored trimmed: the name guard already checked
+            # the stripped value, and market/address matching compares what
+            # the user typed, not incidental padding.
+            setattr(comp, attr, value.strip() if isinstance(value, str) else value)
 
 
 class ImportRequest(BaseModel):
