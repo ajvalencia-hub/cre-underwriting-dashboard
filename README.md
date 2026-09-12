@@ -74,6 +74,12 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
   importer. Comps feed the benchmark flags once ≥3 exist in a market.
 - **Portfolio** — equity-weighted blended returns across active deals,
   exposure by market / asset class, concentration, CSV export.
+- **Agent** — a per-deal chat assistant that answers only through the
+  dashboard's own tools (compute, goal-seek, tornado, sensitivity, comps,
+  market context), proposes input changes as reviewable cards instead of
+  editing anything, and flags any number in its reply that no tool
+  returned. Also available as a floating dock. See
+  [Underwriting Agent](#underwriting-agent).
 - **Settings** — **Appearance** (light / dark / system theme, applied before
   first paint), **Backups** (list daily / weekly snapshots, run now,
   restore, **download** the SQLite file) and **Integrations** (which optional
@@ -120,6 +126,84 @@ Bulk status on a mixed selection offers only the shared stages (`screening`,
 (entitlements / construction 45 / 90 days, pre-construction / lease-up
 30 / 60) and never badge terminal stages.
 
+## Underwriting Agent
+
+A chat assistant scoped to the active deal — available as the **Agent**
+workflow tab and as the floating **Agent** dock (bottom-right, stays open
+across tabs; Escape closes it). Both show the same conversation: one thread
+per deal.
+
+**What it can do.** It answers questions about the deal by calling the
+dashboard's own tools, never from memory:
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `get_deal`, `list_scenarios`, `get_scenario` | read | The current deal's inputs/status and its saved scenarios (always scoped to the active deal). |
+| `compute` | read | Runs the native pro-forma engine on a full input map. |
+| `solve` | read | Goal-seek: which value of one numeric input hits a target output metric (backed by the same solver as the sidebar's ◎ Goal Seek). `values` defaults to the deal's inputs. |
+| `run_tornado`, `run_sensitivity` | read | Perturbation / grid sensitivity. |
+| `get_market_context`, `list_comps`, `get_schema` | read | Market data, saved comps, and the field registry. |
+| `propose_input_changes`, `propose_scenario` | **write (proposal only)** | Produce a reviewable proposal with a computed preview. Never applied by the agent. |
+
+Suggestion chips ("Screen this deal", "What's driving the levered IRR?",
+"Stress-test this deal", "What exit cap gets me to a 15% IRR?") run canned
+workflows with a restricted tool set.
+
+**Proposals: approve / reject.** When the agent recommends a change it
+creates a *proposal card* (before/after diff + preview metrics) instead of
+editing anything. **Approve & apply** merges the change into the deal on the
+server and records it in *Input history* as **Agent-applied** (restorable
+like any other snapshot); every other pending proposal on that deal becomes
+*stale* because its preview no longer matches the inputs. **Reject** takes an
+optional note that is added to the thread.
+
+**Grounding guarantee.** After every turn the server cross-checks each
+number in the reply ($ amounts, percentages, multiples, "DSCR is 1.4"-style
+figures) against the numbers returned by that turn's tool calls. Anything
+that does not trace back to a tool result is shown under an amber
+**Unverified** banner — it is flagged, not hidden. Each reply also lists its
+tool calls (expand *N tool call(s)*).
+
+**Providers and configuration** (all in `backend/.env`, see `.env.example`):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_PROVIDER` | `anthropic` | Provider for a NEW thread: `anthropic` or `openai`. |
+| `ANTHROPIC_API_KEY` | — | Shared with document classification/extraction. |
+| `ANTHROPIC_AGENT_MODEL` | `claude-sonnet-5` | Model for the Anthropic provider. |
+| `OPENAI_API_KEY` | — | Only used by the agent. |
+| `OPENAI_AGENT_MODEL` | `gpt-5.1` | Model for the OpenAI provider. |
+
+Both are billed API usage. Without a key the provider reports itself
+*unavailable* in the chat (nothing else in the app is affected). The
+provider can be switched per thread from the picker at the top of the chat
+— it applies to the next message, no restart; the picker greys out a
+provider whose key is not configured.
+
+**Cost / token view.** The Agent tab header shows the thread's cumulative
+token count (hover for the input/output split and provider); the same
+totals are logged per turn under the `app.agent` logger
+(`tool_calls`, `proposals`, `unverified_claims`, token totals).
+
+**Limits.** 25 tool calls and 15 compute-family calls per turn, 60 s wall
+clock — a turn that hits a cap ends with an explicit "Stopped early" note.
+
+**Limitations.**
+- Non-streaming: a reply appears when the whole turn finishes.
+- Single-user, per-deal threads; no thread reset/delete in the UI yet.
+- The agent only sees what its tools return — it does not read uploaded
+  documents directly (use the Documents extraction flow for that).
+- The grounding check is numeric: it cannot verify qualitative claims.
+- Scenario proposals (`propose_scenario`) are reviewable and approvable
+  like input changes, but approval applies the changes to the deal's
+  inputs rather than saving a separate named scenario.
+- Provider switching only affects future turns; history is kept verbatim.
+
+**Testing without a model.** The Playwright suite runs the backend with
+`AGENT_PROVIDER=scripted`, a deterministic stub that exercises the real
+tool loop, proposal approval and the unverified-claim gate with no network
+access. It is not selectable from the UI.
+
 ## API surface
 
 Every route is under `/api`; with `CRE_API_TOKEN` set, everything except
@@ -146,6 +230,7 @@ header) or the session cookie.
 | Presets | `GET /api/presets/fields`, `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}` |
 | Portfolio | `GET /api/portfolio`, `GET /api/portfolio/export.csv` |
 | Search | `GET /api/search?q=` (deals / tenants / comps / notes; prefix ranks above substring) |
+| Underwriting Agent | `GET /api/agent/threads/{dealId}`, `POST /api/agent/threads/{dealId}/messages` (one full turn; `content` or `playId`), `PUT /api/agent/threads/{dealId}/provider`, `GET /api/agent/plays`, `GET /api/agent/providers`, `POST /api/agent/proposals/{id}/approve`, `POST /api/agent/proposals/{id}/reject` |
 | Admin | `GET /api/admin/integrations` (configured-key flags), `GET /api/admin/backups`, `POST /api/admin/backups/run`, `POST /api/admin/backups/restore`, `GET /api/admin/backups/{kind}/{name}/download` |
 | Ops / schema | `GET /api/health`, `POST /api/client-errors` (error-boundary sink), `GET /api/schema` |
 

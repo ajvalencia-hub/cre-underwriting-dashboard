@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import AgentDock from './components/AgentDock'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
@@ -7,6 +8,7 @@ import CompsPage from './pages/CompsPage'
 import PipelinePage from './pages/PipelinePage'
 import PresetsPanel from './components/PresetsPanel'
 import HistoryDrawer from './components/HistoryDrawer'
+import AgentPage from './pages/AgentPage'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
 import PortfolioPage from './pages/PortfolioPage'
@@ -76,6 +78,7 @@ import { isOutputVisibleFor } from './lib/outputVisibility'
 import { loadRecent, recordRecent } from './lib/recentDeals'
 import { safeStorage } from './lib/safeStorage'
 import { toastError } from './lib/toast'
+import { useAgentThread } from './lib/useAgentThread'
 import { loadLastTab, loadNewDealTypePref, saveLastTab } from './lib/workflowPrefs'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
@@ -99,6 +102,7 @@ const TABS = [
   ['scenarios', '6. Scenarios'],
   ['comps', '7. Comps'],
   ['portfolio', 'Portfolio'],
+  ['agent', 'Agent'],
   ['settings', '⚙ Settings'],
 ] as const
 
@@ -211,6 +215,10 @@ function App() {
   // Cleanup only unsubscribes — never dispose here: StrictMode's simulated
   // remount would permanently kill the ref'd autosaver otherwise.
   useEffect(() => autosaverRef.current!.subscribe(setAutosaveState), [])
+
+  // K6: one agent thread per deal, shared by the floating dock and the
+  // Agent tab (both receive this same controller).
+  const agentController = useAgentThread(activeDealId)
 
   function applyDealState(schema: InputSchema, deal: Deal, urlParams: URLSearchParams) {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
@@ -492,6 +500,24 @@ function App() {
     setTab('dashboard')
   }
 
+  // K7: the server applies an approved proposal (recorded in the deal's
+  // history as kind="agent"); adopt the returned deal exactly like a
+  // history restore so the form, the autosave baseline and the outputs all
+  // agree with what was just written. The autosave is flushed FIRST so the
+  // server merges the proposal onto the latest inputs, not a stale blob.
+  async function handleApproveProposal(proposalId: string) {
+    if (state.status !== 'ready') return
+    await autosaverRef.current!.flush()
+    const deal = await agentController.approveProposal(proposalId)
+    if (!deal || deal.id !== activeDealIdRef.current) return
+    applyDealState(state.schema, deal, new URLSearchParams())
+    setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
+  }
+
+  async function handleRejectProposal(proposalId: string, note: string) {
+    await agentController.rejectProposal(proposalId, note)
+  }
+
   async function handleRenameDeal(name: string) {
     if (!activeDealId || !name.trim()) {
       setRenamingName(null)
@@ -709,6 +735,7 @@ function App() {
   }
 
   return (
+    <>
     <Layout
       nav={
         <ul className="space-y-1">
@@ -1290,7 +1317,32 @@ function App() {
       <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
         <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
       </div>
+
+      <div style={{ display: tab === 'agent' ? 'block' : 'none' }}>
+        <AgentPage
+          key={activeDealId ?? 'none'}
+          dealId={activeDealId}
+          controller={agentController}
+          schema={schema}
+          currentValues={formValues}
+          onApprove={handleApproveProposal}
+          onReject={handleRejectProposal}
+        />
+      </div>
     </Layout>
+
+    {/* K6: the floating agent dock lives outside Layout's column flow so it
+        survives every tab switch; it is only rendered once the app is past
+        the auth gate (the early returns above). */}
+    <AgentDock
+      dealId={activeDealId}
+      controller={agentController}
+      schema={schema}
+      currentValues={formValues}
+      onApprove={handleApproveProposal}
+      onReject={handleRejectProposal}
+    />
+    </>
   )
 }
 

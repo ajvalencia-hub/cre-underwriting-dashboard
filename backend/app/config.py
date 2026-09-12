@@ -61,3 +61,18 @@ ANTHROPIC_CLASSIFIER_MODEL = os.environ.get("ANTHROPIC_CLASSIFIER_MODEL", "claud
 # Structured extraction is a harder task than classification, so it defaults
 # to a stronger model.
 ANTHROPIC_EXTRACTION_MODEL = os.environ.get("ANTHROPIC_EXTRACTION_MODEL", "claude-sonnet-5")
+
+# OpenAI API — optional, billed usage. Only used by the Underwriting Agent
+# (see app/services/agent/) when AGENT_PROVIDER=openai. Degrades the same
+# way the Anthropic key does: missing key -> agent reports itself as
+# unavailable rather than erroring.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_AGENT_MODEL = os.environ.get("OPENAI_AGENT_MODEL", "gpt-5.1")
+
+# Underwriting Agent — which provider drives the agent chat by default for
+# a new thread ("anthropic" | "openai"; "scripted" is the deterministic
+# e2e stub and is only ever set by the Playwright config). Both adapters
+# are implemented; this just picks which one is live. The per-thread
+# provider can be switched from the UI without a restart.
+AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
+ANTHROPIC_AGENT_MODEL = os.environ.get("ANTHROPIC_AGENT_MODEL", "claude-sonnet-5")

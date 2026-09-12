@@ -13,6 +13,7 @@ from app.config import CORS_ORIGINS
 from app.database import Base, SessionLocal, engine, run_migrations
 from app.routers import (
     admin,
+    agent,
     client_errors,
     comps,
     compute,
@@ -140,6 +141,7 @@ app.include_router(presets.router)
 app.include_router(portfolio.router)
 app.include_router(search.router)
 app.include_router(admin.router)
+app.include_router(agent.router)
 app.include_router(client_errors.router)
 
 

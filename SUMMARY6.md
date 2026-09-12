@@ -9,8 +9,8 @@ input defaults to reproducing the prior outputs byte-for-byte** — the six
 Run-4 regression baselines are unchanged at 1e-9, and a seventh fixture now
 pins the feature-on paths.
 
-Final gate state (before the agent port, see the last section): **569 backend
-tests**, **170 vitest**, parity clean, regression baseline green (7 cases),
+Gate state after the audit fixes (before the agent port — see the last
+section for the final numbers): **569 backend tests**, **170 vitest**, parity clean, regression baseline green (7 cases),
 2 Playwright journeys green, `ruff` clean, `mypy` clean (ratchet), `tsc` +
 `oxlint` + `vite build` clean.
 
@@ -194,5 +194,32 @@ the Draws sheet.
 
 ## Underwriting Agent port
 
-Filled in below by the port that followed the audit fixes (see the
-"Run 6 — Underwriting Agent" block in DECISIONS.md and the README section).
+The K-phase AI Underwriting Agent from the preserved branch was ported
+from its pre-settings snapshot (f8a272d) and adapted to this line:
+
+- **Backend**: `/api/agent/*` router; runner with hard caps (25 tool calls,
+  15 compute-family calls, 60 s per turn); 10 read tools wrapping existing
+  services and 2 write tools that produce *proposals* only (structurally —
+  they take no DB session, asserted by test); provenance checker that
+  flags every number in a reply not traceable to that turn's tool results
+  (`unverifiedClaims`); Anthropic and OpenAI adapters behind one vendor-
+  neutral shape plus a deterministic `scripted` provider for the e2e gate;
+  four `create_all` tables; per-thread token totals.
+- **Adaptation**: the branch's second bisection solver was dropped — the
+  agent's `solve` tool wraps the J7 goal-seek (`{values?, targetInput,
+  outputMetric, targetValue, bounds?}`, values default to the deal); config
+  is read from `app.config` (no settings service); new modules pass the
+  mypy gate with no ignore-list additions.
+- **Frontend**: Agent tab (after Portfolio) and a floating dock sharing one
+  per-deal thread; proposal cards with before/after diff and preview
+  metrics; approve flushes the pending autosave, adopts the returned deal
+  like a history restore and records an "Agent-applied" snapshot; reject
+  takes a note; provider picker per thread; dark-mode classes only.
+- **Tests**: +105 backend tests (context, plays, provenance, providers,
+  router, runner, scripted provider, security, tools) and 2 Playwright
+  journeys (scripted provider, including the "fabricate" turn that must be
+  flagged).
+
+Final gate state after the port: **674 backend tests**, **170 vitest**,
+**4 Playwright journeys**, parity clean, 7-case baseline green, ruff clean,
+mypy clean, `tsc` + `oxlint` + `vite build` clean.

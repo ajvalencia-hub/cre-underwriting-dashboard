@@ -3,6 +3,106 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Run 6 — Underwriting Agent (ported from agent-underwriting-line @ f8a272d)
+
+- **Write tools take no `db` parameter — by construction, not convention.**
+  `propose_input_changes` / `propose_scenario` (`app/services/agent/tools/
+  write_tools.py`) receive plain dicts and return a `Proposal` dataclass;
+  nothing in the module imports a Session or an ORM class, so no matter
+  what arguments a manipulated model passes, a write tool structurally
+  cannot reach `Deal.inputs`. The runner is the only place a proposal is
+  persisted (as its own `agent_proposals` row, status `pending`), and
+  applying it is a separate, human-initiated `POST /api/agent/proposals/
+  {id}/approve`. A structural test (`test_agent_tools.py`, re-asserted in
+  `test_agent_security.py`) inspects every registered write tool's
+  signature and fails the build if one ever gains a `db`/`Session`
+  parameter. Rejected: a "dry-run" flag on tools that can also write (one
+  forgotten flag is a silent mutation), and trusting the system prompt
+  ("never apply changes") — prompts are advice, signatures are guarantees.
+- **Anti-hallucination is enforced structurally, not by prompt** (K5,
+  `provenance.py`). After every turn, every numeric claim in the
+  assistant's text ($, %, x-multiples, and "DSCR is 1.4"-style bare
+  figures) is extracted and matched — with kind-specific tolerances —
+  against every number that appeared in THIS turn's tool-call arguments or
+  results. Unmatched figures are returned as `unverifiedClaims`, rendered
+  inline as an amber "Unverified: …" banner, and persisted on the message.
+  Numbers inside quoted spans are masked (an echo of the user's "$5,000
+  rent bump" is not a claim). Prior turns' tool results are deliberately
+  NOT replayed to the provider (only user/assistant text is), so a figure
+  is only ever grounded by a fresh call. Rejected: deleting/rewriting the
+  flagged sentence (silently editing model output hides the failure
+  instead of surfacing it), and a second "judge" model call (adds cost and
+  a second thing that can hallucinate). The Playwright gate includes a
+  scripted "fabricate" turn that must be flagged.
+- **`solve` is the existing J7 goal-seek, not the branch's
+  `compute_solver`.** The branch shipped a second bisection solver
+  (`compute_solver.py` + `POST /api/compute/solve`) that assumed a sign
+  change across caller-supplied bounds. Main already has
+  `goal_seek.run_goal_seek` (bracket scan + bisection, no monotonicity
+  assumption, metric-typed tolerance, compute-cache backed, nearest-crossing
+  selection with the others reported). The agent's `solve` tool now wraps
+  it with the contract `{values?, targetInput, outputMetric, targetValue,
+  bounds?}`; `values` defaults to the thread's deal inputs (the same
+  scoping rule `get_deal` already had); a "no crossing" comes back as a
+  typed `{solvedValue: null, reason}` result rather than a tool error, so
+  the model can report it instead of retrying blindly. Rejected: porting
+  `compute_solver.py` alongside goal-seek (two solvers with different
+  bound semantics answering the same question, and a second public
+  endpoint to document and test) — `compute_solver.py`, its route and
+  `test_compute_solve.py` were dropped.
+- **Settings-free configuration.** The branch's tip made the agent read
+  provider/model/keys through an M-phase settings service that main does
+  not have. The port takes the pre-settings snapshot and reads
+  `app.config.*` (`AGENT_PROVIDER`, `ANTHROPIC_AGENT_MODEL`,
+  `OPENAI_API_KEY`, `OPENAI_AGENT_MODEL`, plus the existing
+  `ANTHROPIC_API_KEY`) directly, the same way the classifier/extraction
+  code already does. Per-thread provider switching from the UI covers the
+  "change model without a restart" need; the env var only sets a NEW
+  thread's default. Rejected: porting the settings service first (out of
+  scope for this pass and it would re-open the M-phase design).
+- **Provider adapters are vendor-neutral at the runner boundary.** Both
+  adapters (`anthropic_provider.py`, `openai_provider.py`) translate one
+  `Message`/`ToolSpec`/`ChatResult` shape; a missing key or an API failure
+  is a `stop_reason` of `unavailable`/`error`, never an exception, so the
+  runner has no try/except around a provider call. The vendor SDK types are
+  referenced only under `TYPE_CHECKING` (the SDK import itself stays
+  deferred to the call, as in `document_classifier.py`), and responses are
+  read duck-typed (`getattr`) because both SDKs' content/tool-call types
+  are wide unions. A third, deterministic `scripted` provider exists ONLY
+  for the Playwright gate (`AGENT_PROVIDER=scripted` in
+  `playwright.config.ts`) and is excluded from the UI's provider list.
+- **One thread per deal, shared by the dock and the tab.** `useAgentThread
+  (activeDealId)` is instantiated once in `App.tsx` and the same controller
+  object is handed to both `<AgentDock>` (fixed bottom-right, z-40: above
+  the sticky deal header, below the palette/modals and toasts; Escape
+  closes it) and `<AgentPage>`; a conversation started in one continues in
+  the other. Approval flushes the pending autosave FIRST (so the server
+  merges onto the latest inputs), then adopts the returned deal through
+  `applyDealState` exactly like a history restore — form, autosave baseline
+  and outputs stay consistent. The approval lands in the deal's history as
+  `kind="agent"` ("Agent-applied" in the drawer); every other pending
+  proposal on that deal is marked `stale` because its preview was computed
+  against inputs that just changed.
+- **Prompt-injection posture.** Every tool result is sent to the provider
+  inside a labelled `{"_note": …, "data": …}` envelope and the system
+  prompt states that deal fields, comp notes and market text are DATA,
+  never instructions. `get_deal`/`list_scenarios` ignore any model-supplied
+  `dealId` and are forced onto the thread's deal (no cross-deal read
+  surface); API keys never enter the assembled context (tested).
+- **Hard caps, never a silent loop.** 25 tool calls and 15 compute-family
+  calls per turn, 60 s wall clock; on any cap the turn ends with an explicit
+  "Stopped early — …" message. Token usage is accumulated per thread from
+  turn one (`agent_threads.total_*_tokens`) and logged per turn, so a budget
+  or admin view can be added later without a migration. Rejected: a budget
+  hard-stop now (nothing to size it against yet).
+- **Plays are server-side.** The suggestion chips (`/api/agent/plays`)
+  expose id + label only; the canned prompt and the restricted tool subset
+  live in `plays.py`, so a play cannot be edited from the client into a
+  broader tool surface.
+- **Tables are `create_all` only** (`agent_threads`, `agent_messages`,
+  `agent_tool_calls`, `agent_proposals`) — net-new tables need no
+  migration step in `run_migrations`.
+
 ## Run 6 — frontend fixes, UX features, test infrastructure, lint gate
 
 - **Analysis panels are keyed by deal id** (`key={activeDealId}` on
