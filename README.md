@@ -316,6 +316,10 @@ pip / npm / actions bumps.
   frontend state ownership and pure modules), test tiers, compatibility rules.
 - `SUMMARY.md` … `SUMMARY5.md` — every financial formula in plain algebra per
   build run, plus decision/blocked deltas and manual QA checklists.
+- [`SUMMARY6.md`](SUMMARY6.md) — the Run-6 audit: what was found, what
+  changed, the two pending compatibility flips (`constructionFeeBasis`,
+  detail-mode break-even recoveries) with their exact baseline deltas, the
+  updated Excel-export refusal list and the QA checklist.
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
 - [`docs/history/FINDINGS.md`](docs/history/FINDINGS.md) — the correctness
   audit (all C/H/M items resolved); code comments still cite it by item id.

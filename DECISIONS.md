@@ -3,6 +3,96 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Run 6 — frontend fixes, UX features, test infrastructure, lint gate
+
+- **Analysis panels are keyed by deal id** (`key={activeDealId}` on
+  Generate, Cash Flow, Sensitivity, Risk, Scenarios) and compute callbacks
+  from a superseded deal are dropped by a ref check. Rejected: threading a
+  `dealId` prop through every panel and resetting each piece of state by
+  hand — the remount is the whole point (nothing from deal A may survive
+  a switch), and it costs nothing because the panels refetch on mount
+  anyway.
+- **Latest-wins guards** (`lib/latest.ts`) for every async surface that
+  can be re-triggered before its previous request resolves (deal switch,
+  template fetch, palette search, comps kind toggle, market context, rate
+  hints). One tiny pure helper, unit-tested, instead of AbortController
+  plumbing — the responses are small and the old ones are simply ignored.
+- **Quick-screen URL sync waits for boot + hydration.** The 500 ms timer
+  used to write default params before boot read `location.search`, which
+  made the app believe a shared link had been opened and autosave the
+  defaults over the deal's saved napkin. The napkin mode and acquisition
+  inputs now persist per deal (`quickScreenMode`, `acquisitionQuickScreen`
+  inside inputs) so a URL is only ever an override, never the store.
+- **Toast notifications** (`lib/toast.ts` pure queue + one `<Toasts/>`)
+  replace silent promise rejections. Rejected: a per-panel error state
+  for each action (already the pattern that let a dozen rejections go
+  unreported) and a third-party toast library (one 40-line store is
+  enough).
+- **`safeStorage`** wraps every localStorage access; theme init is inside
+  a try/catch so a browser that throws on storage access (private mode,
+  blocked site data) gets a light page instead of a blank one.
+- **Untyped deals get a "set type" affordance in the header** and engine
+  "missing dealType" errors render as a prompt to choose a dealflow. This
+  completes the dealflow-segregation decision that untyped deals are
+  never silently assigned a type (the schema default that contradicted it
+  is gone — see the API block above).
+- **Token gate UI** is a full-page prompt shown only when `/api/auth/
+  status` says a token is required and the browser has no session; any
+  later 401 raises a window event that re-shows it. Rejected: attaching a
+  bearer header from localStorage — the HttpOnly cookie is what lets plain
+  `<a href>` downloads (Excel, decks, backups) keep working.
+- **Destructive actions confirm through one helper** (`confirmAction`) —
+  `window.confirm` today, replaceable by a modal in one place.
+- **Output metrics are filtered by deal type** via an explicit map
+  (`lib/outputVisibility.ts`): development-only (yield spread, combined
+  LTC, component yields on cost) and acquisition-only (post-reno rent).
+  Rejected: a `visibleWhen` on schema outputs — the outputs registry is
+  shared with the Excel export and memo, which show every computed value
+  on purpose; hiding is a sidebar concern.
+- **Keyboard**: Escape closes every modal/popover (the CommandPalette
+  already did), outside-click closes popovers, Ctrl/Cmd+1..9 switch tabs,
+  "?" lists the shortcuts. Dialogs carry `role="dialog"`/`aria-modal` and
+  labelled close buttons; a global `:focus-visible` ring replaces the
+  scattered `outline-none` — mouse users never see it.
+- **Dark mode coverage**: the remaining unmapped utilities were added to
+  the override layer, emphasis rows inside cards render LIGHTER than the
+  card (a descendant rule, not new classes), and chart SVGs use theme
+  fill classes instead of hex for neutrals. Saturated series colors stay
+  fixed — they read on both grounds. Rejected: `dark:` variants per call
+  site (the original Settings-v1 decision stands).
+- **Print stylesheet** hides sidebars/nav/controls and un-sticks the
+  header; no print-specific layout beyond that.
+- **Shared test fixtures** (`tests/conftest.py`) replace 15 copies and
+  redirect storage/DB paths to a temp dir at import; the suite no longer
+  touches `backend/storage`. Four files own their fixtures because they
+  extend them (memo benchmarks monkeypatch, comps session sharing, the
+  no-override admin client) — noted rather than forced.
+- **Regression baseline guard**: `UPDATE_BASELINE=1` refuses when an
+  existing VALUE differs; only new keys and new cases regenerate. This
+  turns the Run-4 policy ("key-only expansion") into a mechanical check.
+  A seventh case (`feature_on_value_add`) pins every feature-on path at
+  once, so unit assertions are no longer the only thing holding floating
+  debt, mezz, renovation, reserves, escrows, AM fees and the prepayment
+  penalty in place.
+- **Parity gate is hard in CI** (`--require-libreoffice`): a missing
+  LibreOffice used to print "Parity clean." with zero comparisons.
+- **ruff + mypy as a ratchet.** ruff is fully clean; mypy passes with
+  26 pre-existing modules under `ignore_errors` and the instruction to
+  shrink the list. Rejected: fixing 155 type errors across the engine in
+  this run (most are dict-of-Any plumbing that would need real typing
+  work, not annotations) and not enabling the gate at all (new modules —
+  the agent port included — must type-check from day one). `zip()` calls
+  carry an explicit `strict=False` so today's truncating semantics are
+  stated, not implied.
+- **CI hygiene**: pushes build only on main, concurrency cancels stale
+  runs, every job has a timeout, dependency audits are advisory (a new
+  CVE against a pin must not block unrelated PRs), the docker job boots
+  the image and polls `/api/health`, dependabot groups minor/patch
+  updates weekly.
+- **Deal type default removal is the one intentional behaviour change
+  visible to existing users**: a deal that never had a type shows the
+  set-type chip instead of being silently typed on its first edit.
+
 ## Run 6 — Financial-engine fixes + prepayment penalty
 
 - **[FIN] The perm takeout requires a month to live before exit.** The
