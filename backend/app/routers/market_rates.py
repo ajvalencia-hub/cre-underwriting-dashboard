@@ -5,13 +5,13 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.services import benchmarks, comps
+from app.services import benchmarks, comps, rate_limit
 from app.services.data_sources import fred
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
 
-@router.get("/rates")
+@router.get("/rates", dependencies=[Depends(rate_limit.limited("market_rates"))])
 def market_rates():
     return fred.get_market_rates()
 
@@ -24,7 +24,7 @@ class BenchmarkRequest(BaseModel):
     subject: dict[str, Any] = {}
 
 
-@router.post("/benchmarks")
+@router.post("/benchmarks", dependencies=[Depends(rate_limit.limited("market_benchmarks"))])
 def market_benchmarks(payload: BenchmarkRequest, db: Session = Depends(get_db)):
     result = benchmarks.build_benchmarks(
         payload.address, payload.market, payload.submarket, payload.assetClass, payload.subject

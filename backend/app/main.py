@@ -117,6 +117,8 @@ app.add_middleware(
         "X-Generation-Outputs",
         "X-Deck-Skipped",
         "Content-Disposition",
+        "ETag",
+        "Retry-After",
     ],
 )
 

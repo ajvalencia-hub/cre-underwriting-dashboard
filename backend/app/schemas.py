@@ -129,6 +129,34 @@ DEAL_STATUSES = tuple(
 )
 
 
+MAX_TAGS_PER_DEAL = 20
+MAX_TAG_LENGTH = 40
+
+
+def normalize_tags(raw: list[Any]) -> list[str]:
+    """Strip, drop empties, dedupe case-insensitively keeping the FIRST
+    spelling, enforce the count/length caps. Raises ValueError (-> 422 via
+    the pydantic validators that call it) on a violation."""
+    seen: set[str] = set()
+    tags: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("tags must be strings")
+        tag = item.strip()
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"tag '{tag[:MAX_TAG_LENGTH]}…' exceeds {MAX_TAG_LENGTH} characters")
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+    if len(tags) > MAX_TAGS_PER_DEAL:
+        raise ValueError(f"a deal can carry at most {MAX_TAGS_PER_DEAL} tags")
+    return tags
+
+
 class DealUpdate(BaseModel):
     # All-optional partial update: autosave PUTs only the inputs blob, the
     # switcher PUTs only the name, template selection PUTs only the ids.
@@ -137,6 +165,12 @@ class DealUpdate(BaseModel):
     status: str | None = None
     activeTemplateId: str | None = None
     activeMappingProfileId: str | None = None
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_tags(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalize_tags(value)
 
     @field_validator("status")
     @classmethod
@@ -156,6 +190,33 @@ class DealOut(BaseModel):
     activeTemplateId: str | None
     activeMappingProfileId: str | None
     archivedAt: datetime | None = None
+    tags: list[str] = []
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class DealSummaryFields(BaseModel):
+    """The handful of input keys the pipeline board actually reads."""
+
+    dealType: str | None = None
+    dealName: str | None = None
+    address: str | None = None
+    market: str | None = None
+
+
+class DealSummaryOut(BaseModel):
+    """`GET /api/deals?fields=summary`: DealOut minus the inputs blob, with
+    the pipeline's keys lifted into `summary`. Opt-in; the default list
+    response is unchanged."""
+
+    id: str
+    name: str
+    status: str = "screening"
+    activeTemplateId: str | None
+    activeMappingProfileId: str | None
+    archivedAt: datetime | None = None
+    tags: list[str] = []
+    summary: DealSummaryFields
     createdAt: datetime
     updatedAt: datetime
 

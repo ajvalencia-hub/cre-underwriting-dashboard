@@ -54,6 +54,9 @@ class Deal(Base):
     # Soft delete: archived deals drop out of the pipeline/portfolio/search
     # but keep every scenario, note and attachment; hard delete stays explicit.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Run 6: free-form labels ("core", "1031", "broker:JLL"). Normalized on
+    # write (see schemas.normalize_tags); filtered case-insensitively.
+    tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

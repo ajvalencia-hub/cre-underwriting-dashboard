@@ -28,9 +28,12 @@ def _rank_key(text: str | None, q: str) -> tuple[int, str]:
     return (0 if lowered.startswith(q) else 1, lowered)
 
 
-# Dealflow facet prefixes: "acq:foo" / "dev:foo" restrict deal-scoped groups
-# (deals, tenants, notes) to one dealflow; comps are global and unaffected.
+# Facet prefixes restrict the deal-scoped groups (deals, tenants, notes);
+# comps are global and unaffected. "acq:foo" / "dev:foo" pick one dealflow;
+# "tag:core foo" keeps only deals carrying the tag (case-insensitive). The
+# prefixes are parsed in a loop so both can appear ("acq:tag:core foo").
 _TYPE_PREFIXES = {"acq:": "acquisition", "dev:": "development"}
+_TAG_PREFIX = "tag:"
 
 
 def _deal_type_of(inputs: dict) -> str | None:
@@ -38,15 +41,44 @@ def _deal_type_of(inputs: dict) -> str | None:
     return value if value in ("acquisition", "development") else None
 
 
+def _tags_of(deal: Deal) -> list[str]:
+    return [t for t in (deal.tags or []) if isinstance(t, str)]
+
+
+def _parse_facets(q: str) -> tuple[str, str | None, str | None]:
+    """Returns (remaining query, type filter, tag filter)."""
+    type_filter: str | None = None
+    tag_filter: str | None = None
+    while True:
+        matched = False
+        for prefix, facet_type in _TYPE_PREFIXES.items():
+            if q.startswith(prefix):
+                type_filter = facet_type
+                q = q[len(prefix):].strip()
+                matched = True
+                break
+        if q.startswith(_TAG_PREFIX):
+            rest = q[len(_TAG_PREFIX):]
+            token, _, remainder = rest.partition(" ")
+            if token:
+                tag_filter = token
+            q = remainder.strip()
+            matched = True
+        if not matched:
+            return q, type_filter, tag_filter
+
+
+def _deal_passes(deal: Deal, type_filter: str | None, tag_filter: str | None) -> bool:
+    if type_filter and _deal_type_of(deal.inputs) != type_filter:
+        return False
+    if tag_filter and tag_filter not in {t.casefold() for t in _tags_of(deal)}:
+        return False
+    return True
+
+
 @router.get("")
 def search(q: str = "", db: Session = Depends(get_db)):
-    q = q.strip().lower()
-    type_filter = None
-    for prefix, facet_type in _TYPE_PREFIXES.items():
-        if q.startswith(prefix):
-            type_filter = facet_type
-            q = q[len(prefix):].strip()
-            break
+    q, type_filter, tag_filter = _parse_facets(q.strip().lower())
     if len(q) < 2:
         return {"query": q, "groups": []}
     like = contains(q)  # literal match — `_`/`%` in the query are not wildcards
@@ -61,8 +93,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
             )
         )
     ).scalars().all()
-    if type_filter:
-        deals = [d for d in deals if _deal_type_of(d.inputs) == type_filter]
+    deals = [d for d in deals if _deal_passes(d, type_filter, tag_filter)]
     deal_items = sorted(
         (
             {
@@ -74,10 +105,11 @@ def search(q: str = "", db: Session = Depends(get_db)):
                 ),
                 "dealId": d.id,
                 "dealType": _deal_type_of(d.inputs),
+                "tags": _tags_of(d),
             }
             for d in deals
         ),
-        key=lambda item: _rank_key(item["title"], q),
+        key=lambda item: _rank_key(str(item["title"]), q),
     )[:GROUP_LIMIT]
 
     comps = db.execute(
@@ -110,11 +142,11 @@ def search(q: str = "", db: Session = Depends(get_db)):
             select(Deal).where(Deal.id.in_({n.deal_id for n in notes}))
         ).scalars()
     } if notes else {}
-    if type_filter:
+    if type_filter or tag_filter:
         notes = [
             n for n in notes
             if n.deal_id in note_deals
-            and _deal_type_of(note_deals[n.deal_id].inputs) == type_filter
+            and _deal_passes(note_deals[n.deal_id], type_filter, tag_filter)
         ]
     note_items = sorted(
         (
@@ -135,7 +167,7 @@ def search(q: str = "", db: Session = Depends(get_db)):
     tenant_items: list[dict] = []
     for deal in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars():
         deal_type = _deal_type_of(deal.inputs)
-        if type_filter and deal_type != type_filter:
+        if not _deal_passes(deal, type_filter, tag_filter):
             continue
         for row in (deal.inputs or {}).get("commercialLeases") or []:
             tenant = row.get("tenant") if isinstance(row, dict) else None
@@ -158,11 +190,16 @@ def search(q: str = "", db: Session = Depends(get_db)):
         for kind, items in (
             ("deals", deal_items),
             ("tenants", tenant_items),
-            # Comps are global (no deal type) — a faceted query is explicitly
-            # a dealflow search, so they drop out under acq:/dev:.
-            ("comps", comp_items if not type_filter else []),
+            # Comps are global (no deal type, no tags) — a faceted query is
+            # explicitly a deal search, so they drop out under acq:/dev:/tag:.
+            ("comps", comp_items if not (type_filter or tag_filter) else []),
             ("notes", note_items),
         )
         if items
     ]
-    return {"query": q, "groups": groups, "typeFilter": type_filter}
+    return {
+        "query": q,
+        "groups": groups,
+        "typeFilter": type_filter,
+        "tagFilter": tag_filter,
+    }

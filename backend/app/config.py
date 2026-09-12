@@ -28,6 +28,20 @@ INPUT_SCHEMA_PATH = DATA_DIR / "input_schema.json"
 # the API is reachable beyond localhost (the Docker compose binds 0.0.0.0).
 CRE_API_TOKEN = os.environ.get("CRE_API_TOKEN", "").strip()
 
+# Run 6: per-route token bucket for the routes that fan out to external
+# public-data APIs (FRED, Census, Nominatim, ...). Requests per minute per
+# route; 0 disables the gate. Read at REQUEST time by
+# services/rate_limit.py so tests can monkeypatch it.
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+CRE_EXTERNAL_RATE_LIMIT_PER_MIN = _int_env("CRE_EXTERNAL_RATE_LIMIT_PER_MIN", 60)
+
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",

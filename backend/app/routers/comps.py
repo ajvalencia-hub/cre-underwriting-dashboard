@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import RentComp, SaleComp
 from app.routers.upload_limit import read_upload_limited
 from app.services import comps as comps_service
+from app.services import rate_limit
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
@@ -154,7 +155,7 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
     return {"phase": "imported", "imported": imported, "warnings": warnings}
 
 
-@router.get("/{kind}/map")
+@router.get("/{kind}/map", dependencies=[Depends(rate_limit.limited("comps_map"))])
 def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     """I11: geocoded points for the filtered comp set. Comps whose address
     can't be geocoded are SKIPPED with a warning naming them — a map with
