@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import AgentDock from './components/AgentDock'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
 import CashFlowTab from './pages/CashFlowTab'
+import ComparePage from './pages/ComparePage'
 import CompsPage from './pages/CompsPage'
 import PipelinePage from './pages/PipelinePage'
 import PresetsPanel from './components/PresetsPanel'
 import HistoryDrawer from './components/HistoryDrawer'
+import PanelBoundary from './components/PanelBoundary'
+import TagEditor from './components/TagEditor'
 import AgentPage from './pages/AgentPage'
 import Documents from './pages/Documents'
 import QuickScreen from './pages/QuickScreen'
@@ -20,8 +23,10 @@ import TemplateUpload from './pages/TemplateUpload'
 import {
   UNAUTHORIZED_EVENT,
   archiveDeal,
+  bulkUpdateDealTags,
   cloneDeal,
   createDeal,
+  dealConcurrency,
   deleteDeal,
   exportDeal,
   fetchAuthStatus,
@@ -32,6 +37,7 @@ import {
   fetchInputSchema,
   fetchTemplate,
   importDeal,
+  isConflictError,
   updateDeal,
   type DealExportBundle,
 } from './lib/api'
@@ -43,7 +49,10 @@ import {
   type Autosaver,
   type AutosaveState,
   type QuickScreenMode,
+  type SaveConflict,
 } from './lib/dealPersistence'
+import { nextIndex } from './lib/searchNav'
+import { dealTags } from './lib/tags'
 import type { Statement } from './lib/cashflowStatement'
 import { formatOutputValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
@@ -102,6 +111,7 @@ const TABS = [
   ['scenarios', '6. Scenarios'],
   ['comps', '7. Comps'],
   ['portfolio', 'Portfolio'],
+  ['compare', 'Compare'],
   ['agent', 'Agent'],
   ['settings', '⚙ Settings'],
 ] as const
@@ -109,6 +119,19 @@ const TABS = [
 type Tab = (typeof TABS)[number][0]
 
 const TAB_IDS: readonly Tab[] = TABS.map(([id]) => id)
+const TAB_LABEL: Record<Tab, string> = Object.fromEntries(TABS) as Record<Tab, string>
+
+/** One workflow tab's content: a real tabpanel (a11y) wrapped in its own
+ *  error boundary (wave 2) so a crash in one panel leaves the rest usable.
+ *  Every panel stays mounted — `hidden` only toggles visibility — so
+ *  in-progress state survives switching tabs. */
+function TabPanel({ id, active, children }: { id: Tab; active: boolean; children: ReactNode }) {
+  return (
+    <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} hidden={!active}>
+      <PanelBoundary name={TAB_LABEL[id].replace(/^[\d⚙.]+\s*/, '')}>{children}</PanelBoundary>
+    </div>
+  )
+}
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -170,6 +193,9 @@ function App() {
   const [renamingName, setRenamingName] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
+  // Wave 2: a 412 on the autosave parks saving until Reload / Overwrite.
+  const [conflict, setConflict] = useState<SaveConflict<Deal> | null>(null)
+  const [tagsBusy, setTagsBusy] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const activeDealIdRef = useRef<string | null>(null)
@@ -184,7 +210,20 @@ function App() {
   const autosaverRef = useRef<Autosaver<{ dealId: string; inputs: Record<string, unknown> }> | null>(null)
   if (autosaverRef.current === null) {
     autosaverRef.current = createAutosaver(async ({ dealId, inputs }) => {
-      await updateDeal(dealId, { inputs })
+      // Wave 2: while a conflict awaits the user's choice the save is
+      // refused locally (the autosaver keeps the value for the retry).
+      if (dealConcurrency.isBlocked(dealId)) {
+        throw new Error('Autosave paused — resolve the conflict banner first.')
+      }
+      try {
+        await updateDeal(dealId, { inputs }, { ifMatch: dealConcurrency.ifMatchFor(dealId) })
+      } catch (err) {
+        if (isConflictError(err)) {
+          dealConcurrency.markConflict({ dealId, current: err.current, etag: err.etag })
+          setConflict(dealConcurrency.conflict())
+        }
+        throw err
+      }
     })
   }
 
@@ -262,10 +301,38 @@ function App() {
    *  retire any in-flight switch so it cannot land on top of this one. */
   function activateDeal(schema: InputSchema, deal: Deal, urlParams = new URLSearchParams()) {
     switchGuardRef.current.invalidate()
+    // Wave 2: a conflict on the deal we are leaving is moot — its unsaved
+    // edits were already dropped by the flush that preceded the switch.
+    const pending = dealConcurrency.conflict()
+    if (pending && pending.dealId !== deal.id) {
+      dealConcurrency.forget(pending.dealId)
+      setConflict(null)
+    }
     safeStorage.set(ACTIVE_DEAL_STORAGE_KEY, deal.id)
     applyDealState(schema, deal, urlParams)
     setActiveDealId(deal.id)
     setRecentIds(recordRecent(safeStorage, deal.id))
+  }
+
+  // Wave 2: the two ways out of a 412. Reload adopts the server's copy
+  // exactly like a history restore (form, autosave baseline, outputs);
+  // Overwrite retries the parked PUT without If-Match.
+  function handleConflictReload() {
+    const resolved = dealConcurrency.chooseReload()
+    setConflict(null)
+    if (!resolved || state.status !== 'ready') return
+    if (resolved.dealId !== activeDealIdRef.current) return
+    autosaverRef.current!.cancel()
+    applyDealState(state.schema, resolved.current, new URLSearchParams())
+    setDeals((prev) => prev.map((d) => (d.id === resolved.current.id ? resolved.current : d)))
+    // A 412 without an ETag header: refetch so the next save is guarded again.
+    if (!resolved.etag) void fetchDeal(resolved.dealId).catch(() => {})
+  }
+
+  function handleConflictOverwrite() {
+    if (!dealConcurrency.chooseOverwrite()) return
+    setConflict(null)
+    void autosaverRef.current!.flush()
   }
 
   async function boot() {
@@ -554,6 +621,8 @@ function App() {
     // B12: a pending autosave for this id would PUT to a deleted deal and
     // surface "Save failed" on whichever deal comes next.
     autosaverRef.current!.cancel()
+    dealConcurrency.forget(activeDealId)
+    setConflict(null)
     try {
       await deleteDeal(activeDealId)
       await activateNextAfterRemoval(state.schema, activeDealId)
@@ -600,6 +669,47 @@ function App() {
       toastError(err, 'Duplicate failed.')
     }
   }
+
+  // Wave 2: tags are a partial PUT on the deal. The autosave is flushed first
+  // so the tag write (which refreshes the ETag) never races a stale
+  // If-Match from an in-flight input save.
+  async function handleTagsChange(next: string[]) {
+    if (!activeDealId) return
+    setTagsBusy(true)
+    try {
+      await autosaverRef.current!.flush()
+      const updated = await updateDeal(activeDealId, { tags: next })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    } catch (err) {
+      toastError(err, 'Could not update the tags.')
+    } finally {
+      setTagsBusy(false)
+    }
+  }
+
+  async function handleBulkTags(dealIds: string[], add: string[], remove: string[]) {
+    if (dealIds.includes(activeDealId ?? '')) await autosaverRef.current!.flush()
+    const { updated } = await bulkUpdateDealTags(dealIds, add, remove)
+    const byId = new Map(updated.map((d) => [d.id, d]))
+    setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
+  }
+
+  // Wave 2 (perf): TemplateUpload is React.memo'd — its callback must be
+  // referentially stable across keystrokes elsewhere, so it only changes
+  // when the active deal does.
+  const handleTemplateReady = useCallback(
+    (template: TemplateSummary | null, mappingProfileId: string | null) => {
+      setActiveTemplate(template)
+      setActiveMappingProfileId(mappingProfileId)
+      if (activeDealId) {
+        updateDeal(activeDealId, {
+          activeTemplateId: template?.id ?? null,
+          activeMappingProfileId: mappingProfileId,
+        }).catch((err) => toastError(err, 'Could not save the template selection.'))
+      }
+    },
+    [activeDealId],
+  )
 
   async function handleExportDeal() {
     if (!activeDealId) return
@@ -795,7 +905,9 @@ function App() {
                             <button
                               onClick={() => setGoalSeekMetric(metric)}
                               title={`Goal-seek ${metric.label}`}
-                              className="ml-1 hidden text-[10px] text-sky-500 hover:text-sky-700 group-hover:inline"
+                              aria-label={`Goal-seek ${metric.label}`}
+                              // Wave 2 (a11y): revealed on hover AND on keyboard focus.
+                              className="ml-1 hidden text-[10px] text-sky-500 hover:text-sky-700 group-hover:inline group-focus-within:inline focus:inline"
                             >
                               ◎
                             </button>
@@ -1059,9 +1171,46 @@ function App() {
             autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
           }`}
         >
-          {AUTOSAVE_LABEL[autosaveState]}
+          {conflict ? 'Not saved — resolve the conflict below' : AUTOSAVE_LABEL[autosaveState]}
         </span>
       </div>
+
+      {/* Wave 2: tag chip row under the deal name. */}
+      {activeDeal && (
+        <div className="mb-3">
+          <TagEditor
+            tags={dealTags(activeDeal)}
+            onChange={(next) => void handleTagsChange(next)}
+            disabled={tagsBusy}
+          />
+        </div>
+      )}
+
+      {/* Wave 2: persistent concurrency banner — never auto-dismisses. */}
+      {conflict && (
+        <div
+          role="alert"
+          className="mb-3 flex flex-wrap items-center gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700"
+        >
+          <span className="flex-1">
+            <span className="font-semibold">This deal was changed in another tab/session.</span>{' '}
+            Autosave is paused. Reload to take the server copy (your unsaved edits here are
+            dropped), or Overwrite to keep this tab's edits.
+          </span>
+          <button
+            onClick={handleConflictReload}
+            className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+          >
+            Reload
+          </button>
+          <button
+            onClick={handleConflictOverwrite}
+            className="rounded border border-amber-400 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+          >
+            Overwrite
+          </button>
+        </div>
+      )}
 
       {importNotice && (
         <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
@@ -1093,31 +1242,55 @@ function App() {
         </div>
       )}
 
-      <nav
-        aria-label="Workflow steps"
-        className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200"
-      >
-        {TABS.map(([id, label], index) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            aria-current={tab === id ? 'page' : undefined}
-            title={index < 9 ? `Ctrl/Cmd+${index + 1}` : undefined}
-            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${
-              tab === id
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      {/* Wave 2 (a11y): a real tablist — one tab stop, arrow keys move
+          between tabs (roving tabindex), Home/End jump to the ends. */}
+      <nav aria-label="Workflow steps" className="mb-6 border-b border-slate-200">
+        <div
+          role="tablist"
+          aria-label="Workflow steps"
+          className="flex gap-1 overflow-x-auto"
+          onKeyDown={(e) => {
+            const delta =
+              e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+            const current = TAB_IDS.indexOf(tab)
+            let target: number | null = null
+            if (delta !== 0) target = nextIndex(current, delta, TAB_IDS.length)
+            else if (e.key === 'Home') target = 0
+            else if (e.key === 'End') target = TAB_IDS.length - 1
+            if (target === null) return
+            e.preventDefault()
+            const next = TAB_IDS[target]
+            setTab(next)
+            document.getElementById(`tab-${next}`)?.focus()
+          }}
+        >
+          {TABS.map(([id, label], index) => (
+            <button
+              key={id}
+              id={`tab-${id}`}
+              role="tab"
+              type="button"
+              onClick={() => setTab(id)}
+              aria-selected={tab === id}
+              aria-controls={`panel-${id}`}
+              tabIndex={tab === id ? 0 : -1}
+              title={index < 9 ? `Ctrl/Cmd+${index + 1}` : undefined}
+              className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${
+                tab === id
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </nav>
       </div>
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
-      <div style={{ display: tab === 'pipeline' ? 'block' : 'none' }}>
+      <TabPanel id="pipeline" active={tab === 'pipeline'}>
         <PipelinePage
           deals={deals}
           activeDealId={activeDealId}
@@ -1136,12 +1309,13 @@ function App() {
             const byId = new Map(updated.map((d) => [d.id, d]))
             setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
           }}
+          onBulkTags={handleBulkTags}
           onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
           onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
           onDealsChanged={() => void refreshDeals()}
         />
-      </div>
+      </TabPanel>
 
       <Toasts />
 
@@ -1178,7 +1352,7 @@ function App() {
         />
       )}
 
-      <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
+      <TabPanel id="quickscreen" active={tab === 'quickscreen'}>
         <QuickScreen
           inputs={quickScreenInputs}
           onInputsChange={setQuickScreenInputs}
@@ -1191,9 +1365,9 @@ function App() {
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
           dealId={activeDealId}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
+      <TabPanel id="documents" active={tab === 'documents'}>
         <Documents
           schema={schema}
           currentUnitMix={formValues.unitMix}
@@ -1203,24 +1377,13 @@ function App() {
             setTab('dashboard')
           }}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
-        <TemplateUpload
-          onTemplateReady={(template, mappingProfileId) => {
-            setActiveTemplate(template)
-            setActiveMappingProfileId(mappingProfileId)
-            if (activeDealId) {
-              updateDeal(activeDealId, {
-                activeTemplateId: template?.id ?? null,
-                activeMappingProfileId: mappingProfileId,
-              }).catch((err) => toastError(err, 'Could not save the template selection.'))
-            }
-          }}
-        />
-      </div>
+      <TabPanel id="setup" active={tab === 'setup'}>
+        <TemplateUpload schema={schema} onTemplateReady={handleTemplateReady} />
+      </TabPanel>
 
-      <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+      <TabPanel id="dashboard" active={tab === 'dashboard'}>
         <FileCabinet dealId={activeDealId} />
         <HistoryDrawer
           schema={schema}
@@ -1256,18 +1419,18 @@ function App() {
             setNativeStatement(statement ?? null)
           }}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
+      <TabPanel id="cashflow" active={tab === 'cashflow'}>
         <CashFlowTab
           key={activeDealId ?? 'none'}
           statement={nativeStatement}
           values={formValues}
           onGoToCompute={() => setTab('dashboard')}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>
+      <TabPanel id="sensitivity" active={tab === 'sensitivity'}>
         <SensitivityPanel
           key={activeDealId ?? 'none'}
           schema={schema}
@@ -1276,18 +1439,18 @@ function App() {
           baseValues={formValues}
           dealId={activeDealId}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
+      <TabPanel id="risk" active={tab === 'risk'}>
         <RiskPanel
           key={activeDealId ?? 'none'}
           schema={schema}
           values={formValues}
           dealId={activeDealId}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>
+      <TabPanel id="scenarios" active={tab === 'scenarios'}>
         <ScenariosPanel
           key={activeDealId ?? 'none'}
           schema={schema}
@@ -1304,21 +1467,25 @@ function App() {
           }}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'portfolio' ? 'block' : 'none' }}>
+      <TabPanel id="portfolio" active={tab === 'portfolio'}>
         <PortfolioPage active={tab === 'portfolio'} />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+      <TabPanel id="compare" active={tab === 'compare'}>
+        <ComparePage schema={schema} deals={deals} active={tab === 'compare'} />
+      </TabPanel>
+
+      <TabPanel id="settings" active={tab === 'settings'}>
         <SettingsPage active={tab === 'settings'} />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
+      <TabPanel id="comps" active={tab === 'comps'}>
         <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
-      </div>
+      </TabPanel>
 
-      <div style={{ display: tab === 'agent' ? 'block' : 'none' }}>
+      <TabPanel id="agent" active={tab === 'agent'}>
         <AgentPage
           key={activeDealId ?? 'none'}
           dealId={activeDealId}
@@ -1328,7 +1495,7 @@ function App() {
           onApprove={handleApproveProposal}
           onReject={handleRejectProposal}
         />
-      </div>
+      </TabPanel>
     </Layout>
 
     {/* K6: the floating agent dock lives outside Layout's column flow so it

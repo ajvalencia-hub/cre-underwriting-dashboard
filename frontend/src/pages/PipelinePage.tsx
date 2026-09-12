@@ -4,6 +4,7 @@ import { upcomingDeadlines } from '../lib/criticalDates'
 import { safeStorage } from '../lib/safeStorage'
 import { toastError } from '../lib/toast'
 import {
+  ALL_STAGES,
   bulkStageOptions,
   dealTypeOf,
   STAGE_LABELS,
@@ -13,14 +14,24 @@ import {
   type DealType,
 } from '../lib/dealStages'
 import { relativeAge, stalenessBadge } from '../lib/staleness'
+import { allTags, dealTags, normalizeTag, toggleTag } from '../lib/tags'
 import {
-  applyView,
+  DEFAULT_SORT_DIR,
+  DEFAULT_VIEW_STATE,
+  STALENESS_LABELS,
+  STALENESS_LEVELS,
+  applyPipelineView,
+  dealMarket,
   deleteView,
   loadViews,
   pipelineToCsv,
   saveView,
+  toggleSort,
   type PipelineSortKey,
   type PipelineView,
+  type PipelineViewState,
+  type SortDir,
+  type StalenessLevel,
 } from '../lib/pipelineViews'
 import type { Deal, DealStatus } from '../types/deal'
 
@@ -30,6 +41,8 @@ interface PipelinePageProps {
   onOpenDeal: (dealId: string) => void
   onStatusChange: (dealId: string, status: DealStatus) => void
   onBulkStatus: (dealIds: string[], status: DealStatus) => Promise<void>
+  /** Wave 2: bulk add/remove tags on the selection. */
+  onBulkTags: (dealIds: string[], add: string[], remove: string[]) => Promise<void>
   /** Typed creation — every new deal knows its dealflow from birth. */
   onNewDeal: (type: DealType) => void
   /** J10: opens the OM-to-deal wizard. */
@@ -45,9 +58,59 @@ const BOARD_META: Record<DealType, { title: string; accent: string }> = {
   development: { title: 'Developments', accent: 'text-orange-700' },
 }
 
-function dealMarket(deal: Deal): string {
-  const market = deal.inputs?.market
-  return typeof market === 'string' ? market : ''
+const SORT_COLUMNS: { key: PipelineSortKey; label: string; className?: string }[] = [
+  { key: 'name', label: 'Deal' },
+  { key: 'market', label: 'Market' },
+  { key: 'stage', label: 'Stage' },
+  { key: 'updated', label: 'Last touched' },
+  { key: 'staleness', label: 'Staleness', className: 'w-24' },
+]
+
+/** Wave 2: sortable column header — aria-sort on the <th>, the click target
+ *  is a real button so it is keyboard-reachable. */
+function SortHeader({
+  column,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  column: (typeof SORT_COLUMNS)[number]
+  sortKey: PipelineSortKey
+  sortDir: SortDir
+  onSort: (key: PipelineSortKey) => void
+}) {
+  const active = sortKey === column.key
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={`px-3 py-2 font-medium ${column.className ?? ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column.key)}
+        className={`flex items-center gap-1 hover:text-slate-600 ${active ? 'text-slate-600' : ''}`}
+      >
+        {column.label}
+        <span aria-hidden="true" className={active ? '' : 'opacity-30'}>
+          {active ? (sortDir === 'asc' ? '▲' : '▼') : '▵'}
+        </span>
+      </button>
+    </th>
+  )
+}
+
+function TagChips({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null
+  return (
+    <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+      {tags.map((tag) => (
+        <span key={tag} className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-500">
+          {tag}
+        </span>
+      ))}
+    </span>
+  )
 }
 
 interface BoardProps {
@@ -58,6 +121,9 @@ interface BoardProps {
   hiddenCount: number
   activeDealId: string | null
   selected: Set<string>
+  sortKey: PipelineSortKey
+  sortDir: SortDir
+  onSort: (key: PipelineSortKey) => void
   onToggle: (dealId: string, checked: boolean) => void
   onSelectAll: (dealIds: string[], checked: boolean) => void
   onOpenDeal: (dealId: string) => void
@@ -68,7 +134,7 @@ interface BoardProps {
 
 /** One dealflow board: its own stage chips, counts, and stage dropdowns. */
 function Board({
-  type, deals, archivedDeals, hiddenCount, activeDealId, selected,
+  type, deals, archivedDeals, hiddenCount, activeDealId, selected, sortKey, sortDir, onSort,
   onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal, onUnarchive,
 }: BoardProps) {
   const stages = stagesFor(type)
@@ -114,10 +180,15 @@ function Board({
                   onChange={(e) => onSelectAll(deals.map((d) => d.id), e.target.checked)}
                 />
               </th>
-              <th className="px-3 py-2 font-medium">Deal</th>
-              <th className="px-3 py-2 font-medium">Market</th>
-              <th className="px-3 py-2 font-medium">Stage</th>
-              <th className="px-3 py-2 font-medium">Last touched</th>
+              {SORT_COLUMNS.map((column) => (
+                <SortHeader
+                  key={column.key}
+                  column={column}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                />
+              ))}
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -150,11 +221,13 @@ function Board({
                     {deal.id === activeDealId && (
                       <span className="ml-2 text-[10px] text-sky-600">active</span>
                     )}
+                    <TagChips tags={dealTags(deal)} />
                   </td>
                   <td className="px-3 py-2 text-slate-500">{dealMarket(deal) || '—'}</td>
                   <td className="px-3 py-2">
                     <select
                       value={deal.status}
+                      aria-label={`Stage of ${deal.name}`}
                       onChange={(e) => onStatusChange(deal.id, e.target.value as DealStatus)}
                       className={`rounded border-0 px-2 py-1 text-xs ${STAGE_STYLES[deal.status]}`}
                     >
@@ -166,11 +239,11 @@ function Board({
                       ))}
                     </select>
                   </td>
+                  <td className="px-3 py-2 text-slate-500">{relativeAge(deal.updatedAt)}</td>
                   <td className="px-3 py-2 text-slate-500">
-                    {relativeAge(deal.updatedAt)}
-                    {badge && (
+                    {badge ? (
                       <span
-                        className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${
                           badge.tone === 'red'
                             ? 'bg-red-100 text-red-700'
                             : 'bg-amber-100 text-amber-700'
@@ -178,6 +251,8 @@ function Board({
                       >
                         △ {badge.label}
                       </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-300">fresh</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -216,7 +291,7 @@ function Board({
             })}
             {deals.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-400">
+                <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-400">
                   No {type} deals{hiddenCount > 0 ? ' in this view' : ' yet'}.
                 </td>
               </tr>
@@ -229,12 +304,14 @@ function Board({
                   <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
                     archived
                   </span>
+                  <TagChips tags={dealTags(deal)} />
                 </td>
                 <td className="px-3 py-2 text-slate-500">{dealMarket(deal) || '—'}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{STAGE_LABELS[deal.status]}</td>
                 <td className="px-3 py-2 text-slate-500">
                   {deal.archivedAt ? `archived ${relativeAge(deal.archivedAt)}` : relativeAge(deal.updatedAt)}
                 </td>
+                <td className="px-3 py-2" />
                 <td className="px-3 py-2 text-right">
                   <button
                     onClick={() => onUnarchive(deal.id)}
@@ -252,23 +329,66 @@ function Board({
   )
 }
 
+/** Toggle-chip row for one filter dimension (stage / staleness / tag). */
+function FilterChips<T extends string>({
+  label,
+  options,
+  selected,
+  onToggle,
+  render = (v) => v,
+  chipClass = () => 'bg-slate-100 text-slate-600',
+}: {
+  label: string
+  options: T[]
+  selected: T[]
+  onToggle: (value: T) => void
+  render?: (value: T) => string
+  chipClass?: (value: T) => string
+}) {
+  if (options.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={`Filter by ${label}`}>
+      <span className="text-[10px] font-semibold tracking-wide text-slate-400">{label.toUpperCase()}</span>
+      {options.map((value) => {
+        const on = selected.includes(value)
+        return (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onToggle(value)}
+            aria-pressed={on}
+            className={`rounded border px-1.5 py-0.5 text-[11px] ${
+              on ? `border-slate-400 ${chipClass(value)}` : 'border-slate-200 text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            {render(value)}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function PipelinePage({
   deals,
   activeDealId,
   onOpenDeal,
   onStatusChange,
   onBulkStatus,
+  onBulkTags,
   onNewDeal,
   onNewDealFromDocuments,
   onSetDealType,
   onDealsChanged,
 }: PipelinePageProps) {
-  const [showTerminal, setShowTerminal] = useState(false)
-  const [marketFilter, setMarketFilter] = useState('')
-  const [sortKey, setSortKey] = useState<PipelineSortKey>('stage')
+  // Wave 2: every sort/filter knob lives in one state object so a saved view
+  // captures all of it.
+  const [view, setView] = useState<PipelineViewState>(DEFAULT_VIEW_STATE)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkStatusValue, setBulkStatusValue] = useState<DealStatus>('screening')
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkTag, setBulkTag] = useState('')
+  const [tagBusy, setTagBusy] = useState(false)
   // B13: saved views go through safeStorage (never throws).
   const [views, setViews] = useState<PipelineView[]>(() => loadViews(safeStorage))
   const [viewName, setViewName] = useState('')
@@ -307,10 +427,7 @@ export default function PipelinePage({
     }
   }
 
-  const sorted = useMemo(
-    () => applyView(deals, marketFilter, sortKey, showTerminal),
-    [deals, marketFilter, sortKey, showTerminal],
-  )
+  const sorted = useMemo(() => applyPipelineView(deals, view), [deals, view])
   const archivedByType = useMemo(
     () => ({
       acquisition: archivedDeals.filter((d) => dealTypeOf(d) === 'acquisition'),
@@ -330,15 +447,29 @@ export default function PipelinePage({
     [sorted],
   )
   const untyped = useMemo(() => sorted.filter((d) => dealTypeOf(d) === null), [sorted])
+  const tagOptions = useMemo(() => allTags(deals).map((t) => t.tag), [deals])
 
   const hiddenCount = deals.length - sorted.length
-  const visibleSelected = sorted.filter((d) => selected.has(d.id))
+  // Wave 2 (perf): memoised — a fresh array here used to defeat the
+  // bulkOptions memo below on every render.
+  const visibleSelected = useMemo(
+    () => sorted.filter((d) => selected.has(d.id)),
+    [sorted, selected],
+  )
   // Bulk stage choices depend on WHAT is selected: one type -> its stages,
   // mixed -> only the shared stages.
   const bulkOptions = useMemo(() => bulkStageOptions(visibleSelected), [visibleSelected])
   const effectiveBulkValue = bulkOptions.includes(bulkStatusValue)
     ? bulkStatusValue
     : bulkOptions[0]
+
+  function patchView(patch: Partial<PipelineViewState>) {
+    setView((prev) => ({ ...prev, ...patch }))
+  }
+
+  function handleSort(key: PipelineSortKey) {
+    setView((prev) => ({ ...prev, ...toggleSort(prev, key) }))
+  }
 
   function toggle(dealId: string, checked: boolean) {
     const next = new Set(selected)
@@ -369,6 +500,24 @@ export default function PipelinePage({
       toastError(err, 'Bulk stage update failed.')
     } finally {
       setBulkBusy(false)
+    }
+  }
+
+  async function handleBulkTag(mode: 'add' | 'remove') {
+    const tag = normalizeTag(bulkTag)
+    if (!tag) return
+    setTagBusy(true)
+    try {
+      await onBulkTags(
+        visibleSelected.map((d) => d.id),
+        mode === 'add' ? [tag] : [],
+        mode === 'remove' ? [tag] : [],
+      )
+      setBulkTag('')
+    } catch (err) {
+      toastError(err, `Bulk tag ${mode} failed.`)
+    } finally {
+      setTagBusy(false)
     }
   }
 
@@ -408,24 +557,19 @@ export default function PipelinePage({
     URL.revokeObjectURL(url)
   }
 
-  function handleApplyView(view: PipelineView) {
-    setMarketFilter(view.marketFilter)
-    setSortKey(view.sortKey)
-    setShowTerminal(view.showTerminal)
+  function handleApplyView(saved: PipelineView) {
+    const { name: _name, ...rest } = saved
+    setView(rest)
   }
 
   function handleSaveView() {
     if (!viewName.trim()) return
-    setViews(
-      saveView(safeStorage, {
-        name: viewName.trim(),
-        marketFilter,
-        sortKey,
-        showTerminal,
-      }),
-    )
+    setViews(saveView(safeStorage, { name: viewName.trim(), ...view }))
     setViewName('')
   }
+
+  const filtersActive =
+    view.stageFilter.length + view.stalenessFilter.length + view.tagFilter.length > 0
 
   return (
     <div className="max-w-4xl space-y-4">
@@ -474,32 +618,46 @@ export default function PipelinePage({
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <input
-          value={marketFilter}
-          onChange={(e) => setMarketFilter(e.target.value)}
+          value={view.marketFilter}
+          onChange={(e) => patchView({ marketFilter: e.target.value })}
           placeholder="Filter by market or name"
+          aria-label="Filter by market or name"
           className="rounded border border-slate-200 px-2 py-1"
         />
         <label className="flex items-center gap-1 text-slate-500">
           Sort
           <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as PipelineSortKey)}
+            value={view.sortKey}
+            onChange={(e) => {
+              const key = e.target.value as PipelineSortKey
+              patchView({ sortKey: key, sortDir: DEFAULT_SORT_DIR[key] })
+            }}
             className="rounded border border-slate-200 px-1 py-1"
           >
             <option value="stage">Stage</option>
             <option value="updated">Recently touched</option>
             <option value="name">Name</option>
+            <option value="market">Market</option>
+            <option value="staleness">Staleness</option>
           </select>
+          <button
+            type="button"
+            onClick={() => patchView({ sortDir: view.sortDir === 'asc' ? 'desc' : 'asc' })}
+            aria-label={`Sort direction: ${view.sortDir === 'asc' ? 'ascending' : 'descending'} (click to flip)`}
+            className="rounded border border-slate-200 px-1.5 py-1 text-slate-500 hover:text-slate-600"
+          >
+            {view.sortDir === 'asc' ? '▲' : '▼'}
+          </button>
         </label>
         <button
-          onClick={() => setShowTerminal(!showTerminal)}
+          onClick={() => patchView({ showTerminal: !view.showTerminal })}
           className={`rounded border px-2 py-1 ${
-            showTerminal
+            view.showTerminal
               ? 'border-slate-400 bg-slate-100 text-slate-600'
               : 'border-slate-200 text-slate-400 hover:text-slate-600'
           }`}
         >
-          {showTerminal
+          {view.showTerminal
             ? 'Hiding nothing'
             : `Closed/stabilized/dead hidden${hiddenCount ? ` (${hiddenCount})` : ''}`}
         </button>
@@ -521,14 +679,14 @@ export default function PipelinePage({
           Export CSV ({sorted.length})
         </button>
         <span className="mx-1 h-4 border-l border-slate-200" />
-        {views.map((view) => (
-          <span key={view.name} className="flex items-center rounded bg-sky-50 text-sky-700">
-            <button onClick={() => handleApplyView(view)} className="px-2 py-1 hover:underline">
-              {view.name}
+        {views.map((saved) => (
+          <span key={saved.name} className="flex items-center rounded bg-sky-50 text-sky-700">
+            <button onClick={() => handleApplyView(saved)} className="px-2 py-1 hover:underline">
+              {saved.name}
             </button>
             <button
-              onClick={() => setViews(deleteView(safeStorage, view.name))}
-              aria-label={`Delete saved view ${view.name}`}
+              onClick={() => setViews(deleteView(safeStorage, saved.name))}
+              aria-label={`Delete saved view ${saved.name}`}
               className="pr-1.5 text-sky-400 hover:text-red-600"
             >
               ×
@@ -539,6 +697,7 @@ export default function PipelinePage({
           value={viewName}
           onChange={(e) => setViewName(e.target.value)}
           placeholder="Save view as…"
+          aria-label="Name for the saved view"
           className="w-28 rounded border border-slate-200 px-2 py-1"
         />
         <button
@@ -550,11 +709,57 @@ export default function PipelinePage({
         </button>
       </div>
 
+      {/* Wave 2: stage / staleness / tag filters (all AND-ed together). */}
+      <div className="flex flex-wrap items-center gap-4 text-xs">
+        <FilterChips
+          label="Stage"
+          options={ALL_STAGES}
+          selected={view.stageFilter}
+          onToggle={(stage) =>
+            patchView({ stageFilter: toggleTag(view.stageFilter, stage) as DealStatus[] })
+          }
+          render={(stage) => STAGE_LABELS[stage]}
+          chipClass={(stage) => STAGE_STYLES[stage]}
+        />
+        <FilterChips
+          label="Staleness"
+          options={STALENESS_LEVELS}
+          selected={view.stalenessFilter}
+          onToggle={(level) =>
+            patchView({ stalenessFilter: toggleTag(view.stalenessFilter, level) as StalenessLevel[] })
+          }
+          render={(level) => STALENESS_LABELS[level]}
+          chipClass={(level) =>
+            level === 'critical'
+              ? 'bg-red-100 text-red-700'
+              : level === 'stale'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-100 text-emerald-700'
+          }
+        />
+        <FilterChips
+          label="Tags"
+          options={tagOptions}
+          selected={view.tagFilter}
+          onToggle={(tag) => patchView({ tagFilter: toggleTag(view.tagFilter, tag) })}
+        />
+        {filtersActive && (
+          <button
+            type="button"
+            onClick={() => patchView({ stageFilter: [], stalenessFilter: [], tagFilter: [] })}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {visibleSelected.length > 0 && (
-        <div className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs">
           <span className="text-sky-700">{visibleSelected.length} selected</span>
           <select
             value={effectiveBulkValue}
+            aria-label="Stage to apply to the selection"
             onChange={(e) => setBulkStatusValue(e.target.value as DealStatus)}
             className="rounded border border-slate-200 px-1 py-1"
           >
@@ -570,6 +775,34 @@ export default function PipelinePage({
             className="rounded bg-sky-600 px-2 py-1 text-white hover:bg-sky-700 disabled:opacity-40"
           >
             {bulkBusy ? 'Updating…' : 'Set stage'}
+          </button>
+          <span className="mx-1 h-4 border-l border-sky-200" />
+          <input
+            value={bulkTag}
+            onChange={(e) => setBulkTag(e.target.value)}
+            placeholder="Tag…"
+            aria-label="Tag to add to or remove from the selection"
+            list="pipeline-tag-options"
+            className="w-24 rounded border border-slate-200 px-2 py-1"
+          />
+          <datalist id="pipeline-tag-options">
+            {tagOptions.map((tag) => (
+              <option key={tag} value={tag} />
+            ))}
+          </datalist>
+          <button
+            onClick={() => void handleBulkTag('add')}
+            disabled={tagBusy || !normalizeTag(bulkTag)}
+            className="rounded border border-slate-400 px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+          >
+            Add tag
+          </button>
+          <button
+            onClick={() => void handleBulkTag('remove')}
+            disabled={tagBusy || !normalizeTag(bulkTag)}
+            className="rounded border border-slate-400 px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+          >
+            Remove tag
           </button>
           <button
             onClick={() => void handleExportDeck()}
@@ -595,6 +828,9 @@ export default function PipelinePage({
         hiddenCount={hiddenCount}
         activeDealId={activeDealId}
         selected={selected}
+        sortKey={view.sortKey}
+        sortDir={view.sortDir}
+        onSort={handleSort}
         onToggle={toggle}
         onSelectAll={selectAll}
         onOpenDeal={onOpenDeal}
@@ -610,6 +846,9 @@ export default function PipelinePage({
         hiddenCount={hiddenCount}
         activeDealId={activeDealId}
         selected={selected}
+        sortKey={view.sortKey}
+        sortDir={view.sortDir}
+        onSort={handleSort}
         onToggle={toggle}
         onSelectAll={selectAll}
         onOpenDeal={onOpenDeal}
@@ -655,6 +894,7 @@ export default function PipelinePage({
                 >
                   {deal.name}
                 </button>
+                <TagChips tags={dealTags(deal)} />
                 <span className="text-slate-400">{relativeAge(deal.updatedAt)}</span>
                 <button
                   onClick={() => onSetDealType(deal.id, 'acquisition')}

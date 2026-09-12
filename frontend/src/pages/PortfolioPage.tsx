@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { fetchPortfolio, type PortfolioRollup } from '../lib/api'
 import { STAGE_LABELS } from '../lib/dealStages'
 import type { DealStatus } from '../types/deal'
@@ -30,8 +30,9 @@ function Bars({ rows }: { rows: { label: string; equity: number }[] }) {
   )
 }
 
-/** J15: portfolio roll-up over non-dead deals. */
-export default function PortfolioPage({ active }: PortfolioPageProps) {
+/** J15: portfolio roll-up over non-dead deals. Wave 2 (perf): memoised —
+ *  its only prop is the `active` boolean. */
+const PortfolioPage = memo(function PortfolioPage({ active }: PortfolioPageProps) {
   const [data, setData] = useState<PortfolioRollup | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -182,4 +183,6 @@ export default function PortfolioPage({ active }: PortfolioPageProps) {
       )}
     </div>
   )
-}
+})
+
+export default PortfolioPage

@@ -18,14 +18,9 @@ const BENCHMARK_DEBOUNCE_MS = 1200
 
 /** Current index rates rendered as context next to the financing rate input.
  *  Display only — never auto-fills anything. Renders nothing when FRED is
- *  unavailable (no key, offline). */
-function RatesHint() {
-  const [rates, setRates] = useState<MarketRates | null>(null)
-  useEffect(() => {
-    fetchMarketRates()
-      .then(setRates)
-      .catch(() => setRates(null))
-  }, [])
+ *  unavailable (no key, offline). Wave 2 (perf): the rates come from ONE
+ *  fetch owned by the form, shared with SofrSeed. */
+function RatesHint({ rates }: { rates: MarketRates | null }) {
   if (!rates || rates.dataSource !== 'fred') return null
   const parts = (
     [
@@ -48,13 +43,7 @@ function RatesHint() {
 /** J5: one-click seed of the floating index from FRED's latest SOFR print.
  *  Explicit apply only (like the millage lookup) — never auto-fills. Renders
  *  nothing when FRED is unavailable. */
-function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
-  const [rates, setRates] = useState<MarketRates | null>(null)
-  useEffect(() => {
-    fetchMarketRates()
-      .then(setRates)
-      .catch(() => setRates(null))
-  }, [])
+function SofrSeed({ rates, onApply }: { rates: MarketRates | null; onApply: (rate: number) => void }) {
   const sofr = rates?.dataSource === 'fred' ? rates.rates.sofr : null
   if (typeof sofr !== 'number') return null
   const asOf = rates?.asOf?.sofr
@@ -78,6 +67,21 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
   const [benchmarksLoading, setBenchmarksLoading] = useState(false)
   // B5: benchmark fetches resolve in request order only.
   const benchmarkGuard = useRef(createLatestGuard())
+  // Wave 2 (perf): one /market/rates fetch for both hints (was two).
+  const [rates, setRates] = useState<MarketRates | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchMarketRates()
+      .then((r) => {
+        if (!cancelled) setRates(r)
+      })
+      .catch(() => {
+        if (!cancelled) setRates(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const address = typeof values.address === 'string' ? values.address : ''
   const market = typeof values.market === 'string' ? values.market : ''
@@ -180,9 +184,9 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     onChange={(v) => onFieldChange(field.id, v)}
                     indicator={fieldIndicators[field.id]}
                   />
-                  {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'interestRate' && <RatesHint rates={rates} />}
                   {field.id === 'currentIndexPct' && (
-                    <SofrSeed onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
+                    <SofrSeed rates={rates} onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
                   )}
                   {field.id === 'useReassessedTaxes' && (
                     <PropertyTaxLookup

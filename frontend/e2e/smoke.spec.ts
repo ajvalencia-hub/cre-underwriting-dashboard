@@ -41,15 +41,16 @@ test('underwriting happy path', async ({ page }) => {
   await page.getByRole('button', { name: 'Compute (native)' }).click()
   await expect(page.getByText('native', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
 
-  // Cash Flow tab renders the statement.
-  await page.getByRole('button', { name: '4. Cash Flow' }).click()
+  // Cash Flow tab renders the statement. (Wave 2: the workflow nav is a real
+  // tablist, so the steps are role=tab.)
+  await page.getByRole('tab', { name: '4. Cash Flow' }).click()
   await expect(page.getByText('Net operating income')).toBeVisible()
   await expect(page.getByText('Export annual CSV')).toBeVisible()
 
   // Save two scenarios (native-era: no template required). All tabs stay
   // mounted, and the Quick Screen has its own "Scenario name" input — the
   // Scenarios panel's is the last in DOM order.
-  await page.getByRole('button', { name: '6. Scenarios' }).click()
+  await page.getByRole('tab', { name: '6. Scenarios' }).click()
   const nameInput = page.getByPlaceholder('Scenario name').last()
   await nameInput.fill('Base Case')
   await page.getByRole('button', { name: 'Save current inputs as scenario' }).click()
@@ -86,7 +87,7 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.locator('select').first()).toBeVisible()
 
   // Deals (pipeline) tab: one board per dealflow, each with its own stage chips.
-  await page.getByRole('button', { name: 'Deals' }).click()
+  await page.getByRole('tab', { name: 'Deals' }).click()
   await expect(page.getByText(/Screening · \d/).first()).toBeVisible()
   // The auto-created "Default Deal" is untyped (the schema no longer defaults
   // dealType), so it sits in the untyped box rather than on a board. Create a
@@ -106,7 +107,7 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   expect(await shareResponse.text()).toContain('Read-only')
 
   // Comps tab: importer present, inline add round-trip.
-  await page.getByRole('button', { name: '7. Comps' }).click()
+  await page.getByRole('tab', { name: '7. Comps' }).click()
   await expect(page.getByText('Import CSV (Yardi Matrix export)')).toBeVisible()
   await page.getByPlaceholder('New comp name').fill('Smoke Comp')
   await page.getByPlaceholder('Price').fill('1000000')
@@ -114,7 +115,7 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.locator('td', { hasText: 'Smoke Comp' }).first()).toBeVisible()
 
   // Deal Inputs: presets bar and history drawer are mounted.
-  await page.getByRole('button', { name: '3. Deal Inputs' }).click()
+  await page.getByRole('tab', { name: '3. Deal Inputs' }).click()
   await expect(page.getByText('ASSUMPTION PRESETS')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Input history' })).toBeVisible()
 })

@@ -4,6 +4,7 @@ import {
   QUICK_SCREEN_INPUTS_KEY,
   QUICK_SCREEN_MODE_KEY,
   createAutosaver,
+  createSaveConcurrency,
   hydrateDealState,
   serializeDealInputs,
 } from './dealPersistence'
@@ -143,6 +144,72 @@ describe('createAutosaver', () => {
     // Nothing left to retry — a flush is a no-op.
     await saver.flush()
     expect(save).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createSaveConcurrency', () => {
+  it('sends the last recorded ETag as If-Match and nothing when unknown', () => {
+    const guard = createSaveConcurrency<{ id: string }>()
+    expect(guard.ifMatchFor('a')).toBeUndefined()
+    guard.recordEtag('a', '"v1"')
+    expect(guard.ifMatchFor('a')).toBe('"v1"')
+    expect(guard.etagFor('a')).toBe('"v1"')
+    guard.recordEtag('a', '"v2"') // every single-deal response refreshes it
+    expect(guard.ifMatchFor('a')).toBe('"v2"')
+    guard.recordEtag('a', null)
+    expect(guard.ifMatchFor('a')).toBeUndefined()
+  })
+
+  it('blocks only the conflicted deal until the user chooses', () => {
+    const guard = createSaveConcurrency<{ id: string }>()
+    guard.recordEtag('a', '"v1"')
+    guard.markConflict({ dealId: 'a', current: { id: 'a' }, etag: '"v9"' })
+    expect(guard.isBlocked('a')).toBe(true)
+    expect(guard.isBlocked('b')).toBe(false)
+    expect(guard.conflict()?.dealId).toBe('a')
+  })
+
+  it('Overwrite retries unconditionally until a fresh ETag is recorded', () => {
+    const guard = createSaveConcurrency<{ id: string }>()
+    guard.recordEtag('a', '"v1"')
+    guard.markConflict({ dealId: 'a', current: { id: 'a' }, etag: '"v9"' })
+    expect(guard.chooseOverwrite()).toBe('a')
+    expect(guard.isBlocked('a')).toBe(false)
+    expect(guard.conflict()).toBeNull()
+    expect(guard.ifMatchFor('a')).toBeUndefined()
+    // The PUT succeeded: the response's ETag re-arms the guard.
+    guard.recordEtag('a', '"v10"')
+    expect(guard.ifMatchFor('a')).toBe('"v10"')
+  })
+
+  it('Reload hands back the server copy and adopts its ETag', () => {
+    const guard = createSaveConcurrency<{ id: string; name: string }>()
+    guard.recordEtag('a', '"v1"')
+    const current = { id: 'a', name: 'edited elsewhere' }
+    guard.markConflict({ dealId: 'a', current, etag: '"v9"' })
+    expect(guard.chooseReload()).toEqual({ dealId: 'a', current, etag: '"v9"' })
+    expect(guard.isBlocked('a')).toBe(false)
+    expect(guard.ifMatchFor('a')).toBe('"v9"')
+    // Without an ETag on the 412 the stale one is dropped (caller refetches).
+    guard.markConflict({ dealId: 'a', current, etag: null })
+    guard.chooseReload()
+    expect(guard.ifMatchFor('a')).toBeUndefined()
+  })
+
+  it('choosing with no pending conflict is a no-op', () => {
+    const guard = createSaveConcurrency<{ id: string }>()
+    expect(guard.chooseOverwrite()).toBeNull()
+    expect(guard.chooseReload()).toBeNull()
+  })
+
+  it('forget clears the ETag, the overwrite flag and any pending conflict', () => {
+    const guard = createSaveConcurrency<{ id: string }>()
+    guard.recordEtag('a', '"v1"')
+    guard.markConflict({ dealId: 'a', current: { id: 'a' }, etag: null })
+    guard.forget('a')
+    expect(guard.conflict()).toBeNull()
+    expect(guard.isBlocked('a')).toBe(false)
+    expect(guard.ifMatchFor('a')).toBeUndefined()
   })
 })
 

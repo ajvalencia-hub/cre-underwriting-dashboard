@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import {
   UNAUTHORIZED_EVENT,
   backupDownloadUrl,
@@ -111,8 +111,9 @@ function SnapshotTable({
   )
 }
 
-/** Settings v1: appearance (theme), backups (J16 endpoints), integrations. */
-export default function SettingsPage({ active }: SettingsPageProps) {
+/** Settings v1: appearance (theme), backups (J16 endpoints), integrations.
+ *  Wave 2 (perf): memoised — its only prop is the `active` boolean. */
+const SettingsPage = memo(function SettingsPage({ active }: SettingsPageProps) {
   // B13: prefs read through safeStorage.
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(safeStorage))
   const [newDealType, setNewDealType] = useState<NewDealTypePref>(() => loadNewDealTypePref(safeStorage))
@@ -321,4 +322,6 @@ export default function SettingsPage({ active }: SettingsPageProps) {
       </Section>
     </div>
   )
-}
+})
+
+export default SettingsPage

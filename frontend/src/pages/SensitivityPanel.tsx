@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   fetchMappingProfile,
   fetchScenarios,
@@ -54,12 +54,17 @@ export default function SensitivityPanel({
   baseValues,
   dealId,
 }: SensitivityPanelProps) {
-  const fields = flattenFields(schema)
-  const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
+  // Wave 2 (perf): the schema walks only rerun when their inputs change,
+  // not on every driver/steps keystroke inside this panel.
+  const fieldById = useMemo(
+    () => new Map<string, FlatField>(flattenFields(schema).map((f) => [f.id, f])),
+    [schema],
+  )
   // Only fields VISIBLE for this deal (type-aware): sweeping the other
   // dealflow's inputs would produce a silent flat grid.
-  const driverCandidates = visibleFields(schema, baseValues).filter((f) =>
-    DRIVER_TYPES.has(f.type),
+  const driverCandidates = useMemo(
+    () => visibleFields(schema, baseValues).filter((f) => DRIVER_TYPES.has(f.type)),
+    [schema, baseValues],
   )
 
   const [mode, setMode] = useState<SweepMode>('native')
@@ -97,12 +102,18 @@ export default function SensitivityPanel({
   const templateAvailable = Boolean(template && mappingProfileId)
   // Native mode sweeps ANY numeric schema input and tracks ANY output metric;
   // template mode is limited to what the mapping profile carries.
-  const eligibleDrivers =
-    mode === 'native'
-      ? driverCandidates
-      : driverCandidates.filter((f) => mappedFieldIds.has(f.id))
-  const eligibleOutputs =
-    mode === 'native' ? schema.outputs : schema.outputs.filter((m) => mappedFieldIds.has(m.id))
+  const eligibleDrivers = useMemo(
+    () =>
+      mode === 'native'
+        ? driverCandidates
+        : driverCandidates.filter((f) => mappedFieldIds.has(f.id)),
+    [mode, driverCandidates, mappedFieldIds],
+  )
+  const eligibleOutputs = useMemo(
+    () =>
+      mode === 'native' ? schema.outputs : schema.outputs.filter((m) => mappedFieldIds.has(m.id)),
+    [mode, schema.outputs, mappedFieldIds],
+  )
 
   function toggleOutput(id: string) {
     setSelectedOutputs((prev) => {

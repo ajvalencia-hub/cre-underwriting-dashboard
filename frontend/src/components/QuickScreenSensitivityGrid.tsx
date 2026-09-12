@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import {
   computeQuickScreenSensitivityGrid,
   type QuickScreenInputs,
@@ -17,7 +17,12 @@ const TIER_CELL_CLASS: Record<string, string> = {
   weak: 'bg-red-50 text-red-700 hover:bg-red-100',
 }
 
-export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: QuickScreenSensitivityGridProps) {
+/** Wave 2 (perf): memoised — the parent re-renders on every napkin
+ *  keystroke, but the grid only needs to recompute when `inputs` changes. */
+const QuickScreenSensitivityGrid = memo(function QuickScreenSensitivityGrid({
+  inputs,
+  onApplyCell,
+}: QuickScreenSensitivityGridProps) {
   const [metric, setMetric] = useState<SensitivityGridMetric>('spread')
   const grid = useMemo(() => computeQuickScreenSensitivityGrid(inputs, metric), [inputs, metric])
 
@@ -27,11 +32,12 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
         <div className="text-xs font-semibold tracking-wide text-slate-500">
           SENSITIVITY PREVIEW — RENT &times; EXIT CAP
         </div>
-        <div className="flex gap-1 text-xs">
+        <div className="flex gap-1 text-xs" role="group" aria-label="Grid metric">
           {(['spread', 'yieldOnCost'] as SensitivityGridMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setMetric(m)}
+              aria-pressed={metric === m}
               className={`rounded px-2 py-0.5 ${
                 metric === m ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
@@ -47,7 +53,7 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
           <tr>
             <th className="w-16 border border-slate-100 p-1 text-slate-400">Rent \ Cap</th>
             {grid[0].map((cell) => (
-              <th key={cell.exitCapDeltaBps} className="border border-slate-100 p-1 font-normal text-slate-500">
+              <th key={cell.exitCapDeltaBps} scope="col" className="border border-slate-100 p-1 font-normal text-slate-500">
                 {cell.exitCapDeltaBps >= 0 ? '+' : ''}
                 {cell.exitCapDeltaBps} bps
               </th>
@@ -57,20 +63,25 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
         <tbody>
           {grid.map((row) => (
             <tr key={row[0].rentDeltaPct}>
-              <td className="border border-slate-100 p-1 text-slate-500">
+              <th scope="row" className="border border-slate-100 p-1 font-normal text-slate-500">
                 {row[0].rentDeltaPct >= 0 ? '+' : ''}
                 {(row[0].rentDeltaPct * 100).toFixed(0)}%
-              </td>
+              </th>
               {row.map((cell) => (
                 <td
                   key={cell.exitCapDeltaBps}
-                  onClick={() => onApplyCell(cell.rentDeltaPct, cell.exitCapDeltaBps)}
-                  title="Click to apply this rent / exit cap pair to the inputs"
-                  className={`cursor-pointer border p-1.5 font-medium ${TIER_CELL_CLASS[cell.tier]} ${
-                    cell.isCenter ? 'border-2 border-slate-900' : 'border-slate-100'
-                  }`}
+                  className={`border p-0 ${cell.isCenter ? 'border-2 border-slate-900' : 'border-slate-100'}`}
                 >
-                  {formatPct(cell.value, 1)}
+                  {/* Wave 2 (a11y): the cell action is a real, focusable button. */}
+                  <button
+                    type="button"
+                    onClick={() => onApplyCell(cell.rentDeltaPct, cell.exitCapDeltaBps)}
+                    title="Click to apply this rent / exit cap pair to the inputs"
+                    aria-label={`Apply rent ${cell.rentDeltaPct >= 0 ? '+' : ''}${(cell.rentDeltaPct * 100).toFixed(0)}% and exit cap ${cell.exitCapDeltaBps >= 0 ? '+' : ''}${cell.exitCapDeltaBps} bps`}
+                    className={`block w-full cursor-pointer p-1.5 font-medium ${TIER_CELL_CLASS[cell.tier]}`}
+                  >
+                    {formatPct(cell.value, 1)}
+                  </button>
                 </td>
               ))}
             </tr>
@@ -83,4 +94,6 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
       </p>
     </div>
   )
-}
+})
+
+export default QuickScreenSensitivityGrid

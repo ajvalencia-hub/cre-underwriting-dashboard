@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  cancelMonteCarlo,
   fetchGoalSeekInputs,
   fetchScenarios,
   pollMonteCarlo,
@@ -9,6 +10,11 @@ import {
   type MonteCarloResult,
 } from '../lib/api'
 import { friendlyEngineError } from '../lib/engineErrors'
+import {
+  MONTE_CARLO_POLL_INTERVAL_MS,
+  pollTimedOut,
+  pollTimeoutMessage,
+} from '../lib/monteCarloPolling'
 import { parseSeed } from '../lib/monteCarloSeed'
 import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
@@ -91,6 +97,12 @@ function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[]
   )
 }
 
+const PARAM_FIELDS: Record<string, string[]> = {
+  normal: ['mean', 'stdDev'],
+  triangular: ['min', 'mode', 'max'],
+  uniform: ['min', 'max'],
+}
+
 /** J8: Monte Carlo risk panel — seeded, deterministic, saved to scenarios. */
 export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   const [inputList, setInputList] = useState<{ id: string; label: string }[]>([])
@@ -98,8 +110,16 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   // engine actually reads for this deal.
   const dealType = values.dealType === 'development' ? 'development' : 'acquisition'
   const suggested = SUGGESTED_PATHS_BY_TYPE[dealType]
-  const visibleIds = new Set(visibleFields(schema, values).map((f) => f.id))
-  const applicableInputs = inputList.filter((f) => visibleIds.has(f.id))
+  // Wave 2 (perf): the visible-field walk only reruns when the schema or
+  // values change, not on every keystroke inside this panel.
+  const visibleIds = useMemo(
+    () => new Set(visibleFields(schema, values).map((f) => f.id)),
+    [schema, values],
+  )
+  const applicableInputs = useMemo(
+    () => inputList.filter((f) => visibleIds.has(f.id)),
+    [inputList, visibleIds],
+  )
   const [drivers, setDrivers] = useState<McDriver[]>([])
   const [n, setN] = useState(500)
   const [seed, setSeed] = useState('')
@@ -107,16 +127,22 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<MonteCarloResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [dealScenarios, setDealScenarios] = useState<Scenario[]>([])
   const [saveTargetId, setSaveTargetId] = useState('')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const pollTimer = useRef<number | null>(null)
+  const jobIdRef = useRef<string | null>(null)
+
+  function stopPolling() {
+    if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
+    pollTimer.current = null
+    jobIdRef.current = null
+  }
 
   useEffect(() => {
     fetchGoalSeekInputs().then(setInputList).catch(() => setInputList([]))
-    return () => {
-      if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-    }
+    return stopPolling
   }, [])
 
   useEffect(() => {
@@ -145,6 +171,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     if (!seedParse.ok) return
     setRunning(true)
     setError(null)
+    setNotice(null)
     setResult(null)
     setSaveMessage(null)
     setProgress(0)
@@ -155,14 +182,25 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         n,
         seed: seedParse.seed,
       })
+      jobIdRef.current = jobId
+      const startedAt = Date.now()
       pollTimer.current = window.setInterval(() => {
         void (async () => {
+          // Wave 2: a hard ceiling so a stuck job never spins the UI forever.
+          if (pollTimedOut(startedAt, Date.now())) {
+            stopPolling()
+            setRunning(false)
+            setError(pollTimeoutMessage())
+            void cancelMonteCarlo(jobId)
+            return
+          }
           try {
             const status = await pollMonteCarlo(jobId)
+            // A cancel landed while this poll was in flight — ignore it.
+            if (jobIdRef.current !== jobId) return
             setProgress(status.completed)
             if (status.status !== 'running') {
-              if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-              pollTimer.current = null
+              stopPolling()
               setRunning(false)
               if (status.status === 'done' && status.result) {
                 setResult(status.result)
@@ -172,17 +210,27 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
               }
             }
           } catch {
-            if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-            pollTimer.current = null
+            if (jobIdRef.current !== jobId) return
+            stopPolling()
             setRunning(false)
             setError('Lost contact with the run.')
           }
         })()
-      }, 400)
+      }, MONTE_CARLO_POLL_INTERVAL_MS)
     } catch (e) {
       setRunning(false)
       setError(friendlyEngineError(e instanceof Error ? e.message : 'Could not start the run.'))
     }
+  }
+
+  // Wave 2: stop polling immediately; the server-side cancel is best effort
+  // (a missing route or an already-finished job just resolves false).
+  async function handleCancel() {
+    const jobId = jobIdRef.current
+    stopPolling()
+    setRunning(false)
+    setNotice('Run cancelled.')
+    if (jobId) await cancelMonteCarlo(jobId)
   }
 
   async function handleSaveToScenario() {
@@ -193,12 +241,6 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     } catch {
       setSaveMessage('Save failed.')
     }
-  }
-
-  const paramFields: Record<string, string[]> = {
-    normal: ['mean', 'stdDev'],
-    triangular: ['min', 'mode', 'max'],
-    uniform: ['min', 'max'],
   }
 
   return (
@@ -221,6 +263,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         ))}
         <select
           value=""
+          aria-label="Add another input as a driver"
           onChange={(e) => e.target.value && addDriver(e.target.value)}
           className="rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-500"
         >
@@ -242,6 +285,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           </span>
           <select
             value={driver.distribution}
+            aria-label={`Distribution for ${driver.inputPath}`}
             onChange={(e) => {
               const dist = e.target.value as McDriver['distribution']
               const current = typeof values[driver.inputPath] === 'number'
@@ -260,7 +304,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
             <option value="triangular">triangular</option>
             <option value="uniform">uniform</option>
           </select>
-          {paramFields[driver.distribution].map((p) => (
+          {PARAM_FIELDS[driver.distribution].map((p) => (
             <label key={p} className="flex items-center gap-1 text-slate-500">
               {p}
               <input
@@ -279,6 +323,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           ))}
           <button
             onClick={() => setDrivers(drivers.filter((_, idx) => idx !== i))}
+            aria-label={`Remove driver ${driver.inputPath}`}
             className="text-slate-400 hover:text-red-500"
           >
             remove
@@ -318,7 +363,16 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         >
           {running ? `Running… ${progress}/${n}` : 'Run simulation'}
         </button>
+        {running && (
+          <button
+            onClick={() => void handleCancel()}
+            className="rounded border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+        )}
         {error && <span className="text-red-600">{error}</span>}
+        {notice && !error && <span className="text-slate-400">{notice}</span>}
       </div>
 
       {result && (
@@ -368,6 +422,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
               <span className="font-medium text-slate-500">SAVE RUN TO SCENARIO</span>
               <select
                 value={saveTargetId}
+                aria-label="Scenario to save the run to"
                 onChange={(e) => setSaveTargetId(e.target.value)}
                 className="rounded border border-slate-300 px-1 py-0.5"
               >

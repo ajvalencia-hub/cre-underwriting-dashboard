@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import ScalarInput from './fields/ScalarInput'
+import { fieldInputId } from '../lib/fieldIds'
 import {
   ACQUISITION_FEASIBILITY,
   computeAcquisitionQuickScreen,
@@ -86,9 +87,12 @@ export default function AcquisitionQuickScreen({
       <div className="space-y-4 rounded-md border border-slate-200 bg-white p-4">
         {FIELDS.map((field) => (
           <div key={field.key}>
-            <label className="block text-xs font-medium text-slate-600">{field.label}</label>
+            <label htmlFor={fieldInputId('aqs', field.key)} className="block text-xs font-medium text-slate-600">
+              {field.label}
+            </label>
             <div className="mt-1 max-w-xs">
               <ScalarInput
+                id={fieldInputId('aqs', field.key)}
                 type={field.type}
                 value={inputs[field.key]}
                 onChange={(v) => set(field.key, v)}

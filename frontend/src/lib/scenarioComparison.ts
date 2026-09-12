@@ -57,53 +57,9 @@ function valuesDiffer(values: unknown[]): boolean {
   return values.some((v) => JSON.stringify(v ?? null) !== first)
 }
 
-/** Direction of "good" per output metric. Metrics where better is genuinely
- *  ambiguous (leverage level, going-in cap — a buyer wants it high, a seller
- *  low) are omitted and never highlighted. */
-export const METRIC_DIRECTION: Record<string, 'up' | 'down'> = {
-  unleveredIrr: 'up',
-  leveredIrr: 'up',
-  lpIrr: 'up',
-  gpIrr: 'up',
-  equityMultiple: 'up',
-  unleveredEquityMultiple: 'up',
-  lpEquityMultiple: 'up',
-  moic: 'up',
-  avgCashOnCash: 'up',
-  cashOnCashYear1: 'up',
-  stabilizedCashOnCash: 'up',
-  annualizedReturn: 'up',
-  paybackPeriodYears: 'down',
-  yieldOnCost: 'up',
-  developmentSpreadBps: 'up',
-  breakEvenOccupancy: 'down',
-  terminalValue: 'up',
-  netSaleProceeds: 'up',
-  totalProfit: 'up',
-  npv: 'up',
-  profitabilityIndex: 'up',
-  minDscr: 'up',
-  avgDscr: 'up',
-  debtYield: 'up',
-  breakEvenRatio: 'down',
-  interestCoverageRatio: 'up',
-}
-
-/** Index of the best value across scenarios, or null when the metric has no
- *  unambiguous direction, fewer than 2 numeric values, or a tie. */
-export function bestValueIndex(metricId: string, values: (number | null | undefined)[]): number | null {
-  const direction = METRIC_DIRECTION[metricId]
-  if (!direction) return null
-  const numeric = values
-    .map((v, i) => ({ v, i }))
-    .filter((e): e is { v: number; i: number } => typeof e.v === 'number' && Number.isFinite(e.v))
-  if (numeric.length < 2) return null
-  const best = numeric.reduce((a, b) =>
-    direction === 'up' ? (b.v > a.v ? b : a) : (b.v < a.v ? b : a),
-  )
-  const tied = numeric.filter((e) => e.v === best.v)
-  return tied.length > 1 ? null : best.i
-}
+// Wave 2: the direction-aware best-value logic moved to compareMath so the
+// Compare page shares it; re-exported here for the existing call sites.
+export { METRIC_DIRECTION, bestValueIndex } from './compareMath'
 
 // ---------------------------------------------------------------- tornado
 

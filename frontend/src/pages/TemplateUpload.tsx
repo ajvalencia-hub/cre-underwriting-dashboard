@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteMappingProfile,
   deleteTemplate,
   fetchAutoMatch,
-  fetchInputSchema,
   fetchMappingProfiles,
   fetchSheetGrid,
   fetchTemplates,
@@ -15,15 +14,21 @@ import { confirmAction } from '../lib/confirmAction'
 import { describeMapping } from '../lib/mappingFormat'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
+import type { InputSchema } from '../types/schema'
 import type { SheetGrid, TemplateSummary } from '../types/template'
 
 interface TemplateUploadProps {
+  /** Wave 2 (perf): the schema App already fetched — no second /schema call. */
+  schema: InputSchema
   onTemplateReady?: (template: TemplateSummary | null, mappingProfileId: string | null) => void
 }
 
 const OUTPUTS_SECTION_ID = 'computed_outputs'
 
-export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps) {
+/** Wave 2 (perf): memoised — App re-renders on every Deal Inputs keystroke,
+ *  but this panel's props (schema, a useCallback'd onTemplateReady) only
+ *  change on a deal switch, so the sheet grid never re-renders for typing. */
+const TemplateUpload = memo(function TemplateUpload({ schema, onTemplateReady }: TemplateUploadProps) {
   const [template, setTemplate] = useState<TemplateSummary | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +39,16 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
   const [grid, setGrid] = useState<SheetGrid | null>(null)
   const [gridLoading, setGridLoading] = useState(false)
 
-  const [fields, setFields] = useState<FlatField[]>([])
+  const fields = useMemo<FlatField[]>(() => {
+    const outputFields: FlatField[] = schema.outputs.map((o) => ({
+      id: o.id,
+      label: o.label,
+      type: o.type === 'percent' ? 'percent' : o.type === 'currency' ? 'currency' : 'number',
+      sectionId: OUTPUTS_SECTION_ID,
+      sectionLabel: 'Computed Outputs (mapped after recalculation)',
+    }))
+    return [...flattenFields(schema), ...outputFields]
+  }, [schema])
   const [mappings, setMappings] = useState<MappingsById>({})
   const [formulaWarnings, setFormulaWarnings] = useState<Set<string>>(new Set())
   const [pickingFieldId, setPickingFieldId] = useState<string | null>(null)
@@ -48,18 +62,6 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    fetchInputSchema()
-      .then((schema) => {
-        const outputFields: FlatField[] = schema.outputs.map((o) => ({
-          id: o.id,
-          label: o.label,
-          type: o.type === 'percent' ? 'percent' : o.type === 'currency' ? 'currency' : 'number',
-          sectionId: OUTPUTS_SECTION_ID,
-          sectionLabel: 'Computed Outputs (mapped after recalculation)',
-        }))
-        setFields([...flattenFields(schema), ...outputFields])
-      })
-      .catch(() => setFields([]))
     refreshRecentTemplates()
   }, [])
 
@@ -452,10 +454,22 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
                           {rIdx + 1}
                         </td>
                         {row.map((cell) => (
+                          // Wave 2 (a11y): while picking, every cell is a
+                          // keyboard-reachable button (Enter/Space pick it).
                           <td
                             key={cell.ref}
                             title={cell.ref}
+                            role={pickingFieldId ? 'button' : undefined}
+                            tabIndex={pickingFieldId ? 0 : undefined}
+                            aria-label={pickingFieldId ? `Map to cell ${cell.ref}` : undefined}
                             onClick={() => pickingFieldId && handleCellPick(cell.ref, cell.isFormula)}
+                            onKeyDown={(e) => {
+                              if (!pickingFieldId) return
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                handleCellPick(cell.ref, cell.isFormula)
+                              }
+                            }}
                             className={`border border-slate-200 px-2 py-1 whitespace-nowrap ${
                               cell.isFormula ? 'bg-amber-50 text-amber-700' : ''
                             } ${pickingFieldId ? 'cursor-pointer hover:bg-indigo-100' : ''}`}
@@ -551,6 +565,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
                 onChange={(e) => setProfileName(e.target.value)}
                 className="rounded border border-slate-300 px-2 py-1 text-sm"
                 placeholder="Profile name"
+                aria-label="Mapping profile name"
               />
               <button
                 onClick={handleSaveProfile}
@@ -607,4 +622,6 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       )}
     </div>
   )
-}
+})
+
+export default TemplateUpload

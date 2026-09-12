@@ -29,4 +29,11 @@ export interface Deal {
   updatedAt: string
   /** Soft-delete marker (F2): set = archived, hidden from the default list. */
   archivedAt?: string | null
+  /** Free-text labels (wave 2); optional until every backend build emits it. */
+  tags?: string[]
+}
+
+/** `GET /api/deals?fields=summary`: no inputs blob, just the headline facts. */
+export interface DealSummaryRow extends Omit<Deal, 'inputs'> {
+  summary: { dealType: string | null; dealName: string; address: string; market: string }
 }

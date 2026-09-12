@@ -34,6 +34,7 @@ const SHORTCUTS: [string, string][] = [
   ['Esc', 'Close any modal, popover or this palette'],
   ['↑ ↓ / ↵', 'Move through results / open the highlighted one'],
   ['acq: / dev:', 'Prefix a search to filter one dealflow'],
+  ['tag:name', 'Find deals carrying a tag'],
 ]
 
 /** J13: Cmd+K global search palette — deals, tenants, comps, notes. */
@@ -202,6 +203,16 @@ export default function CommandPalette({ open, onClose, onNavigate, recent = [] 
                           {item.dealType === 'development' ? 'DEV' : 'ACQ'}
                         </span>
                       )}
+                      {/* Wave 2: deal items carry their tags; `tag:name`
+                          queries are passed straight through to the server. */}
+                      {item.tags?.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-500"
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </span>
                     {item.subtitle && (
                       <span className="text-[11px] text-slate-400">{item.subtitle}</span>
@@ -215,7 +226,7 @@ export default function CommandPalette({ open, onClose, onNavigate, recent = [] 
         <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-1.5 text-[10px] text-slate-400">
           <span className="flex-1">
             ↑↓ navigate · ↵ open · esc close · prefix <code>acq:</code> / <code>dev:</code> to
-            filter one dealflow
+            filter one dealflow · <code>tag:name</code> for tags
           </span>
           <button
             onClick={() => setShowShortcuts((v) => !v)}

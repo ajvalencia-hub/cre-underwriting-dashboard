@@ -169,6 +169,9 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
     }
     return result
   }, [statement, expandedYears])
+  // Wave 2 (perf): the row list only depends on the statement — not on
+  // which years are expanded or the hold-sweep state.
+  const rows = useMemo(() => (statement ? statementRows(statement) : []), [statement])
 
   if (!statement) {
     return (
@@ -186,8 +189,6 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
       </div>
     )
   }
-
-  const rows = statementRows(statement)
 
   function toggleYear(year: number | null) {
     if (year === null) return
@@ -258,29 +259,34 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
               <th className="sticky left-0 z-10 border-b border-slate-300 bg-white px-3 py-1.5 text-left font-semibold text-slate-600">
                 Line item
               </th>
-              {columns.map((column, i) => (
-                <th
-                  key={`hdr-${i}`}
-                  onClick={() => toggleYear(column.year)}
-                  className={`whitespace-nowrap border-b border-slate-300 px-2 py-1.5 text-right font-semibold text-slate-600 ${
-                    column.year !== null && column.indices.length > 1
-                      ? 'cursor-pointer hover:bg-slate-50'
-                      : ''
-                  }`}
-                  title={
-                    column.year !== null && column.indices.length > 1
-                      ? 'Toggle months'
-                      : undefined
-                  }
-                >
-                  {column.label}
-                  {column.year !== null && column.indices.length > 1 && (
-                    <span className="ml-1 text-slate-300">
-                      {expandedYears.has(column.year) ? '▾' : '▸'}
-                    </span>
-                  )}
-                </th>
-              ))}
+              {columns.map((column, i) => {
+                const expandable = column.year !== null && column.indices.length > 1
+                return (
+                  <th
+                    key={`hdr-${i}`}
+                    scope="col"
+                    className="whitespace-nowrap border-b border-slate-300 px-2 py-1.5 text-right font-semibold text-slate-600"
+                  >
+                    {/* Wave 2 (a11y): the toggle is a real button, not a clickable <th>. */}
+                    {expandable ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleYear(column.year)}
+                        aria-expanded={expandedYears.has(column.year as number)}
+                        title="Toggle months"
+                        className="cursor-pointer rounded px-0.5 hover:bg-slate-50"
+                      >
+                        {column.label}
+                        <span className="ml-1 text-slate-300" aria-hidden="true">
+                          {expandedYears.has(column.year as number) ? '▾' : '▸'}
+                        </span>
+                      </button>
+                    ) : (
+                      column.label
+                    )}
+                  </th>
+                )
+              })}
               <th className="whitespace-nowrap border-b border-slate-300 px-2 py-1.5 text-right font-semibold text-slate-600">
                 Total
               </th>

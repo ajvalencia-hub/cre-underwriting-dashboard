@@ -145,8 +145,11 @@ export default function ScenariosPanel({
   const [quickScreenScenarios, setQuickScreenScenarios] = useState<Scenario[]>([])
   const [quickScreenLoading, setQuickScreenLoading] = useState(false)
 
-  const fields = flattenFields(schema)
-  const fieldById = new Map(fields.map((f) => [f.id, f]))
+  // Wave 2 (perf): built once per schema, not on every keystroke.
+  const fieldById = useMemo(
+    () => new Map(flattenFields(schema).map((f) => [f.id, f])),
+    [schema],
+  )
 
   // All tabs stay mounted (see App.tsx), so re-fetch whenever this tab becomes
   // active rather than only once on mount — otherwise a scenario saved from the
@@ -253,12 +256,32 @@ export default function ScenariosPanel({
     })
   }
 
-  const compared = scenarios.filter((s) => compareIds.includes(s.id))
+  const compared = useMemo(
+    () => scenarios.filter((s) => compareIds.includes(s.id)),
+    [scenarios, compareIds],
+  )
   const [showIdentical, setShowIdentical] = useState(false)
   const comparisonRows = useMemo(
     () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [schema, compareIds.join(','), scenarios],
+    [schema, compared],
+  )
+  // Per-metric output values for the comparison table (wave 2: memoised
+  // alongside the rows so the table is not rebuilt on tornado state changes).
+  const outputRows = useMemo(
+    () =>
+      compared.length >= 2
+        ? schema.outputs
+            .map((metric) => {
+              const values = compared.map((s) => {
+                const metrics = (s.outputs as { metrics?: Record<string, unknown> })?.metrics
+                const v = metrics?.[metric.id]
+                return typeof v === 'number' ? v : null
+              })
+              return { metric, values, best: bestValueIndex(metric.id, values) }
+            })
+            .filter((row) => !row.values.every((v) => v === null))
+        : [],
+    [schema.outputs, compared],
   )
 
   // ---- tornado ----
@@ -504,30 +527,21 @@ export default function ScenariosPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {schema.outputs.map((metric) => {
-                      const values = compared.map((s) => {
-                        const metrics = (s.outputs as { metrics?: Record<string, unknown> })?.metrics
-                        const v = metrics?.[metric.id]
-                        return typeof v === 'number' ? v : null
-                      })
-                      if (values.every((v) => v === null)) return null
-                      const best = bestValueIndex(metric.id, values)
-                      return (
-                        <tr key={metric.id} className="border-b border-slate-50">
-                          <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
-                          {values.map((v, i) => (
-                            <td
-                              key={i}
-                              className={`px-3 py-1.5 tabular-nums ${
-                                best === i ? 'bg-emerald-50 font-semibold text-emerald-700' : ''
-                              }`}
-                            >
-                              {v === null ? '—' : formatOutputValue(metric, v)}
-                            </td>
-                          ))}
-                        </tr>
-                      )
-                    })}
+                    {outputRows.map(({ metric, values, best }) => (
+                      <tr key={metric.id} className="border-b border-slate-50">
+                        <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
+                        {values.map((v, i) => (
+                          <td
+                            key={i}
+                            className={`px-3 py-1.5 tabular-nums ${
+                              best === i ? 'bg-emerald-50 font-semibold text-emerald-700' : ''
+                            }`}
+                          >
+                            {v === null ? '—' : formatOutputValue(metric, v)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

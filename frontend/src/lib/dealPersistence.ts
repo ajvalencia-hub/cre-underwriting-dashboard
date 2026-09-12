@@ -133,6 +133,91 @@ export function createAutosaver<T>(
 }
 
 // ---------------------------------------------------------------------------
+// Optimistic concurrency (wave 2): one ETag per deal from the last
+// single-deal response, sent back as If-Match on autosave PUTs. A 412 parks
+// the autosave until the user picks Reload (adopt the server copy) or
+// Overwrite (retry without If-Match). Pure so the decision logic is testable.
+// ---------------------------------------------------------------------------
+
+export interface SaveConflict<D> {
+  dealId: string
+  /** The server's copy, as returned in the 412 body. */
+  current: D
+  /** ETag of `current` when the 412 carried one (null otherwise). */
+  etag: string | null
+}
+
+export interface SaveConcurrency<D> {
+  /** Remember the ETag of a fresh single-deal response (null clears it).
+   *  Also lifts a pending "overwrite" for that deal — the server has now
+   *  acknowledged a write, so later PUTs guard again. */
+  recordEtag(dealId: string, etag: string | null): void
+  etagFor(dealId: string): string | null
+  /** Header value for the next PUT: undefined when no ETag is known or the
+   *  user chose Overwrite (unconditional write until a fresh ETag lands). */
+  ifMatchFor(dealId: string): string | undefined
+  /** True while a 412 for this deal awaits the user's choice — the autosave
+   *  must not hit the network. */
+  isBlocked(dealId: string): boolean
+  markConflict(conflict: SaveConflict<D>): void
+  conflict(): SaveConflict<D> | null
+  /** Resolve by keeping the local edits: clears the block and drops the
+   *  ETag so the retry goes out without If-Match. Returns the deal id. */
+  chooseOverwrite(): string | null
+  /** Resolve by adopting the server copy: clears the block, records the
+   *  conflict's ETag (if any) and returns the conflict for the caller to
+   *  apply. */
+  chooseReload(): SaveConflict<D> | null
+  /** Forget everything about a deal (deleted, or the conflict is moot). */
+  forget(dealId: string): void
+}
+
+export function createSaveConcurrency<D>(): SaveConcurrency<D> {
+  const etags = new Map<string, string>()
+  const overwriting = new Set<string>()
+  let pending: SaveConflict<D> | null = null
+  return {
+    recordEtag(dealId, etag) {
+      if (etag) etags.set(dealId, etag)
+      else etags.delete(dealId)
+      overwriting.delete(dealId)
+    },
+    etagFor: (dealId) => etags.get(dealId) ?? null,
+    ifMatchFor(dealId) {
+      if (overwriting.has(dealId)) return undefined
+      return etags.get(dealId)
+    },
+    isBlocked: (dealId) => pending !== null && pending.dealId === dealId,
+    markConflict(conflict) {
+      pending = conflict
+    },
+    conflict: () => pending,
+    chooseOverwrite() {
+      if (!pending) return null
+      const { dealId } = pending
+      pending = null
+      overwriting.add(dealId)
+      etags.delete(dealId)
+      return dealId
+    },
+    chooseReload() {
+      if (!pending) return null
+      const conflict = pending
+      pending = null
+      overwriting.delete(conflict.dealId)
+      if (conflict.etag) etags.set(conflict.dealId, conflict.etag)
+      else etags.delete(conflict.dealId)
+      return conflict
+    },
+    forget(dealId) {
+      etags.delete(dealId)
+      overwriting.delete(dealId)
+      if (pending?.dealId === dealId) pending = null
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hydration: deal inputs JSON -> form values + quick screen state.
 // ---------------------------------------------------------------------------
 

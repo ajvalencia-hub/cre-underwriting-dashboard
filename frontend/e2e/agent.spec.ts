@@ -43,7 +43,7 @@ async function openAgentTab(page: Page) {
   const dealSelect = page.locator('select').first()
   await expect(dealSelect).toBeVisible()
   await dealSelect.selectOption({ label: DEAL_NAME })
-  await page.locator('nav[aria-label="Workflow steps"]').getByRole('button', { name: 'Agent' }).click()
+  await page.getByRole('tab', { name: 'Agent' }).click()
   await expect(page.getByPlaceholder('Ask about this deal…')).toBeEnabled()
 }
 
@@ -82,7 +82,7 @@ test('screen a deal, solve for a target IRR, and approve the proposal', async ({
   await expect(page.getByText('approved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
   // The approval is recorded in the deal's history with the "agent" marker.
-  await page.locator('nav[aria-label="Workflow steps"]').getByRole('button', { name: '3. Deal Inputs' }).click()
+  await page.getByRole('tab', { name: '3. Deal Inputs' }).click()
   await page.getByRole('button', { name: 'Input history' }).click()
   await expect(page.getByText('Agent-applied')).toBeVisible({ timeout: 10_000 })
 })

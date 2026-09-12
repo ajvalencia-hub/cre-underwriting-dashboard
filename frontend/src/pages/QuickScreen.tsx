@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import AcquisitionQuickScreen from '../components/AcquisitionQuickScreen'
 import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
 import { computeNative, saveScenario, type DebtBlock } from '../lib/api'
+import { fieldInputId } from '../lib/fieldIds'
 import {
   FEASIBILITY_THRESHOLDS,
   QUICK_SCREEN_FIELD_CONFIG,
@@ -160,13 +161,18 @@ export default function QuickScreen({
   ].filter((p): p is string => p !== null)
   const unitLabel = inputs.sizeMode === 'units' ? '/unit' : '/SF'
 
-  function applySensitivityCell(rentDeltaPct: number, exitCapDeltaBps: number) {
-    onInputsChange({
-      ...inputs,
-      rent: inputs.rent * (1 + rentDeltaPct),
-      exitCapRatePct: inputs.exitCapRatePct + exitCapDeltaBps / 10000,
-    })
-  }
+  // Wave 2 (perf): stable across unrelated re-renders (scenario-name typing,
+  // takeout state) so the memoised sensitivity grid skips them.
+  const applySensitivityCell = useCallback(
+    (rentDeltaPct: number, exitCapDeltaBps: number) => {
+      onInputsChange({
+        ...inputs,
+        rent: inputs.rent * (1 + rentDeltaPct),
+        exitCapRatePct: inputs.exitCapRatePct + exitCapDeltaBps / 10000,
+      })
+    },
+    [inputs, onInputsChange],
+  )
 
   return (
     <div className="max-w-4xl">
@@ -229,8 +235,9 @@ export default function QuickScreen({
             </div>
           </div>
 
-          <FieldRow label={inputs.sizeMode === 'units' ? '# of Units' : 'Total Building SF'}>
+          <FieldRow id={qsId('quantity')} label={inputs.sizeMode === 'units' ? '# of Units' : 'Total Building SF'}>
             <ScalarInput
+              id={qsId('quantity')}
               type="number"
               value={inputs.quantity}
               onChange={(v) => set('quantity', v)}
@@ -238,8 +245,9 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label="Land Cost">
+          <FieldRow id={qsId('landCost')} label="Land Cost">
             <ScalarInput
+              id={qsId('landCost')}
               type="currency"
               value={inputs.landCost}
               onChange={(v) => set('landCost', v)}
@@ -248,10 +256,12 @@ export default function QuickScreen({
           </FieldRow>
 
           <FieldRow
+            id={qsId('hardCostPerUnit')}
             label={inputs.sizeMode === 'units' ? 'Hard Cost per Unit' : 'Hard Cost per SF'}
             hint={sfPerUnitHint}
           >
             <ScalarInput
+              id={qsId('hardCostPerUnit')}
               type="currency"
               value={inputs.hardCostPerUnit}
               onChange={(v) => set('hardCostPerUnit', v)}
@@ -259,8 +269,9 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label="Soft Costs (% of hard cost)">
+          <FieldRow id={qsId('softCostPct')} label="Soft Costs (% of hard cost)">
             <ScalarInput
+              id={qsId('softCostPct')}
               type="percent"
               value={inputs.softCostPct}
               onChange={(v) => set('softCostPct', v)}
@@ -268,8 +279,9 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label="Contingency (% of hard + soft)">
+          <FieldRow id={qsId('contingencyPct')} label="Contingency (% of hard + soft)">
             <ScalarInput
+              id={qsId('contingencyPct')}
               type="percent"
               value={inputs.contingencyPct}
               onChange={(v) => set('contingencyPct', v)}
@@ -277,13 +289,13 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
-            <ScalarInput type="currency" value={inputs.rent} onChange={(v) => set('rent', v)} {...field('rent')} />
+          <FieldRow id={qsId('rent')} label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
+            <ScalarInput id={qsId('rent')} type="currency" value={inputs.rent} onChange={(v) => set('rent', v)} {...field('rent')} />
           </FieldRow>
 
           <div>
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-slate-600">
+              <label htmlFor={qsId('noiMarginPct')} className="block text-xs font-medium text-slate-600">
                 Stabilized NOI Margin (% of gross rent)
               </label>
               <button
@@ -296,6 +308,7 @@ export default function QuickScreen({
             {!inputs.useDetailedNoi ? (
               <div className="mt-1 max-w-xs">
                 <ScalarInput
+                  id={qsId('noiMarginPct')}
                   type="percent"
                   value={inputs.noiMarginPct}
                   onChange={(v) => set('noiMarginPct', v)}
@@ -305,8 +318,9 @@ export default function QuickScreen({
             ) : (
               <div className="mt-1 grid max-w-xs grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[11px] text-slate-500">Vacancy %</label>
+                  <label htmlFor={qsId('vacancyPct')} className="block text-[11px] text-slate-500">Vacancy %</label>
                   <ScalarInput
+                    id={qsId('vacancyPct')}
                     type="percent"
                     value={inputs.vacancyPct}
                     onChange={(v) => set('vacancyPct', v)}
@@ -314,8 +328,9 @@ export default function QuickScreen({
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-slate-500">Opex (% of EGI)</label>
+                  <label htmlFor={qsId('opexRatioPct')} className="block text-[11px] text-slate-500">Opex (% of EGI)</label>
                   <ScalarInput
+                    id={qsId('opexRatioPct')}
                     type="percent"
                     value={inputs.opexRatioPct}
                     onChange={(v) => set('opexRatioPct', v)}
@@ -329,8 +344,9 @@ export default function QuickScreen({
             )}
           </div>
 
-          <FieldRow label="Exit Cap Rate">
+          <FieldRow id={qsId('exitCapRatePct')} label="Exit Cap Rate">
             <ScalarInput
+              id={qsId('exitCapRatePct')}
               type="percent"
               value={inputs.exitCapRatePct}
               onChange={(v) => set('exitCapRatePct', v)}
@@ -338,8 +354,9 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label="Loan-to-Cost (0 = all-equity)">
+          <FieldRow id={qsId('ltcPct')} label="Loan-to-Cost (0 = all-equity)">
             <ScalarInput
+              id={qsId('ltcPct')}
               type="percent"
               value={inputs.ltcPct}
               onChange={(v) => set('ltcPct', v)}
@@ -347,8 +364,9 @@ export default function QuickScreen({
             />
           </FieldRow>
 
-          <FieldRow label="Construction Loan Rate (interest-only approx.)">
+          <FieldRow id={qsId('constructionInterestRatePct')} label="Construction Loan Rate (interest-only approx.)">
             <ScalarInput
+              id={qsId('constructionInterestRatePct')}
               type="percent"
               value={inputs.constructionInterestRatePct}
               onChange={(v) => set('constructionInterestRatePct', v)}
@@ -485,6 +503,7 @@ export default function QuickScreen({
                 onChange={(e) => setScenarioName(e.target.value)}
                 className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
                 placeholder="Scenario name"
+                aria-label="Quick Screen scenario name"
               />
               <button
                 onClick={handleSaveAsScenario}
@@ -502,18 +521,26 @@ export default function QuickScreen({
   )
 }
 
+/** Wave 2 (a11y): ids derived from the napkin's input keys bind each label
+ *  to its control. */
+function qsId(key: string): string {
+  return fieldInputId('qs', key)
+}
+
 function FieldRow({
+  id,
   label,
   children,
   hint,
 }: {
+  id: string
   label: string
   children: React.ReactNode
   hint?: string
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-600">{label}</label>
+      <label htmlFor={id} className="block text-xs font-medium text-slate-600">{label}</label>
       <div className="mt-1 max-w-xs">{children}</div>
       {hint && <div className="mt-0.5 max-w-xs text-[11px] text-slate-400">{hint}</div>}
     </div>

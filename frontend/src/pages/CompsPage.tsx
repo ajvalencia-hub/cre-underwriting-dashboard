@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   createComp,
   deleteComp,
@@ -120,7 +120,9 @@ const IMPORT_FIELDS: Record<CompKind, { id: string; label: string }[]> = {
 const EMPTY_SALE = { name: '', market: '', price: '', units: '', capRatePct: '' }
 const EMPTY_RENT = { name: '', market: '', avgRent: '', unitType: '', occupancyPct: '' }
 
-export default function CompsPage({ dealMarket }: CompsPageProps) {
+/** Wave 2 (perf): memoised — its only prop is the deal's market string, so
+ *  App's per-keystroke re-renders skip this page entirely. */
+const CompsPage = memo(function CompsPage({ dealMarket }: CompsPageProps) {
   const [kind, setKind] = useState<CompKind>('sale')
   const [marketFilter, setMarketFilter] = useState(dealMarket)
   // B8: the tab stays mounted across deal switches, so the filter follows
@@ -319,6 +321,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
             setMarketFilter(e.target.value)
           }}
           placeholder="Filter by market"
+          aria-label="Filter comps by market"
           className="rounded border border-slate-200 px-2 py-1.5 text-sm"
         />
         {filterDirty && dealMarket && marketFilter !== dealMarket && (
@@ -438,6 +441,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="New comp name"
+                  aria-label="New comp name"
                   className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                 />
               </td>
@@ -446,6 +450,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                   value={draft.market}
                   onChange={(e) => setDraft({ ...draft, market: e.target.value })}
                   placeholder="Market"
+                  aria-label="New comp market"
                   className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                 />
               </td>
@@ -457,6 +462,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.price}
                       onChange={(e) => setDraft({ ...draft, price: e.target.value })}
                       placeholder="Price"
+                      aria-label="New comp sale price"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -465,6 +471,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.units}
                       onChange={(e) => setDraft({ ...draft, units: e.target.value })}
                       placeholder="Units"
+                      aria-label="New comp unit count"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -473,6 +480,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.capRatePct}
                       onChange={(e) => setDraft({ ...draft, capRatePct: e.target.value })}
                       placeholder="Cap % e.g. 5.25"
+                      aria-label="New comp cap rate percent"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -484,6 +492,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.unitType}
                       onChange={(e) => setDraft({ ...draft, unitType: e.target.value })}
                       placeholder="e.g. 1BR"
+                      aria-label="New comp unit type"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -492,6 +501,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.avgRent}
                       onChange={(e) => setDraft({ ...draft, avgRent: e.target.value })}
                       placeholder="Avg rent"
+                      aria-label="New comp average rent"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -500,6 +510,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.occupancyPct}
                       onChange={(e) => setDraft({ ...draft, occupancyPct: e.target.value })}
                       placeholder="Occ % e.g. 95"
+                      aria-label="New comp occupancy percent"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -652,4 +663,6 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
       </div>
     </div>
   )
-}
+})
+
+export default CompsPage

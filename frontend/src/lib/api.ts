@@ -15,8 +15,33 @@ import type {
   AgentThreadState,
   AgentTurnResult,
 } from '../types/agent'
+import { createSaveConcurrency } from './dealPersistence'
 
 const API_BASE = '/api'
+
+/** Wave 2: one ETag per deal, captured from EVERY single-deal response
+ *  (GET/PUT/create/archive/unarchive/clone/restore/import) so the autosave's
+ *  If-Match always reflects the last copy this tab has seen. App owns the
+ *  conflict decisions; the api layer only records. */
+export const dealConcurrency = createSaveConcurrency<Deal>()
+
+/** 412 from `PUT /api/deals/{id}` with If-Match: the server's copy rides in
+ *  the body so the UI can offer Reload without another round trip. */
+export class ConflictError extends Error {
+  readonly status = 412
+  readonly current: Deal
+  readonly etag: string | null
+  constructor(message: string, current: Deal, etag: string | null) {
+    super(message)
+    this.name = 'ConflictError'
+    this.current = current
+    this.etag = etag
+  }
+}
+
+export function isConflictError(err: unknown): err is ConflictError {
+  return err instanceof ConflictError
+}
 
 /** F1: fired on any 401 so App can show the token gate. Listen with
  *  `window.addEventListener(UNAUTHORIZED_EVENT, …)`. */
@@ -69,6 +94,48 @@ async function del(path: string): Promise<void> {
   if (!res.ok) {
     throw await failure(res)
   }
+}
+
+/** Single-deal response: parse the body AND record its ETag (absent header
+ *  clears the stored one, so a backend without ETags never sends If-Match). */
+async function dealJson(res: Response): Promise<Deal> {
+  const deal = (await res.json()) as Deal
+  dealConcurrency.recordEtag(deal.id, res.headers.get('ETag'))
+  return deal
+}
+
+async function getDeal(path: string): Promise<Deal> {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) throw await failure(res)
+  return dealJson(res)
+}
+
+async function sendDeal(
+  path: string,
+  body: unknown,
+  method: 'POST' | 'PUT',
+  extraHeaders: Record<string, string> = {},
+): Promise<Deal> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 412) {
+    let detail = 'This deal was changed in another tab/session.'
+    let current: Deal | null = null
+    try {
+      const payload = (await res.json()) as { detail?: unknown; current?: Deal }
+      if (typeof payload.detail === 'string') detail = payload.detail
+      if (payload.current && typeof payload.current === 'object') current = payload.current
+    } catch {
+      // body wasn't JSON — the caller refetches
+    }
+    if (current) throw new ConflictError(detail, current, res.headers.get('ETag'))
+    throw new Error(detail)
+  }
+  if (!res.ok) throw await failure(res)
+  return dealJson(res)
 }
 
 // ---- F1: token session ----
@@ -411,6 +478,19 @@ export function pollMonteCarlo(jobId: string) {
   return getJson<MonteCarloJobStatus>(`/compute/monte-carlo/${jobId}`)
 }
 
+/** Wave 2: ask the server to stop a run. Resolves false (never throws) when
+ *  the job is already gone or the route is missing — the panel stops polling
+ *  either way. */
+export async function cancelMonteCarlo(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/compute/monte-carlo/${jobId}`, { method: 'DELETE' })
+    if (res.status === 401) notifyUnauthorized()
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export function saveScenarioMonteCarlo(scenarioId: string, monteCarlo: MonteCarloResult) {
   return postJson<Scenario>(`/scenarios/${scenarioId}/monte-carlo`, { monteCarlo }, 'PUT')
 }
@@ -536,7 +616,7 @@ export function fetchDealSnapshot(dealId: string, snapshotId: string) {
 }
 
 export function restoreDealSnapshot(dealId: string, snapshotId: string) {
-  return postJson<Deal>(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
+  return sendDeal(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
 }
 
 // ---- K: Underwriting Agent (one thread per deal; proposals are approved
@@ -695,43 +775,67 @@ export function importCompsCsv(payload: {
   return postJson<CompsImportResult>('/comps/import', payload, 'POST')
 }
 
-export function fetchDeals(options: { includeArchived?: boolean } = {}) {
-  return getJson<Deal[]>(`/deals${options.includeArchived ? '?includeArchived=true' : ''}`)
+export function fetchDeals(options: { includeArchived?: boolean; tag?: string } = {}) {
+  const params = new URLSearchParams()
+  if (options.includeArchived) params.set('includeArchived', 'true')
+  if (options.tag) params.set('tag', options.tag)
+  const qs = params.toString()
+  return getJson<Deal[]>(`/deals${qs ? `?${qs}` : ''}`)
+}
+
+/** Wave 2: the list without `inputs` (headline facts only). */
+export function fetchDealSummaries(options: { includeArchived?: boolean; tag?: string } = {}) {
+  const params = new URLSearchParams({ fields: 'summary' })
+  if (options.includeArchived) params.set('includeArchived', 'true')
+  if (options.tag) params.set('tag', options.tag)
+  return getJson<import('../types/deal').DealSummaryRow[]>(`/deals?${params}`)
 }
 
 // ---- F2: archive / unarchive / clone ----
 
 export function archiveDeal(dealId: string) {
-  return postJson<Deal>(`/deals/${dealId}/archive`, {}, 'POST')
+  return sendDeal(`/deals/${dealId}/archive`, {}, 'POST')
 }
 
 export function unarchiveDeal(dealId: string) {
-  return postJson<Deal>(`/deals/${dealId}/unarchive`, {}, 'POST')
+  return sendDeal(`/deals/${dealId}/unarchive`, {}, 'POST')
 }
 
 export function cloneDeal(dealId: string, name?: string) {
-  return postJson<Deal>(`/deals/${dealId}/clone`, name ? { name } : {}, 'POST')
+  return sendDeal(`/deals/${dealId}/clone`, name ? { name } : {}, 'POST')
 }
 
 export function fetchDeal(dealId: string) {
-  return getJson<Deal>(`/deals/${dealId}`)
+  return getDeal(`/deals/${dealId}`)
 }
 
 export function createDeal(payload: { name: string; inputs?: Record<string, unknown> }) {
-  return postJson<Deal>('/deals', payload, 'POST')
+  return sendDeal('/deals', payload, 'POST')
 }
 
+export interface DealUpdatePayload {
+  name?: string
+  inputs?: Record<string, unknown>
+  status?: import('../types/deal').DealStatus
+  activeTemplateId?: string | null
+  activeMappingProfileId?: string | null
+  /** Wave 2: partial update of the tag list. */
+  tags?: string[]
+}
+
+/** `ifMatch` (wave 2) sends the header; a mismatch rejects with
+ *  ConflictError carrying the server's copy. Absent = unconditional. */
 export function updateDeal(
   dealId: string,
-  payload: {
-    name?: string
-    inputs?: Record<string, unknown>
-    status?: import('../types/deal').DealStatus
-    activeTemplateId?: string | null
-    activeMappingProfileId?: string | null
-  },
+  payload: DealUpdatePayload,
+  options: { ifMatch?: string } = {},
 ) {
-  return postJson<Deal>(`/deals/${dealId}`, payload, 'PUT')
+  return sendDeal(
+    `/deals/${dealId}`,
+    payload,
+    'PUT',
+    options.ifMatch ? { 'If-Match': options.ifMatch } : {},
+  )
 }
 
 export function bulkUpdateDealStatus(
@@ -741,6 +845,15 @@ export function bulkUpdateDealStatus(
   return postJson<{ updated: Deal[]; missing: string[] }>(
     '/deals/bulk-status',
     { dealIds, status },
+    'POST',
+  )
+}
+
+/** Wave 2: add and/or remove tags on many deals at once. */
+export function bulkUpdateDealTags(dealIds: string[], add: string[], remove: string[]) {
+  return postJson<{ updated: Deal[]; missing: string[] }>(
+    '/deals/bulk-tags',
+    { dealIds, add, remove },
     'POST',
   )
 }
@@ -899,6 +1012,8 @@ export interface SearchItem {
   dealId?: string
   /** Which dealflow the item belongs to (deal-scoped groups only). */
   dealType?: 'acquisition' | 'development' | null
+  /** Wave 2: deal items carry their tags (the query may be `tag:name`). */
+  tags?: string[]
 }
 
 export interface SearchGroup {
@@ -985,7 +1100,7 @@ export function createDealFromExtraction(payload: {
   acknowledgeFailures?: boolean
   dealId?: string
 }) {
-  return postJson<Deal>('/deals/from-extraction', payload, 'POST')
+  return sendDeal('/deals/from-extraction', payload, 'POST')
 }
 
 export function confirmExtraction(resultId: string, confirmedValues: Record<string, unknown>) {
@@ -1038,8 +1153,9 @@ export interface DealImportResponse extends Deal {
   importedScenarios: number
 }
 
-export function importDeal(bundle: DealExportBundle) {
-  return postJson<DealImportResponse>('/deals/import', { bundle }, 'POST')
+export async function importDeal(bundle: DealExportBundle): Promise<DealImportResponse> {
+  const deal = await sendDeal('/deals/import', { bundle }, 'POST')
+  return deal as DealImportResponse
 }
 
 export interface HoldSweepRow {

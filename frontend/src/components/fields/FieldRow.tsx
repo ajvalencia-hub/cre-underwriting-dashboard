@@ -1,4 +1,5 @@
 import type { InputField } from '../../types/schema'
+import { fieldInputId } from '../../lib/fieldIds'
 import { validateField } from '../../lib/validateField'
 import KeyValueField from './KeyValueField'
 import ScalarInput from './ScalarInput'
@@ -21,24 +22,49 @@ interface FieldRowProps {
 export default function FieldRow({ field, value, onChange, indicator }: FieldRowProps) {
   const error = validateField(field, value)
   const isWide = field.type === 'table' || field.type === 'keyvalue' || field.type === 'multiselect'
+  // Wave 2 (a11y): scalar controls bind to their label via htmlFor/id; the
+  // composite editors (table / key-value / checkbox group) are labelled as a
+  // group instead, since they have no single control to point at.
+  const inputId = fieldInputId('field', field.id)
+  const labelId = `${inputId}-label`
+  const tipId = `${inputId}-benchmark`
+  const errorId = `${inputId}-error`
 
   return (
     <div className="py-2">
-      <label className="block text-xs font-medium text-slate-600">
-        {field.label}
-        {field.required && <span className="text-red-400"> *</span>}
+      <div className="flex items-center">
+        <label
+          id={labelId}
+          htmlFor={isWide ? undefined : inputId}
+          className="text-xs font-medium text-slate-600"
+        >
+          {field.label}
+          {field.required && <span className="text-red-400"> *</span>}
+        </label>
         {indicator && (
-          <span
-            title={indicator.explanation}
-            className={`ml-1.5 cursor-help ${
-              indicator.verdict === 'warning' ? 'text-red-500' : 'text-amber-500'
-            }`}
-          >
-            ⚠
-          </span>
+          <>
+            <button
+              type="button"
+              aria-describedby={tipId}
+              aria-label={`${indicator.verdict === 'warning' ? 'Warning' : 'Caution'}: benchmark flag`}
+              title={indicator.explanation}
+              className={`ml-1.5 cursor-help text-xs ${
+                indicator.verdict === 'warning' ? 'text-red-500' : 'text-amber-500'
+              }`}
+            >
+              ⚠
+            </button>
+            <span id={tipId} role="tooltip" className="sr-only">
+              {indicator.explanation}
+            </span>
+          </>
         )}
-      </label>
-      <div className={`mt-1 ${isWide ? '' : 'max-w-xs'}`}>
+      </div>
+      <div
+        className={`mt-1 ${isWide ? '' : 'max-w-xs'}`}
+        role={isWide ? 'group' : undefined}
+        aria-labelledby={isWide ? labelId : undefined}
+      >
         {field.type === 'table' && (
           <TableField
             field={field}
@@ -73,10 +99,20 @@ export default function FieldRow({ field, value, onChange, indicator }: FieldRow
           </div>
         )}
         {!['table', 'keyvalue', 'multiselect'].includes(field.type) && (
-          <ScalarInput type={field.type} value={value} options={field.options} onChange={onChange} />
+          <ScalarInput
+            id={inputId}
+            type={field.type}
+            value={value}
+            options={field.options}
+            onChange={onChange}
+          />
         )}
       </div>
-      {error && <div className="mt-0.5 text-xs text-red-500">{error}</div>}
+      {error && (
+        <div id={errorId} className="mt-0.5 text-xs text-red-500">
+          {error}
+        </div>
+      )}
     </div>
   )
 }
