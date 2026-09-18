@@ -544,6 +544,11 @@ function App() {
     return orderSections(state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues)))
   }, [state, formValues])
 
+  // Panels holding per-deal work (sensitivity grids, Monte Carlo runs, the
+  // hold sweep, extraction review, generate reports) remount when the deal
+  // changes, so nothing from one deal can be saved onto another.
+  const dealScope = activeDealId ?? 'no-deal'
+
   const labelsById = useMemo(
     () => new Map(state.status === 'ready' ? flattenFields(state.schema).map((f) => [f.id, f.label]) : []),
     [state],
@@ -950,6 +955,7 @@ function App() {
 
       <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
         <Documents
+          key={dealScope}
           schema={schema}
           currentUnitMix={formValues.unitMix}
           currentCommercialLeases={formValues.commercialLeases}
@@ -998,6 +1004,7 @@ function App() {
         />
         <DealInputForm schema={schema} values={formValues} onFieldChange={handleFieldChange} />
         <GeneratePanel
+          key={dealScope}
           schema={schema}
           onReviewMapping={() => setTab('setup')}
           template={activeTemplate}
@@ -1016,6 +1023,7 @@ function App() {
 
       <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
         <CashFlowTab
+          key={dealScope}
           statement={nativeResponse?.statement ?? null}
           values={formValues}
           onGoToCompute={() => setTab('dashboard')}
@@ -1026,6 +1034,7 @@ function App() {
 
       <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>
         <SensitivityPanel
+          key={dealScope}
           schema={schema}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
@@ -1036,7 +1045,7 @@ function App() {
       </div>
 
       <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
-        <RiskPanel schema={schema} values={formValues} dealId={activeDealId} />
+        <RiskPanel key={dealScope} schema={schema} values={formValues} dealId={activeDealId} />
       </div>
 
       <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>
