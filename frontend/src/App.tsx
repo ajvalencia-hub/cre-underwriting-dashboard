@@ -298,8 +298,9 @@ function App() {
           if (differs) {
             setSharedFromLink(shared)
             setTab('quickscreen') // so the offer is seen
+          } else {
+            setQuickScreenMode(shared.mode)
           }
-          else setQuickScreenMode(shared.mode)
         }
         setDeals(list)
         setActiveDealId(active.id)
