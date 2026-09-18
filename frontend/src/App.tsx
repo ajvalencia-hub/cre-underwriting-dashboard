@@ -51,8 +51,6 @@ import {
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
   parseAcquisitionQuickScreenInputs,
-  serializeAcquisitionQuickScreenInputs,
-  serializeQuickScreenInputs,
   type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
@@ -62,6 +60,7 @@ import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
+import { shareParams } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
@@ -262,9 +261,7 @@ function App() {
   // Keep the sharable URL in sync with BOTH napkins + the active screen.
   useEffect(() => {
     const handle = setTimeout(() => {
-      const params = serializeQuickScreenInputs(quickScreenInputs)
-      serializeAcquisitionQuickScreenInputs(acquisitionQuickScreenInputs, params)
-      if (quickScreenMode === 'acquisition') params.set('screen', 'acquisition')
+      const params = shareParams(quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode)
       window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
     }, 500)
     return () => clearTimeout(handle)
@@ -854,6 +851,11 @@ function App() {
           onAcquisitionInputsChange={setAcquisitionQuickScreenInputs}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
+          onOpenShared={(shared) => {
+            if (shared.development) setQuickScreenInputs(shared.development)
+            if (shared.acquisition) setAcquisitionQuickScreenInputs(shared.acquisition)
+            setQuickScreenMode(shared.mode)
+          }}
           dealId={activeDealId}
         />
       </div>
