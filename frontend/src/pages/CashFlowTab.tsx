@@ -13,6 +13,8 @@ import {
   type Statement,
   type StatementComponent,
 } from '../lib/cashflowStatement'
+import { saveOutput, textBlob } from '../lib/saveOutput'
+import { toastError } from '../lib/toast'
 
 interface CashFlowTabProps {
   statement: Statement | null
@@ -122,15 +124,9 @@ function fmt(value: number): string {
 }
 
 function download(filename: string, text: string) {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  saveOutput(textBlob(text, 'text/csv;charset=utf-8'), filename).catch((err) =>
+    toastError(`Could not save ${filename}`, err),
+  )
 }
 
 export default function CashFlowTab({ statement: rawStatement, values, onGoToCompute }: CashFlowTabProps) {

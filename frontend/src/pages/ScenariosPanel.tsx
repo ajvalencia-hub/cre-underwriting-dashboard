@@ -19,6 +19,7 @@ import type { QuickScreenInputs } from '../lib/quickScreenMath'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { TemplateSummary } from '../types/template'
+import { saveOutput } from '../lib/saveOutput'
 
 interface ScenariosPanelProps {
   schema: InputSchema
@@ -131,14 +132,7 @@ export default function ScenariosPanel({
     setError(null)
     try {
       const { blob, filename } = await generateMemo(scenarioId, format)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await saveOutput(blob, filename)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate the IC memo')
     } finally {

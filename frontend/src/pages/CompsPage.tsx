@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   createComp,
   deleteComp,
@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
+import FileChooser from '../components/FileChooser'
 
 const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
 const VIEWPORT_HEIGHT = 480
@@ -135,8 +136,6 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   const [importResult, setImportResult] = useState<CompsImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [skipRows, setSkipRows] = useState<Set<number>>(new Set())
-  const fileRef = useRef<HTMLInputElement>(null)
-
   // Map view (I11)
   const [showMap, setShowMap] = useState(false)
   const [mapPoints, setMapPoints] = useState<CompMapPoint[]>([])
@@ -266,7 +265,6 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
       })
       setImportResult(result)
       setPreview(null)
-      if (fileRef.current) fileRef.current.value = ''
       load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed')
@@ -494,16 +492,15 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
           Two-step: pick a file to preview the detected columns, adjust the mapping, then import.
           Rows without the required fields are skipped with a warning.
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) void handleFile(file)
-          }}
-          className="mt-2 block text-xs text-slate-500"
-        />
+        <div className="mt-2">
+          <FileChooser
+            accept=".csv,text/csv"
+            description="CSV files"
+            label="Choose CSV…"
+            onFiles={(files) => void handleFile(files[0])}
+            className="block text-xs text-slate-500"
+          />
+        </div>
         {importing && <div className="mt-2 text-xs text-slate-400">Working…</div>}
 
         {preview && (

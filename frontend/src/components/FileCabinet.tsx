@@ -11,6 +11,8 @@ import {
   type DealAttachment,
   type DealNote,
 } from '../lib/api'
+import FileChooser from './FileChooser'
+import ServerFileLink from './ServerFileLink'
 
 const TYPE_ICONS: Record<string, string> = {
   pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
@@ -90,12 +92,12 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
 
   if (!dealId) return null
 
-  async function handleUpload(files: FileList | null) {
-    if (!files || !dealId) return
+  async function handleUpload(files: File[]) {
+    if (files.length === 0 || !dealId) return
     setBusy(true)
     setError(null)
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const uploaded = await uploadAttachment(dealId, file)
         setAttachments((prev) => [uploaded, ...prev])
       }
@@ -147,7 +149,14 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
       <div className="grid gap-4 px-3 pb-3 md:grid-cols-2">
         <div>
           <div className="mb-1 text-xs font-medium text-slate-500">ATTACHMENTS</div>
-          <input type="file" multiple onChange={(e) => void handleUpload(e.target.files)} className="text-xs" disabled={busy} />
+          <FileChooser
+            multiple
+            description="Attachments"
+            label="Attach files…"
+            onFiles={(files) => void handleUpload(files)}
+            className="text-xs"
+            disabled={busy}
+          />
           {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
           <ul className="mt-2 space-y-1 text-xs">
             {attachments.map((att) => (
@@ -166,13 +175,14 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                       preview
                     </button>
                   )}
-                  <a
+                  <ServerFileLink
                     href={attachmentDownloadUrl(dealId, att.id)}
+                    filename={att.filename}
                     className="text-sky-600 hover:underline"
                     download={att.filename}
                   >
                     download
-                  </a>
+                  </ServerFileLink>
                 </div>
                 {preview?.id === att.id && (
                   <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-2">

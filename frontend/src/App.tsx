@@ -60,6 +60,8 @@ import type { Deal } from './types/deal'
 import CommandPalette from './components/CommandPalette'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
+import FileChooser, { type FileChooserHandle } from './components/FileChooser'
+import { saveOutput } from './lib/saveOutput'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
@@ -139,7 +141,7 @@ function App() {
   const [renamingName, setRenamingName] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const importInputRef = useRef<FileChooserHandle>(null)
 
   const activeDealIdRef = useRef<string | null>(null)
   const hydratedRef = useRef(false)
@@ -365,14 +367,7 @@ function App() {
     await autosaverRef.current!.flush()
     const bundle = await exportDeal(activeDealId)
     const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    await saveOutput(blob, `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`)
   }
 
   function handleImportFile(file: File) {
@@ -679,21 +674,17 @@ function App() {
           Export
         </button>
         <button
-          onClick={() => importInputRef.current?.click()}
+          onClick={() => importInputRef.current?.open()}
           className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
         >
           Import
         </button>
-        <input
+        <FileChooser
           ref={importInputRef}
-          type="file"
           accept="application/json,.json"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) handleImportFile(file)
-            e.target.value = ''
-          }}
+          description="Deal export bundles"
+          hidden
+          onFiles={(files) => handleImportFile(files[0])}
         />
         {/* J11: date chips for the active deal + editor. */}
         {sortByDate(readCriticalDates(formValues)).slice(0, 3).map((row) => {

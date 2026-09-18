@@ -5,6 +5,8 @@ import {
   SLICE_ROWS,
   type LeaseSlice,
 } from '../lib/leaseSlice'
+import { saveOutput, textBlob } from '../lib/saveOutput'
+import { toastError } from '../lib/toast'
 
 interface LeaseDrilldownProps {
   perLease: LeaseSlice[]
@@ -13,15 +15,10 @@ interface LeaseDrilldownProps {
 const money = (v: number) => `$${Math.round(v).toLocaleString()}`
 
 function downloadCsv(slice: LeaseSlice, mode: 'monthly' | 'annual') {
-  const blob = new Blob([sliceToCsv(slice, mode)], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `lease-${slice.suiteId}-${mode}.csv`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  const filename = `lease-${slice.suiteId}-${mode}.csv`
+  saveOutput(textBlob(sliceToCsv(slice, mode), 'text/csv'), filename).catch((err) =>
+    toastError(`Could not save ${filename}`, err),
+  )
 }
 
 /** I8: per-lease drill-down — the engine's own per-lease slice, no client

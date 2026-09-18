@@ -21,6 +21,9 @@ import {
   type PipelineView,
 } from '../lib/pipelineViews'
 import type { Deal, DealStatus } from '../types/deal'
+import ServerFileLink from '../components/ServerFileLink'
+import { saveOutput, textBlob } from '../lib/saveOutput'
+import { toastError } from '../lib/toast'
 
 interface PipelinePageProps {
   deals: Deal[]
@@ -174,29 +177,31 @@ function Board({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <a
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/share.html`}
-                      target="_blank"
-                      rel="noreferrer"
+                      filename={`${deal.name}.html`}
+                      newTab
                       title="Self-contained read-only HTML snapshot"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       Share
-                    </a>
-                    <a
+                    </ServerFileLink>
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/deck.pptx`}
+                      filename={`${deal.name} deck.pptx`}
                       title="One-page investment summary (PowerPoint)"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       Deck
-                    </a>
-                    <a
+                    </ServerFileLink>
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/ic-deck.pptx`}
+                      filename={`${deal.name} IC deck.pptx`}
                       title="Full 8-slide IC deck (PowerPoint)"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       IC deck
-                    </a>
+                    </ServerFileLink>
                     <button
                       onClick={() => onOpenDeal(deal.id)}
                       className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
@@ -302,14 +307,7 @@ export default function PipelinePage({
     try {
       // Ids in the pipeline's CURRENT sort so slide order matches the table.
       const { blob, skipped } = await exportBatchDeck(visibleSelected.map((d) => d.id))
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'screening-deck.pptx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await saveOutput(blob, 'screening-deck.pptx')
       if (skipped.length > 0) {
         setDeckNote(`Skipped (no computable outputs): ${skipped.join(', ')}`)
       }
@@ -321,15 +319,9 @@ export default function PipelinePage({
   }
 
   function handleExportCsv() {
-    const blob = new Blob([pipelineToCsv(sorted)], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'pipeline.csv'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    saveOutput(textBlob(pipelineToCsv(sorted), 'text/csv'), 'pipeline.csv').catch((err) =>
+      toastError('Could not save pipeline.csv', err),
+    )
   }
 
   function handleApplyView(view: PipelineView) {

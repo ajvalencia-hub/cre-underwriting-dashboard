@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import ExtractionReview from '../components/ExtractionReview'
 import { deleteDocument, fetchDocuments, runExtraction, updateDocumentType, uploadDocument } from '../lib/api'
 import { DOCUMENT_TYPE_LABELS, type DocumentSummary, type DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
+import FileChooser from '../components/FileChooser'
 
 interface DocumentsProps {
   schema: InputSchema
@@ -40,8 +41,6 @@ export default function Documents({
   const [extracting, setExtracting] = useState(false)
   const [extractionResult, setExtractionResult] = useState<ExtractionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     refresh()
   }, [])
@@ -52,13 +51,12 @@ export default function Documents({
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load documents'))
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files
-    if (!files || files.length === 0) return
+  async function handleFiles(files: File[]) {
+    if (files.length === 0) return
     setUploading(true)
     setError(null)
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const doc = await uploadDocument(file)
         setDocuments((prev) => [doc, ...prev.filter((d) => d.id !== doc.id)])
       }
@@ -66,7 +64,6 @@ export default function Documents({
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -126,12 +123,12 @@ export default function Documents({
       </p>
 
       <div className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-center">
-        <input
-          ref={fileInputRef}
-          type="file"
+        <FileChooser
           accept=".pdf,.xlsx,.xls,.csv"
           multiple
-          onChange={handleFileChange}
+          description="Rent rolls, T-12s, OMs"
+          label="Choose documents…"
+          onFiles={(files) => void handleFiles(files)}
           disabled={uploading}
           className="text-sm"
         />

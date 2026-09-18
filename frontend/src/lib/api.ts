@@ -21,6 +21,28 @@ async function extractErrorMessage(res: Response): Promise<string> {
   return `${res.status} ${res.statusText}`
 }
 
+/** Prefer the RFC 5987 filename* (the backend sends the real, possibly
+ *  non-ASCII name there) over the ASCII-safe filename= fallback. */
+export function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback
+  const star = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (star) {
+    try {
+      return decodeURIComponent(star[1])
+    } catch {
+      // malformed encoding — fall back to the plain filename
+    }
+  }
+  return disposition.match(/filename="?([^";]+)"?/)?.[1] ?? fallback
+}
+
+/** GET a server-generated file (deck, CSV, share page, attachment). */
+export async function fetchServerFile(url: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('Content-Disposition'), fallbackName) }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`)
   if (!res.ok) {
@@ -143,8 +165,7 @@ export async function generateWorkbook(payload: {
   const writtenCount = Number(res.headers.get('X-Generation-Written-Count') ?? '0')
   const outputsHeader = res.headers.get('X-Generation-Outputs')
   const outputs: Record<string, unknown> = outputsHeader ? JSON.parse(outputsHeader) : {}
-  const disposition = res.headers.get('Content-Disposition') ?? ''
-  const filename = disposition.match(/filename="?([^"]+)"?/)?.[1] ?? 'generated.xlsx'
+  const filename = filenameFromDisposition(res.headers.get('Content-Disposition'), 'generated.xlsx')
   const blob = await res.blob()
   return { blob, filename, warnings, writtenCount, outputs }
 }
@@ -670,8 +691,7 @@ export async function generateMemo(
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res))
   }
-  const disposition = res.headers.get('Content-Disposition') ?? ''
-  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? 'ic-memo.docx'
+  const filename = filenameFromDisposition(res.headers.get('Content-Disposition'), 'ic-memo.docx')
   return { blob: await res.blob(), filename }
 }
 
