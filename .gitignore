@@ -29,3 +29,8 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Desktop build
+desktop/.venv/
+desktop/build/
+desktop/dist/
