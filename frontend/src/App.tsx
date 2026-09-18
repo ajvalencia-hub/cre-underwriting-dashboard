@@ -80,19 +80,33 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
-type Tab =
-  | 'pipeline'
-  | 'quickscreen'
-  | 'documents'
-  | 'setup'
-  | 'dashboard'
-  | 'cashflow'
-  | 'sensitivity'
-  | 'risk'
-  | 'scenarios'
-  | 'comps'
-  | 'portfolio'
-  | 'settings'
+const TABS = [
+  'pipeline',
+  'quickscreen',
+  'documents',
+  'setup',
+  'dashboard',
+  'cashflow',
+  'sensitivity',
+  'risk',
+  'scenarios',
+  'comps',
+  'portfolio',
+  'settings',
+] as const
+type Tab = (typeof TABS)[number]
+
+// Reopen where the user was (per browser / desktop profile). Storage can be
+// unavailable (private mode); the app then just starts on Quick Screen.
+const LAST_TAB_KEY = 'cre.lastTab'
+function loadLastTab(): Tab {
+  try {
+    const stored = localStorage.getItem(LAST_TAB_KEY)
+    return (TABS as readonly string[]).includes(stored ?? '') ? (stored as Tab) : 'quickscreen'
+  } catch {
+    return 'quickscreen'
+  }
+}
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -112,7 +126,14 @@ const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
 
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [tab, setTab] = useState<Tab>('quickscreen')
+  const [tab, setTab] = useState<Tab>(loadLastTab)
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_TAB_KEY, tab)
+    } catch {
+      // storage unavailable — not remembering the tab is harmless
+    }
+  }, [tab])
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
@@ -274,7 +295,10 @@ function App() {
           const differs =
             (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
             (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
-          if (differs) setSharedFromLink(shared)
+          if (differs) {
+            setSharedFromLink(shared)
+            setTab('quickscreen') // so the offer is seen
+          }
           else setQuickScreenMode(shared.mode)
         }
         setDeals(list)
