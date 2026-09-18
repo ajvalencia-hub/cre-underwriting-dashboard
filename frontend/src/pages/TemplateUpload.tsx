@@ -5,6 +5,7 @@ import {
   fetchAutoMatch,
   fetchInputSchema,
   fetchMappingProfiles,
+  fetchScenarios,
   fetchTemplates,
   previewMapping,
   saveMappingProfile,
@@ -195,7 +196,38 @@ export default function TemplateUpload({ values, onTemplateReady, onUnsavedChang
     setProfileName(profile.profileName)
   }
 
+  /** The server deletes scenarios saved against a template/profile along
+   *  with it, so say how many before doing it. */
+  async function scenariosUsing(match: (s: { templateId: string | null; mappingProfileId: string | null }) => boolean) {
+    try {
+      return (await fetchScenarios({ kind: 'full' })).filter(match)
+    } catch {
+      return null
+    }
+  }
+
   async function handleDeleteTemplate(id: string) {
+    const target = recentTemplates.find((t) => t.id === id) ?? template
+    const templateProfiles = template?.id === id ? profiles.length : null
+    const linked = await scenariosUsing((s) => s.templateId === id)
+    const lines = [
+      `Delete the template "${target?.filename ?? 'this template'}"?`,
+      '',
+      templateProfiles === null
+        ? 'All of its mapping profiles are deleted too.'
+        : `Its ${templateProfiles} mapping profile(s) are deleted too.`,
+      linked === null
+        ? 'Scenarios saved with this template are deleted too (could not check how many).'
+        : linked.length > 0
+          ? `${linked.length} saved scenario(s) that use it are deleted too: ${linked
+              .slice(0, 5)
+              .map((s) => s.scenarioName)
+              .join(', ')}${linked.length > 5 ? ', …' : ''}.`
+          : 'No saved scenarios use it.',
+      '',
+      'This cannot be undone.',
+    ]
+    if (!window.confirm(lines.join('\n'))) return
     try {
       await deleteTemplate(id)
       if (template?.id === id) {
@@ -212,6 +244,23 @@ export default function TemplateUpload({ values, onTemplateReady, onUnsavedChang
   }
 
   async function handleDeleteProfile(id: string) {
+    const target = profiles.find((p) => p.id === id)
+    const linked = await scenariosUsing((s) => s.mappingProfileId === id)
+    const lines = [
+      `Delete the mapping profile "${target?.profileName ?? 'this profile'}"?`,
+      '',
+      linked === null
+        ? 'Scenarios saved with this profile are deleted too (could not check how many).'
+        : linked.length > 0
+          ? `${linked.length} saved scenario(s) that use it are deleted too: ${linked
+              .slice(0, 5)
+              .map((s) => s.scenarioName)
+              .join(', ')}${linked.length > 5 ? ', …' : ''}.`
+          : 'No saved scenarios use it.',
+      '',
+      'This cannot be undone.',
+    ]
+    if (!window.confirm(lines.join('\n'))) return
     try {
       await deleteMappingProfile(id)
       setProfiles((prev) => prev.filter((p) => p.id !== id))
