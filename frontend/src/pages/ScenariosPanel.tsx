@@ -98,6 +98,12 @@ export default function ScenariosPanel({
           ? { metrics: computedOutputs, ...(computedDebt ? { debt: computedDebt } : {}) }
           : undefined
       const existing = scenarios.find((s) => s.scenarioName === scenarioName)
+      if (
+        existing &&
+        !window.confirm(`A scenario named "${scenarioName}" already exists. Replace its inputs and results with the current ones?`)
+      ) {
+        return
+      }
       const templateRefs = template && mappingProfileId
         ? { templateId: template.id, mappingProfileId }
         : { templateId: null, mappingProfileId: null }
@@ -141,6 +147,8 @@ export default function ScenariosPanel({
   }
 
   async function handleDelete(id: string) {
+    const target = [...scenarios, ...quickScreenScenarios].find((s) => s.id === id)
+    if (!window.confirm(`Delete the scenario "${target?.scenarioName ?? 'this scenario'}"? This cannot be undone.`)) return
     try {
       await deleteScenario(id)
       setScenarios((prev) => prev.filter((s) => s.id !== id))

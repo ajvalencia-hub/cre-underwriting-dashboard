@@ -77,6 +77,8 @@ export default function Documents({
   }
 
   async function handleDelete(id: string) {
+    const target = documents.find((d) => d.id === id)
+    if (!window.confirm(`Delete the document "${target?.filename ?? 'this document'}"? This cannot be undone.`)) return
     try {
       await deleteDocument(id)
       setDocuments((prev) => prev.filter((d) => d.id !== id))

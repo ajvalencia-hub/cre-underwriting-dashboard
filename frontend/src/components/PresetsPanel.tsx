@@ -89,6 +89,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
 
   async function handleDelete() {
     if (!selected) return
+    if (!window.confirm(`Delete the preset "${selected.name}"? This cannot be undone.`)) return
     try {
       await deletePreset(selected.id)
       setPresets((prev) => prev.filter((p) => p.id !== selected.id))
