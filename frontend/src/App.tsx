@@ -59,7 +59,7 @@ import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { toastError } from './lib/toast'
-import { reportUnsavedToShell } from './lib/platform'
+import { isDesktop, reportUnsavedToShell } from './lib/platform'
 import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
 import { goToField } from './lib/goToField'
@@ -99,6 +99,7 @@ type Tab = (typeof TABS)[number]
 // Reopen where the user was (per browser / desktop profile). Storage can be
 // unavailable (private mode); the app then just starts on Quick Screen.
 const LAST_TAB_KEY = 'cre.lastTab'
+const HEALTH_POLL_MS = 30_000
 function loadLastTab(): Tab {
   try {
     const stored = localStorage.getItem(LAST_TAB_KEY)
@@ -311,6 +312,20 @@ function App() {
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Keep the connection indicator honest after boot: re-check every 30s so a
+  // backend that went away shows before the next action fails.
+  const ready = state.status === 'ready'
+  useEffect(() => {
+    if (!ready) return
+    const id = window.setInterval(() => {
+      fetchHealth()
+        .then((h) => h.status === 'ok')
+        .catch(() => false)
+        .then((ok) => setState((prev) => (prev.status === 'ready' && prev.apiOk !== ok ? { ...prev, apiOk: ok } : prev)))
+    }, HEALTH_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [ready])
 
   // J13: Cmd/Ctrl+K opens the global search palette; Cmd/Ctrl+Enter
   // computes with the inputs on screen (committing a field being typed in
@@ -652,7 +667,11 @@ function App() {
               apiOk ? 'text-emerald-600' : 'text-amber-600'
             }`}
           >
-            API {apiOk ? 'connected' : 'unreachable'}
+            {apiOk
+              ? 'Connected'
+              : isDesktop()
+                ? "Calculation engine not responding — quit and reopen the app"
+                : 'API unreachable — is the backend running?'}
           </div>
           <ResultsStatus
             latest={latestResult}
