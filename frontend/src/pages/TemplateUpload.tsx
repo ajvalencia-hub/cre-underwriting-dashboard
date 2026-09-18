@@ -1,23 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteMappingProfile,
   deleteTemplate,
   fetchAutoMatch,
   fetchInputSchema,
   fetchMappingProfiles,
-  fetchSheetGrid,
   fetchTemplates,
+  previewMapping,
   saveMappingProfile,
   updateMappingProfile,
   uploadTemplate,
 } from '../lib/api'
 import FileChooser from '../components/FileChooser'
-import { describeMapping, mappingsEqual } from '../lib/mappingFormat'
-import { flattenFields, type FlatField } from '../lib/schemaFields'
+import MappingCoverage from '../components/MappingCoverage'
+import SheetPicker from '../components/SheetPicker'
+import { withSharedTargets } from '../lib/mappingCoverage'
+import { mappingsEqual } from '../lib/mappingFormat'
+import { useHeaderOffset } from '../lib/useHeaderOffset'
+import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
-import type { SheetGrid, TemplateSummary } from '../types/template'
+import type { MappingPreviewRow } from '../types/mappingPreview'
+import type { InputSchema } from '../types/schema'
+import type { TemplateSummary } from '../types/template'
 
 interface TemplateUploadProps {
+  /** The active deal's inputs — shown next to each mapping and used to
+   *  preview exactly what Generate would write. */
+  values: Record<string, unknown>
   onTemplateReady?: (template: TemplateSummary | null, mappingProfileId: string | null) => void
   /** True while the mapping on screen differs from the saved profile that
    *  Generate / template sensitivity actually use. */
@@ -25,24 +34,28 @@ interface TemplateUploadProps {
 }
 
 const OUTPUTS_SECTION_ID = 'computed_outputs'
+const PREVIEW_DEBOUNCE_MS = 400
 
-export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: TemplateUploadProps) {
+export default function TemplateUpload({ values, onTemplateReady, onUnsavedChange }: TemplateUploadProps) {
   const [template, setTemplate] = useState<TemplateSummary | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [recentTemplates, setRecentTemplates] = useState<TemplateSummary[]>([])
 
-  const [selectedSheet, setSelectedSheet] = useState<string>('')
-  const [grid, setGrid] = useState<SheetGrid | null>(null)
-  const [gridLoading, setGridLoading] = useState(false)
-
+  const [schema, setSchema] = useState<InputSchema | null>(null)
   const [fields, setFields] = useState<FlatField[]>([])
   const [mappings, setMappings] = useState<MappingsById>({})
   // What the active saved profile contains — the mapping Generate will use.
   const [savedMappings, setSavedMappings] = useState<MappingsById | null>(null)
-  const [formulaWarnings, setFormulaWarnings] = useState<Set<string>>(new Set())
   const [pickingFieldId, setPickingFieldId] = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [focusRef, setFocusRef] = useState<string | null>(null)
+
+  const [preview, setPreview] = useState<MappingPreviewRow[] | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const previewRequest = useRef(0)
 
   const [profiles, setProfiles] = useState<MappingProfile[]>([])
   const [profileId, setProfileId] = useState<string | null>(null)
@@ -53,12 +66,13 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
   useEffect(() => {
     fetchInputSchema()
       .then((schema) => {
+        setSchema(schema)
         const outputFields: FlatField[] = schema.outputs.map((o) => ({
           id: o.id,
           label: o.label,
           type: o.type === 'percent' ? 'percent' : o.type === 'currency' ? 'currency' : 'number',
           sectionId: OUTPUTS_SECTION_ID,
-          sectionLabel: 'Computed Outputs (mapped after recalculation)',
+          sectionLabel: 'Computed Outputs (read back after recalculation)',
         }))
         setFields([...flattenFields(schema), ...outputFields])
       })
@@ -76,6 +90,45 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
     onUnsavedChange?.(unsaved)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unsaved])
+
+  // Re-check the mapping against the template whenever it or the deal changes.
+  useEffect(() => {
+    if (!template) {
+      setPreview(null)
+      return
+    }
+    const id = ++previewRequest.current
+    setPreviewLoading(true)
+    const handle = setTimeout(() => {
+      previewMapping(template.id, mappings, values)
+        .then((rows) => {
+          if (id !== previewRequest.current) return
+          setPreview(withSharedTargets(rows))
+          setPreviewError(null)
+        })
+        .catch((err) => {
+          if (id !== previewRequest.current) return
+          setPreviewError(err instanceof Error ? err.message : 'Preview failed')
+        })
+        .finally(() => {
+          if (id === previewRequest.current) setPreviewLoading(false)
+        })
+    }, PREVIEW_DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+  }, [template, mappings, values])
+
+  const relevantIds = useMemo(
+    () => new Set(schema ? visibleFields(schema, values).map((f) => f.id) : fields.map((f) => f.id)),
+    [schema, values, fields],
+  )
+  const labelById = useMemo(() => new Map(fields.map((f) => [f.id, f.label])), [fields])
+  const mappedCells = useMemo(() => {
+    const cells = new Map<string, string>()
+    for (const row of preview ?? []) {
+      if (row.resolvedRef && row.fieldId in mappings) cells.set(row.resolvedRef, labelById.get(row.fieldId) ?? row.fieldId)
+    }
+    return cells
+  }, [preview, mappings, labelById])
 
   function refreshRecentTemplates() {
     fetchTemplates()
@@ -99,13 +152,13 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
 
   async function loadTemplate(summary: TemplateSummary) {
     setTemplate(summary)
-    setGrid(null)
     setMappings({})
     setSavedMappings(null)
-    setFormulaWarnings(new Set())
+    setPreview(null)
     setProfileId(null)
     setProfileLoadedNote(null)
-    setSelectedSheet(summary.sheets[0]?.name ?? '')
+    setPickingFieldId(null)
+    setFocusRef(null)
     await seedMappings(summary)
   }
 
@@ -127,11 +180,11 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
       setMappings(autoMatch.mappings)
       if (Object.keys(autoMatch.mappings).length > 0) {
         setProfileLoadedNote(
-          `Auto-matched ${Object.keys(autoMatch.mappings).length} field(s) from named ranges and cell labels — review below.`,
+          `Auto-matched ${Object.keys(autoMatch.mappings).length} field(s) from named ranges and cell labels — review each one below before saving.`,
         )
       }
     } catch {
-      // no named ranges / auto-match failed silently, user maps manually
+      // no named ranges / auto-match failed, user maps manually
     }
   }
 
@@ -140,7 +193,6 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
     setSavedMappings(profile.mappings)
     setProfileId(profile.id)
     setProfileName(profile.profileName)
-    setFormulaWarnings(new Set())
   }
 
   async function handleDeleteTemplate(id: string) {
@@ -173,27 +225,15 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
     }
   }
 
-  async function handlePreviewGrid(sheetName = selectedSheet) {
-    if (!template || !sheetName) return
-    setGridLoading(true)
-    setError(null)
-    try {
-      const g = await fetchSheetGrid(template.id, sheetName)
-      setGrid(g)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load sheet preview')
-    } finally {
-      setGridLoading(false)
-    }
-  }
-
   function handleStartPicking(fieldId: string) {
     setPickingFieldId(fieldId)
-    if (!grid) handlePreviewGrid()
+    setPickerOpen(true)
+    const current = preview?.find((r) => r.fieldId === fieldId)?.resolvedRef
+    if (current) setFocusRef(current)
   }
 
-  function handleCellPick(cellRef: string, isFormula: boolean) {
-    if (!pickingFieldId || !grid) return
+  function handleCellPick(sheet: string, cellRef: string) {
+    if (!pickingFieldId) return
     const field = fields.find((f) => f.id === pickingFieldId)
     if (!field) return
 
@@ -202,24 +242,18 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
         ? {
             target: 'table',
             anchor: cellRef,
-            sheet: grid.sheet,
+            sheet,
             columnOrder: field.columns?.map((c) => c.id) ?? null,
             source: 'manual',
           }
         : {
             target: 'cell',
-            ref: `${grid.sheet}!${cellRef}`,
-            sheet: grid.sheet,
+            ref: `${sheet}!${cellRef}`,
+            sheet,
             source: 'manual',
           }
 
     setMappings((prev) => ({ ...prev, [pickingFieldId]: entry }))
-    setFormulaWarnings((prev) => {
-      const next = new Set(prev)
-      if (isFormula) next.add(pickingFieldId)
-      else next.delete(pickingFieldId)
-      return next
-    })
     setPickingFieldId(null)
   }
 
@@ -227,11 +261,6 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
     setMappings((prev) => {
       const next = { ...prev }
       delete next[fieldId]
-      return next
-    })
-    setFormulaWarnings((prev) => {
-      const next = new Set(prev)
-      next.delete(fieldId)
       return next
     })
   }
@@ -259,15 +288,15 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
     }
   }
 
-  const sections = Array.from(new Map(fields.map((f) => [f.sectionId, f.sectionLabel])).entries())
-  const mappedCount = Object.keys(mappings).length
+  const headerOffset = useHeaderOffset()
+  const pickingLabel = pickingFieldId ? (labelById.get(pickingFieldId) ?? pickingFieldId) : null
 
   return (
-    <div className="max-w-4xl">
+    <div className={template ? 'max-w-6xl' : 'max-w-4xl'}>
       <h1 className="text-2xl font-semibold">Template &amp; Mapping Setup</h1>
       <p className="mt-1 text-slate-500">
-        Upload your Excel underwriting model (.xlsx / .xlsm). We'll read its sheets, cells, and
-        named ranges so you can map dashboard inputs to it — a one-time setup per template.
+        Open your Excel underwriting model (.xlsx / .xlsm). Map each dashboard input to the cell it belongs in —
+        a one-time setup per template. Below you can check, for this deal, exactly what will be written where.
       </p>
 
       {recentTemplates.length > 0 && (
@@ -323,7 +352,7 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
       )}
 
       {template && (
-        <div className="mt-8 space-y-8">
+        <div className="mt-8 space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">{template.filename}</div>
@@ -332,214 +361,118 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
                 {new Date(template.createdAt).toLocaleString()}
               </div>
             </div>
-            {template.reused && (
-              <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-700">
-                Known template — reused existing record
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {template.reused && (
+                <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-700">
+                  Known template — reused existing record
+                </span>
+              )}
+              {!pickerOpen && (
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                >
+                  Show sheet
+                </button>
+              )}
+            </div>
           </div>
 
-          <section>
-            <h2 className="text-sm font-semibold tracking-wide text-slate-500">
-              SHEETS ({template.sheets.length})
-            </h2>
-            <table className="mt-2 w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-slate-500">
-                  <th className="py-1.5 font-medium">Sheet</th>
-                  <th className="py-1.5 font-medium">Rows</th>
-                  <th className="py-1.5 font-medium">Cols</th>
-                </tr>
-              </thead>
-              <tbody>
-                {template.sheets.map((s) => (
-                  <tr key={s.name} className="border-b border-slate-100">
-                    <td className="py-1.5">{s.name}</td>
-                    <td className="py-1.5 text-slate-500">{s.maxRow}</td>
-                    <td className="py-1.5 text-slate-500">{s.maxCol}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold tracking-wide text-slate-500">
-              NAMED RANGES ({template.namedRanges.length})
-            </h2>
-            {template.namedRanges.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-400">
-                None found. You'll map every field manually using the cell picker below.
-              </p>
-            ) : (
-              <table className="mt-2 w-full text-sm">
+          <details className="rounded border border-slate-200 bg-white px-3 py-2 text-sm">
+            <summary className="cursor-pointer select-none text-slate-600">
+              Workbook details — {template.sheets.length} sheet(s), {template.namedRanges.length} named range(s)
+            </summary>
+            <div className="mt-2 grid gap-6 md:grid-cols-2">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-1.5 font-medium">Name</th>
                     <th className="py-1.5 font-medium">Sheet</th>
-                    <th className="py-1.5 font-medium">Ref</th>
+                    <th className="py-1.5 font-medium">Rows</th>
+                    <th className="py-1.5 font-medium">Cols</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {template.namedRanges.map((nr, i) => (
-                    <tr key={`${nr.name}-${i}`} className="border-b border-slate-100">
-                      <td className="py-1.5 font-mono text-xs">{nr.name}</td>
-                      <td className="py-1.5 text-slate-500">{nr.sheet}</td>
-                      <td className="py-1.5 font-mono text-xs text-slate-500">{nr.ref}</td>
+                  {template.sheets.map((s) => (
+                    <tr key={s.name} className="border-b border-slate-100">
+                      <td className="py-1.5">{s.name}</td>
+                      <td className="py-1.5 text-slate-500">{s.maxRow}</td>
+                      <td className="py-1.5 text-slate-500">{s.maxCol}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold tracking-wide text-slate-500">SHEET PREVIEW</h2>
-            <div className="mt-2 flex items-center gap-2">
-              <select
-                value={selectedSheet}
-                onChange={(e) => {
-                  setSelectedSheet(e.target.value)
-                  setGrid(null)
-                }}
-                className="rounded border border-slate-300 px-2 py-1 text-sm"
-              >
-                {template.sheets.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => handlePreviewGrid()}
-                disabled={gridLoading}
-                className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-              >
-                {gridLoading ? 'Loading…' : 'Preview Grid'}
-              </button>
-            </div>
-
-            {pickingFieldId && (
-              <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-700">
-                Click a cell below to map{' '}
-                <strong>{fields.find((f) => f.id === pickingFieldId)?.label}</strong>.{' '}
-                <button className="underline" onClick={() => setPickingFieldId(null)}>
-                  Cancel
-                </button>
-              </div>
-            )}
-
-            {grid && (
-              <div className="mt-3 max-h-96 overflow-auto rounded border border-slate-200">
-                <table className="border-collapse text-xs">
-                  <thead className="sticky top-0 bg-slate-100">
-                    <tr>
-                      <th className="border border-slate-200 px-2 py-1"></th>
-                      {grid.columns.map((c) => (
-                        <th key={c} className="border border-slate-200 px-2 py-1 font-medium">
-                          {c}
-                        </th>
-                      ))}
+              {template.namedRanges.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No named ranges. Fields are auto-matched from cell labels, or mapped with Pick cell.
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="py-1.5 font-medium">Name</th>
+                      <th className="py-1.5 font-medium">Sheet</th>
+                      <th className="py-1.5 font-medium">Ref</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {grid.rows.map((row, rIdx) => (
-                      <tr key={rIdx}>
-                        <td className="border border-slate-200 bg-slate-50 px-2 py-1 font-medium text-slate-400">
-                          {rIdx + 1}
-                        </td>
-                        {row.map((cell) => (
-                          <td
-                            key={cell.ref}
-                            title={cell.ref}
-                            onClick={() => pickingFieldId && handleCellPick(cell.ref, cell.isFormula)}
-                            className={`border border-slate-200 px-2 py-1 whitespace-nowrap ${
-                              cell.isFormula ? 'bg-amber-50 text-amber-700' : ''
-                            } ${pickingFieldId ? 'cursor-pointer hover:bg-indigo-100' : ''}`}
-                          >
-                            {cell.value === null ? '' : String(cell.value)}
-                          </td>
-                        ))}
+                    {template.namedRanges.map((nr, i) => (
+                      <tr key={`${nr.name}-${i}`} className="border-b border-slate-100">
+                        <td className="py-1.5 font-mono text-xs">{nr.name}</td>
+                        <td className="py-1.5 text-slate-500">{nr.sheet}</td>
+                        <td className="py-1.5 font-mono text-xs text-slate-500">{nr.ref}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div className="border-t border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-400">
-                  Showing {grid.rows.length} of {grid.totalRows} rows &middot; formula cells
-                  highlighted &middot; click a cell while mapping a field
-                </div>
-              </div>
-            )}
-          </section>
+              )}
+            </div>
+          </details>
+
+          {pickerOpen && (
+            // Sticky so the sheet stays in view while scrolling the field list.
+            <div className="sticky z-20 -mx-2 bg-slate-50 px-2 pt-1 pb-2" style={{ top: headerOffset }}>
+              <SheetPicker
+                templateId={template.id}
+                sheets={template.sheets}
+                pickingLabel={pickingLabel}
+                mappedCells={mappedCells}
+                focusRef={focusRef}
+                onPick={handleCellPick}
+                onCancel={() => setPickingFieldId(null)}
+                onClose={() => {
+                  setPickerOpen(false)
+                  setPickingFieldId(null)
+                }}
+              />
+            </div>
+          )}
 
           <section>
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold tracking-wide text-slate-500">
-                FIELD MAPPING ({mappedCount} mapped)
-              </h2>
-            </div>
-
+            <h2 className="text-sm font-semibold tracking-wide text-slate-500">MAPPING — WHAT GENERATE WILL DO FOR THIS DEAL</h2>
             {profileLoadedNote && (
               <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
                 {profileLoadedNote}
               </div>
             )}
-
-            <div className="mt-3 space-y-2">
-              {sections.map(([sectionId, sectionLabel]) => (
-                <details key={sectionId} className="rounded border border-slate-200 bg-white">
-                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-slate-700">
-                    {sectionLabel}
-                  </summary>
-                  <table className="w-full border-t border-slate-100 text-sm">
-                    <tbody>
-                      {fields
-                        .filter((f) => f.sectionId === sectionId)
-                        .map((field) => {
-                          const entry = mappings[field.id]
-                          return (
-                            <tr key={field.id} className="border-b border-slate-50">
-                              <td className="w-1/3 py-1.5 pl-3">
-                                {field.label}
-                                {field.required && <span className="ml-1 text-red-400">*</span>}
-                                <div className="font-mono text-[11px] text-slate-400">{field.id}</div>
-                              </td>
-                              <td className="py-1.5 text-slate-600">
-                                {describeMapping(entry)}
-                                {entry?.source === 'auto' && (
-                                  <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                                    auto
-                                  </span>
-                                )}
-                                {formulaWarnings.has(field.id) && (
-                                  <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
-                                    ⚠ mapped cell has a formula
-                                  </span>
-                                )}
-                              </td>
-                              <td className="w-40 py-1.5 pr-3 text-right">
-                                <button
-                                  onClick={() => handleStartPicking(field.id)}
-                                  className="mr-2 rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
-                                >
-                                  Pick cell
-                                </button>
-                                {entry && (
-                                  <button
-                                    onClick={() => handleClearMapping(field.id)}
-                                    className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
-                                  >
-                                    Clear
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                    </tbody>
-                  </table>
-                </details>
-              ))}
+            <div className="mt-3">
+              <MappingCoverage
+                fields={fields}
+                relevantIds={relevantIds}
+                mappings={mappings}
+                preview={preview}
+                previewError={previewError}
+                previewLoading={previewLoading}
+                values={values}
+                pickingFieldId={pickingFieldId}
+                onPick={handleStartPicking}
+                onClear={handleClearMapping}
+                onShowCell={(ref) => {
+                  setPickerOpen(true)
+                  setFocusRef(null)
+                  // Re-trigger even when the same cell is requested twice.
+                  setTimeout(() => setFocusRef(ref), 0)
+                }}
+              />
             </div>
 
             {unsaved && (
@@ -550,7 +483,11 @@ export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: Tem
             )}
 
             <div className="mt-4 flex items-center gap-2">
+              <label className="sr-only" htmlFor="profile-name">
+                Profile name
+              </label>
               <input
+                id="profile-name"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 className="rounded border border-slate-300 px-2 py-1 text-sm"

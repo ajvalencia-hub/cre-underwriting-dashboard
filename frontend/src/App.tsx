@@ -585,7 +585,7 @@ function App() {
           main's px-8/pt-6 padding so scrolled content never peeks around
           the bar; z-30 sits above the statement's sticky cells (z-10) and
           below modals (z-50). */}
-      <div className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
+      <div data-app-header className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
         <select
@@ -875,6 +875,7 @@ function App() {
 
       <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
         <TemplateUpload
+          values={formValues}
           onUnsavedChange={setMappingUnsaved}
           onTemplateReady={(template, mappingProfileId) => {
             setActiveTemplate(template)

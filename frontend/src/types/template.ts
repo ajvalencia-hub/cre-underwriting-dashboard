@@ -21,6 +21,7 @@ export interface TemplateSummary {
 }
 
 export interface GridCell {
+  numberFormat?: string
   ref: string
   value: string | number | boolean | null
   isFormula: boolean
@@ -32,4 +33,6 @@ export interface SheetGrid {
   rows: GridCell[][]
   totalRows: number
   totalCols: number
+  /** 1-based row number of rows[0] (the grid is a window of the sheet). */
+  startRow?: number
 }

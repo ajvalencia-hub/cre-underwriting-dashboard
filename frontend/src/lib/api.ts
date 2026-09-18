@@ -8,6 +8,7 @@ import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
+import type { MappingPreviewRow } from '../types/mappingPreview'
 
 const API_BASE = '/api'
 
@@ -104,11 +105,24 @@ export async function uploadTemplate(file: File): Promise<TemplateSummary> {
   return res.json() as Promise<TemplateSummary>
 }
 
-export function fetchSheetGrid(templateId: string, sheetName: string, maxRows = 60, maxCols = 30) {
-  const params = new URLSearchParams({ max_rows: String(maxRows), max_cols: String(maxCols) })
+export function fetchSheetGrid(templateId: string, sheetName: string, maxRows = 60, maxCols = 30, startRow = 1) {
+  const params = new URLSearchParams({
+    max_rows: String(maxRows),
+    max_cols: String(maxCols),
+    start_row: String(startRow),
+  })
   return getJson<SheetGrid>(
     `/templates/${templateId}/sheets/${encodeURIComponent(sheetName)}/grid?${params}`,
   )
+}
+
+export async function previewMapping(
+  templateId: string,
+  mappings: MappingsById,
+  values: Record<string, unknown>,
+): Promise<MappingPreviewRow[]> {
+  const { fields } = await postJson<{ fields: MappingPreviewRow[] }>('/mappings/preview', { templateId, mappings, values })
+  return fields
 }
 
 export function fetchAutoMatch(templateId: string) {

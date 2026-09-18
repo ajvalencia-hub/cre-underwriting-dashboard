@@ -23,8 +23,6 @@ from openpyxl.utils.cell import column_index_from_string, coordinate_from_string
 from app.services import mapping_service
 from app.services.excel_writer import _is_formula_cell, _merge_anchor, _resolve_scalar_cell
 
-NUMERIC_TYPES = {"number", "currency", "percent"}
-
 
 def _json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
@@ -45,6 +43,13 @@ def _as_number(value: Any) -> float | None:
     return None
 
 
+def _fmt(value: Any) -> str:
+    num = _as_number(value)
+    if num is None:
+        return str(value)
+    return f"{num:,.0f}" if abs(num) >= 1000 else f"{num:g}"
+
+
 def unit_warning(field_type: str, write_value: Any, cell_value: Any, number_format: str | None) -> str | None:
     """Heuristic, warning-only checks for the classic silent errors."""
     new = _as_number(write_value)
@@ -55,9 +60,14 @@ def unit_warning(field_type: str, write_value: Any, cell_value: Any, number_form
 
     if field_type == "percent":
         # The app stores percents as fractions (5.5% -> 0.055).
+        if old is not None and not is_pct_format and abs(old) > 100:
+            return (
+                f"This cell holds {_fmt(old)}, which doesn't look like a percentage — check this is "
+                f"the right cell for a {new * 100:g}% input."
+            )
         if old is not None and not is_pct_format and abs(old) > 1 and abs(new) <= 1:
             return (
-                f"This cell holds {old:g} and isn't formatted as a percentage — the template may "
+                f"This cell holds {_fmt(old)} and isn't formatted as a percentage — the template may "
                 f"expect whole-number percents, but {new:g} (= {new * 100:g}%) will be written."
             )
         return None
@@ -68,12 +78,12 @@ def unit_warning(field_type: str, write_value: Any, cell_value: Any, number_form
     for factor, label in ((12, "annual vs monthly"), (1 / 12, "monthly vs annual")):
         if abs(ratio - factor) / factor < 0.08:
             return (
-                f"The value to write ({new:,.2f}) is about {ratio:.1f}× the template's current "
-                f"{old:,.2f} — check {label}."
+                f"The value to write ({_fmt(new)}) is about {ratio:.1f}× the template's current "
+                f"{_fmt(old)} — check {label}."
             )
     if ratio >= 50 or ratio <= 1 / 50:
         return (
-            f"The value to write ({new:,.2f}) differs from the template's current {old:,.2f} by "
+            f"The value to write ({_fmt(new)}) differs from the template's current {_fmt(old)} by "
             f"~{ratio if ratio >= 1 else 1 / ratio:,.0f}× — check the units (thousands, $/SF vs total, %)."
         )
     return None
@@ -121,7 +131,7 @@ def _scalar_row(wb, field: dict, entry: dict, value: Any, is_output: bool) -> di
         )
         return row
     if _is_blank(value):
-        shown = "empty" if cell.value in (None, "") else f"its current value ({_json_safe(cell.value)})"
+        shown = "empty" if cell.value in (None, "") else f"its current value ({_fmt(cell.value)})"
         row.update(
             status="blank",
             message=f"No value on this deal — the template keeps {shown}.",
