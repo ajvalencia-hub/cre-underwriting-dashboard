@@ -286,11 +286,22 @@ export default function CashFlowTab({
                       : undefined
                   }
                 >
-                  {column.label}
-                  {column.year !== null && column.indices.length > 1 && (
-                    <span className="ml-1 text-slate-300">
-                      {expandedYears.has(column.year) ? '▾' : '▸'}
-                    </span>
+                  {column.year !== null && column.indices.length > 1 ? (
+                    // A real button so the year toggle is reachable by keyboard.
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleYear(column.year)
+                      }}
+                      aria-expanded={expandedYears.has(column.year)}
+                      className="font-semibold"
+                    >
+                      {column.label}
+                      <span className="ml-1 text-slate-300">{expandedYears.has(column.year) ? '▾' : '▸'}</span>
+                    </button>
+                  ) : (
+                    column.label
                   )}
                 </th>
               ))}
