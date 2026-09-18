@@ -1,4 +1,5 @@
 import type { InputField } from '../../types/schema'
+import { cellType, columnLabel } from '../../lib/tableCellType'
 import ScalarInput from './ScalarInput'
 
 type Row = Record<string, unknown>
@@ -34,7 +35,7 @@ export default function TableField({ field, value, onChange }: TableFieldProps) 
           <tr>
             {columns.map((c) => (
               <th key={c.id} className="whitespace-nowrap px-2 py-1 text-left font-medium">
-                {c.label}
+                {columnLabel(field.id, c.id, c.label)}
               </th>
             ))}
             <th></th>
@@ -46,7 +47,8 @@ export default function TableField({ field, value, onChange }: TableFieldProps) 
               {columns.map((c) => (
                 <td key={c.id} className="min-w-[7rem] px-2 py-1">
                   <ScalarInput
-                    type={c.type}
+                    key={cellType(field.id, c.id, row, c.type)}
+                    type={cellType(field.id, c.id, row, c.type)}
                     value={row[c.id]}
                     options={c.options}
                     onChange={(v) => updateCell(rIdx, c.id, v)}
