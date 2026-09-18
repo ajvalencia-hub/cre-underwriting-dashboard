@@ -87,7 +87,7 @@ function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[]
 
 /** J8: Monte Carlo risk panel — seeded, deterministic, saved to scenarios. */
 export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
-  const [inputList, setInputList] = useState<{ id: string; label: string }[]>([])
+  const [inputList, setInputList] = useState<{ id: string; label: string; type?: string }[]>([])
   // Type-aware: suggestions per dealflow, picker limited to fields the
   // engine actually reads for this deal.
   const dealType = values.dealType === 'development' ? 'development' : 'acquisition'
@@ -133,6 +133,13 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   }
 
   async function handleRun() {
+    const incomplete = drivers.find((d) => paramFields[d.distribution].some((p) => !Number.isFinite(d.params[p])))
+    if (incomplete) {
+      setError(
+        `Fill in every parameter for ${inputList.find((f) => f.id === incomplete.inputPath)?.label ?? incomplete.inputPath} — an empty box is not treated as 0.`,
+      )
+      return
+    }
     setRunning(true)
     setError(null)
     setResult(null)
@@ -250,23 +257,33 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
             <option value="triangular">triangular</option>
             <option value="uniform">uniform</option>
           </select>
-          {paramFields[driver.distribution].map((p) => (
-            <label key={p} className="flex items-center gap-1 text-slate-500">
-              {p}
-              <input
-                type="number"
-                step="any"
-                value={driver.params[p] ?? ''}
-                onChange={(e) =>
-                  updateDriver(i, {
-                    ...driver,
-                    params: { ...driver.params, [p]: Number(e.target.value) },
-                  })
-                }
-                className="w-24 rounded border border-slate-300 px-1 py-0.5"
-              />
-            </label>
-          ))}
+          {paramFields[driver.distribution].map((p) => {
+            // Percent inputs are entered as whole percents (6.5 = 6.5%), like
+            // everywhere else in the app; the engine still receives fractions.
+            const isPct = inputList.find((f) => f.id === driver.inputPath)?.type === 'percent'
+            const shown = driver.params[p]
+            return (
+              <label key={p} className="flex items-center gap-1 text-slate-500">
+                {p}
+                <input
+                  type="number"
+                  step="any"
+                  value={shown === undefined ? '' : isPct ? +(shown * 100).toFixed(6) : shown}
+                  onChange={(e) =>
+                    updateDriver(i, {
+                      ...driver,
+                      params: {
+                        ...driver.params,
+                        [p]: e.target.value === '' ? Number.NaN : Number(e.target.value) / (isPct ? 100 : 1),
+                      },
+                    })
+                  }
+                  className="w-24 rounded border border-slate-300 px-1 py-0.5 text-right"
+                />
+                {isPct && <span>%</span>}
+              </label>
+            )
+          })}
           <button
             onClick={() => setDrivers(drivers.filter((_, idx) => idx !== i))}
             className="text-slate-400 hover:text-red-500"

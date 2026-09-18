@@ -471,6 +471,7 @@ function DriverRow({
         </select>
         {config.fieldId && (
           <>
+            {options.find((f) => f.id === config.fieldId)?.type === 'currency' && <span className="text-slate-400">$</span>}
             <input
               type="number"
               placeholder="Min"
@@ -478,6 +479,7 @@ function DriverRow({
               onChange={(e) => onChange({ ...config, min: e.target.value })}
               className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
             />
+            {options.find((f) => f.id === config.fieldId)?.type === 'percent' && <span className="text-slate-400">%</span>}
             <span className="text-slate-400">to</span>
             <input
               type="number"
@@ -486,6 +488,7 @@ function DriverRow({
               onChange={(e) => onChange({ ...config, max: e.target.value })}
               className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
             />
+            {options.find((f) => f.id === config.fieldId)?.type === 'percent' && <span className="text-slate-400">%</span>}
             <span className="text-slate-400">in</span>
             <input
               type="number"
