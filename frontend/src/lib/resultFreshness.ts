@@ -28,7 +28,7 @@ function stable(value: unknown): unknown {
 }
 
 /** Order-independent fingerprint of a set of deal inputs. */
-export function inputsKey(values: Record<string, unknown>): string {
+export function inputsKey(values: object): string {
   return JSON.stringify(stable(values))
 }
 

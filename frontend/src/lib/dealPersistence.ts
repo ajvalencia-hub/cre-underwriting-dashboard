@@ -3,8 +3,9 @@
 // React or the DOM (localStorage key excepted, used by App only).
 
 import {
+  ACQUISITION_QUICK_SCREEN_DEFAULTS,
   QUICK_SCREEN_DEFAULTS,
-  parseQuickScreenInputs,
+  type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './quickScreenMath'
 
@@ -13,6 +14,8 @@ export const ACTIVE_DEAL_STORAGE_KEY = 'cre-active-deal-id'
 /** Key inside Deal.inputs holding the Quick Screen state, beside the Deal
  *  Inputs field ids. No schema field id collides with it. */
 export const QUICK_SCREEN_INPUTS_KEY = 'quickScreen'
+/** Same for the acquisition napkin (it used to live only in the URL). */
+export const ACQUISITION_QUICK_SCREEN_INPUTS_KEY = 'acquisitionQuickScreen'
 
 // ---------------------------------------------------------------------------
 // Autosave: debounced, coalescing, never overlapping saves.
@@ -124,40 +127,39 @@ export function createAutosaver<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Hydration: deal inputs JSON -> form values + quick screen state.
+// Hydration: deal inputs JSON -> form values + both Quick Screen napkins.
+// A shared link never feeds in here: opening one is an explicit action
+// (see shareLink.ts), so loading the app can't overwrite a deal's napkin.
 // ---------------------------------------------------------------------------
 
 export interface HydratedDealState {
   formValues: Record<string, unknown>
   quickScreen: QuickScreenInputs
-  /** True when URL params supplied the quick screen (they win on first load,
-   *  then the autosave syncs them into the deal). */
-  quickScreenFromUrl: boolean
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs
+}
+
+function storedObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 export function hydrateDealState(
   schemaDefaults: Record<string, unknown>,
   dealInputs: Record<string, unknown>,
-  urlParams: URLSearchParams,
 ): HydratedDealState {
-  const { [QUICK_SCREEN_INPUTS_KEY]: stored, ...fieldValues } = dealInputs
-
-  const fromUrl = parseQuickScreenInputs(urlParams)
-  let quickScreen: QuickScreenInputs
-  if (fromUrl !== null) {
-    quickScreen = fromUrl
-  } else if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
-    // Merge over defaults so a deal saved before a new quick-screen input
-    // existed still hydrates every field.
-    quickScreen = { ...QUICK_SCREEN_DEFAULTS, ...(stored as Partial<QuickScreenInputs>) }
-  } else {
-    quickScreen = QUICK_SCREEN_DEFAULTS
-  }
-
+  const {
+    [QUICK_SCREEN_INPUTS_KEY]: stored,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: storedAcq,
+    ...fieldValues
+  } = dealInputs
+  // Merge over defaults so a deal saved before a new napkin input existed
+  // still hydrates every field.
   return {
     formValues: { ...schemaDefaults, ...fieldValues },
-    quickScreen,
-    quickScreenFromUrl: fromUrl !== null,
+    quickScreen: { ...QUICK_SCREEN_DEFAULTS, ...(storedObject(stored) as Partial<QuickScreenInputs> | null) },
+    acquisitionQuickScreen: {
+      ...ACQUISITION_QUICK_SCREEN_DEFAULTS,
+      ...(storedObject(storedAcq) as Partial<AcquisitionQuickScreenInputs> | null),
+    },
   }
 }
 
@@ -165,6 +167,11 @@ export function hydrateDealState(
 export function serializeDealInputs(
   formValues: Record<string, unknown>,
   quickScreen: QuickScreenInputs,
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs,
 ): Record<string, unknown> {
-  return { ...formValues, [QUICK_SCREEN_INPUTS_KEY]: quickScreen }
+  return {
+    ...formValues,
+    [QUICK_SCREEN_INPUTS_KEY]: quickScreen,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: acquisitionQuickScreen,
+  }
 }

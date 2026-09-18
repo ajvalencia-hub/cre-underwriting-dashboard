@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  ACQUISITION_QUICK_SCREEN_INPUTS_KEY,
   QUICK_SCREEN_INPUTS_KEY,
   createAutosaver,
   hydrateDealState,
   serializeDealInputs,
 } from './dealPersistence'
-import { QUICK_SCREEN_DEFAULTS, serializeQuickScreenInputs } from './quickScreenMath'
+import { ACQUISITION_QUICK_SCREEN_DEFAULTS, QUICK_SCREEN_DEFAULTS } from './quickScreenMath'
 
 describe('createAutosaver', () => {
   beforeEach(() => {
@@ -139,54 +140,46 @@ describe('createAutosaver', () => {
 describe('hydrateDealState', () => {
   const defaults = { dealType: 'acquisition', vacancyPct: 0.05 }
 
-  it('URL quick-screen params win over the stored deal state on first load', () => {
-    const url = serializeQuickScreenInputs({ ...QUICK_SCREEN_DEFAULTS, rent: 2500 })
-    const hydrated = hydrateDealState(
-      defaults,
-      { [QUICK_SCREEN_INPUTS_KEY]: { ...QUICK_SCREEN_DEFAULTS, rent: 1600 } },
-      url,
-    )
-    expect(hydrated.quickScreen.rent).toBe(2500)
-    expect(hydrated.quickScreenFromUrl).toBe(true)
-  })
-
-  it('falls back to the stored quick screen, merged over defaults', () => {
-    const hydrated = hydrateDealState(
-      defaults,
-      { [QUICK_SCREEN_INPUTS_KEY]: { rent: 1600 } }, // partial: saved by an older version
-      new URLSearchParams(),
-    )
+  it('restores the stored napkins, merged over defaults', () => {
+    const hydrated = hydrateDealState(defaults, {
+      [QUICK_SCREEN_INPUTS_KEY]: { rent: 1600 }, // partial: saved by an older version
+      [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: { purchasePrice: 9_000_000 },
+    })
     expect(hydrated.quickScreen.rent).toBe(1600)
     expect(hydrated.quickScreen.quantity).toBe(QUICK_SCREEN_DEFAULTS.quantity)
-    expect(hydrated.quickScreenFromUrl).toBe(false)
+    expect(hydrated.acquisitionQuickScreen.purchasePrice).toBe(9_000_000)
+    expect(hydrated.acquisitionQuickScreen.ltvPct).toBe(ACQUISITION_QUICK_SCREEN_DEFAULTS.ltvPct)
   })
 
-  it('uses defaults when the deal has no quick screen state', () => {
-    const hydrated = hydrateDealState(defaults, {}, new URLSearchParams())
+  it('uses defaults when the deal has no napkin state', () => {
+    const hydrated = hydrateDealState(defaults, {})
     expect(hydrated.quickScreen).toEqual(QUICK_SCREEN_DEFAULTS)
+    expect(hydrated.acquisitionQuickScreen).toEqual(ACQUISITION_QUICK_SCREEN_DEFAULTS)
   })
 
-  it('merges deal fields over schema defaults and strips the quickScreen key', () => {
-    const hydrated = hydrateDealState(
-      defaults,
-      { vacancyPct: 0.08, purchasePrice: 1_000_000, [QUICK_SCREEN_INPUTS_KEY]: {} },
-      new URLSearchParams(),
-    )
+  it('merges deal fields over schema defaults and strips the napkin keys', () => {
+    const hydrated = hydrateDealState(defaults, {
+      vacancyPct: 0.08,
+      purchasePrice: 1_000_000,
+      [QUICK_SCREEN_INPUTS_KEY]: {},
+      [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: {},
+    })
     expect(hydrated.formValues).toEqual({
       dealType: 'acquisition',
       vacancyPct: 0.08,
       purchasePrice: 1_000_000,
     })
-    expect(QUICK_SCREEN_INPUTS_KEY in hydrated.formValues).toBe(false)
   })
 })
 
 describe('serializeDealInputs', () => {
-  it('round-trips through hydrateDealState', () => {
+  it('round-trips both napkins through hydrateDealState', () => {
     const quickScreen = { ...QUICK_SCREEN_DEFAULTS, rent: 2100 }
-    const blob = serializeDealInputs({ purchasePrice: 5 }, quickScreen)
-    const hydrated = hydrateDealState({}, blob, new URLSearchParams())
+    const acquisition = { ...ACQUISITION_QUICK_SCREEN_DEFAULTS, purchasePrice: 7_500_000 }
+    const blob = serializeDealInputs({ purchasePrice: 5 }, quickScreen, acquisition)
+    const hydrated = hydrateDealState({}, blob)
     expect(hydrated.formValues).toEqual({ purchasePrice: 5 })
     expect(hydrated.quickScreen).toEqual(quickScreen)
+    expect(hydrated.acquisitionQuickScreen).toEqual(acquisition)
   })
 })

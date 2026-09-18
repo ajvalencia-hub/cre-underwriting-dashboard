@@ -49,7 +49,6 @@ import {
   mapAcquisitionQuickScreenToOutputMetrics,
   mapQuickScreenToDealInputs,
   mapQuickScreenToOutputMetrics,
-  parseAcquisitionQuickScreenInputs,
   type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './lib/quickScreenMath'
@@ -68,7 +67,7 @@ import { orderSections } from './lib/sectionOrder'
 import { presetDiff } from './lib/presetDiff'
 import { inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
-import { shareParams } from './lib/shareLink'
+import { parseShareLink, shareParams, type SharedScreen } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
 import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
@@ -124,6 +123,9 @@ function App() {
   const [acquisitionQuickScreenInputs, setAcquisitionQuickScreenInputs] =
     useState<AcquisitionQuickScreenInputs>(ACQUISITION_QUICK_SCREEN_DEFAULTS)
   const [quickScreenMode, setQuickScreenMode] = useState<'development' | 'acquisition'>('development')
+  // A Quick Screen link the app was opened with, waiting for the user to
+  // open it (it replaces this deal's napkin) or dismiss it.
+  const [sharedFromLink, setSharedFromLink] = useState<SharedScreen | null>(null)
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -227,10 +229,11 @@ function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [hasUnsavedWork])
 
-  function applyDealState(schema: InputSchema, deal: Deal, urlParams: URLSearchParams) {
-    const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
+  function applyDealState(schema: InputSchema, deal: Deal) {
+    const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs)
     setFormValues(hydrated.formValues)
     setQuickScreenInputs(hydrated.quickScreen)
+    setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
     results.reset()
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
@@ -240,9 +243,9 @@ function App() {
     } else {
       setActiveTemplate(null)
     }
-    lastPersistedJsonRef.current = hydrated.quickScreenFromUrl
-      ? '' // URL override differs from the stored deal — let the autosave sync it in
-      : JSON.stringify(serializeDealInputs(hydrated.formValues, hydrated.quickScreen))
+    lastPersistedJsonRef.current = JSON.stringify(
+      serializeDealInputs(hydrated.formValues, hydrated.quickScreen, hydrated.acquisitionQuickScreen),
+    )
     activeDealIdRef.current = deal.id
     hydratedRef.current = true
   }
@@ -262,14 +265,18 @@ function App() {
         const storedId = localStorage.getItem(ACTIVE_DEAL_STORAGE_KEY)
         const active = list.find((d) => d.id === storedId) ?? list[0]
         localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
-        // URL quick-screen params only override on first load.
-        const urlParams = new URLSearchParams(window.location.search)
-        applyDealState(schema, active, urlParams)
-        // Acquisition-napkin params + the active screen ride the same URL
-        // (acq_-prefixed so shared development links keep their meaning).
-        const acqFromUrl = parseAcquisitionQuickScreenInputs(urlParams)
-        if (acqFromUrl) setAcquisitionQuickScreenInputs(acqFromUrl)
-        if (urlParams.get('screen') === 'acquisition') setQuickScreenMode('acquisition')
+        applyDealState(schema, active)
+        // A Quick Screen link is offered, never applied automatically — it
+        // used to overwrite the active deal's saved napkin on every load.
+        const shared = parseShareLink(window.location.search)
+        if (shared) {
+          const hydrated = hydrateDealState({}, active.inputs)
+          const differs =
+            (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
+            (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
+          if (differs) setSharedFromLink(shared)
+          else setQuickScreenMode(shared.mode)
+        }
         setDeals(list)
         setActiveDealId(active.id)
         setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
@@ -304,12 +311,12 @@ function App() {
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
     if (!hydratedRef.current || activeDealId === null) return
-    const blob = serializeDealInputs(formValues, quickScreenInputs)
+    const blob = serializeDealInputs(formValues, quickScreenInputs, acquisitionQuickScreenInputs)
     const json = JSON.stringify(blob)
     if (json === lastPersistedJsonRef.current) return
     lastPersistedJsonRef.current = json
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
-  }, [formValues, quickScreenInputs, activeDealId])
+  }, [formValues, quickScreenInputs, acquisitionQuickScreenInputs, activeDealId])
 
   // Keep the sharable URL in sync with BOTH napkins + the active screen.
   useEffect(() => {
@@ -341,7 +348,7 @@ function App() {
       const deal = await fetchDeal(dealId)
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
       // Deal switches never re-apply URL params — those are first-load-only.
-      applyDealState(state.schema, deal, new URLSearchParams())
+      applyDealState(state.schema, deal)
       setActiveDealId(deal.id)
       setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
     } catch (err) {
@@ -365,7 +372,7 @@ function App() {
       })
       setDeals((prev) => [deal, ...prev])
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-      applyDealState(state.schema, deal, new URLSearchParams())
+      applyDealState(state.schema, deal)
       setActiveDealId(deal.id)
     } catch (err) {
       toastError("Couldn't create the deal", err)
@@ -404,7 +411,7 @@ function App() {
     if (!(await ensureSaved())) return
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal, new URLSearchParams())
+    applyDealState(state.schema, deal)
     setActiveDealId(deal.id)
     setTab('dashboard')
   }
@@ -440,14 +447,14 @@ function App() {
         const fresh = await createDeal({ name: 'Default Deal' })
         setDeals([fresh])
         localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
-        applyDealState(state.schema, fresh, new URLSearchParams())
+        applyDealState(state.schema, fresh)
         setActiveDealId(fresh.id)
         return
       }
       const next = await fetchDeal(remaining[0].id)
       setDeals(remaining)
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, next.id)
-      applyDealState(state.schema, next, new URLSearchParams())
+      applyDealState(state.schema, next)
       setActiveDealId(next.id)
     } catch (err) {
       toastError('The deal was deleted, but the next one could not be opened — reopen the app', err)
@@ -494,7 +501,7 @@ function App() {
       )
       setDeals((prev) => [imported, ...prev])
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, imported.id)
-      applyDealState(state.schema, imported, new URLSearchParams())
+      applyDealState(state.schema, imported)
       setActiveDealId(imported.id)
     } catch (err) {
       setImportNotice(err instanceof Error ? err.message : 'Import failed')
@@ -532,6 +539,12 @@ function App() {
   // shaped by mapAcquisitionQuickScreenToDealInputs, incl. dealType).
   function handleSendAcquisitionToDealInputs(values: Record<string, unknown>) {
     sendToDealInputs(values)
+  }
+
+  function applySharedScreen(shared: SharedScreen) {
+    if (shared.development) setQuickScreenInputs(shared.development)
+    if (shared.acquisition) setAcquisitionQuickScreenInputs(shared.acquisition)
+    setQuickScreenMode(shared.mode)
   }
 
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
@@ -934,6 +947,28 @@ function App() {
       )}
 
       <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
+        {sharedFromLink && (
+          <div className="mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+            <span>
+              This link contains a shared {sharedFromLink.mode} Quick Screen. Opening it replaces the napkin saved
+              on “{deals.find((d) => d.id === activeDealId)?.name ?? 'this deal'}”.
+            </span>
+            <span className="flex gap-2">
+              <button
+                onClick={() => {
+                  applySharedScreen(sharedFromLink)
+                  setSharedFromLink(null)
+                }}
+                className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+              >
+                Open shared screen
+              </button>
+              <button onClick={() => setSharedFromLink(null)} className="px-2 py-1 text-xs underline">
+                Keep my saved napkin
+              </button>
+            </span>
+          </div>
+        )}
         <QuickScreen
           inputs={quickScreenInputs}
           onInputsChange={setQuickScreenInputs}
@@ -944,11 +979,7 @@ function App() {
           onAcquisitionInputsChange={setAcquisitionQuickScreenInputs}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
-          onOpenShared={(shared) => {
-            if (shared.development) setQuickScreenInputs(shared.development)
-            if (shared.acquisition) setAcquisitionQuickScreenInputs(shared.acquisition)
-            setQuickScreenMode(shared.mode)
-          }}
+          onOpenShared={applySharedScreen}
           dealId={activeDealId}
         />
       </div>
@@ -993,7 +1024,7 @@ function App() {
           schema={schema}
           dealId={activeDealId}
           onRestored={(deal) => {
-            applyDealState(schema, deal, new URLSearchParams())
+            applyDealState(schema, deal)
             setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
           }}
         />
