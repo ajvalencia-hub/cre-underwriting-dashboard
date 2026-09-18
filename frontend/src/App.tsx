@@ -876,6 +876,8 @@ function App() {
       <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
         <TemplateUpload
           values={formValues}
+          activeTemplate={activeTemplate}
+          activeMappingProfileId={activeMappingProfileId}
           onUnsavedChange={setMappingUnsaved}
           onTemplateReady={(template, mappingProfileId) => {
             setActiveTemplate(template)

@@ -17,6 +17,7 @@ import MappingCoverage from '../components/MappingCoverage'
 import SheetPicker from '../components/SheetPicker'
 import { withSharedTargets } from '../lib/mappingCoverage'
 import { mappingsEqual } from '../lib/mappingFormat'
+import { showToast } from '../lib/toast'
 import { useHeaderOffset } from '../lib/useHeaderOffset'
 import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
@@ -28,6 +29,10 @@ interface TemplateUploadProps {
   /** The active deal's inputs — shown next to each mapping and used to
    *  preview exactly what Generate would write. */
   values: Record<string, unknown>
+  /** The template/profile linked to the active deal (restored on load and
+   *  on deal switch, so this tab always shows what Generate will use). */
+  activeTemplate: TemplateSummary | null
+  activeMappingProfileId: string | null
   onTemplateReady?: (template: TemplateSummary | null, mappingProfileId: string | null) => void
   /** True while the mapping on screen differs from the saved profile that
    *  Generate / template sensitivity actually use. */
@@ -37,7 +42,13 @@ interface TemplateUploadProps {
 const OUTPUTS_SECTION_ID = 'computed_outputs'
 const PREVIEW_DEBOUNCE_MS = 400
 
-export default function TemplateUpload({ values, onTemplateReady, onUnsavedChange }: TemplateUploadProps) {
+export default function TemplateUpload({
+  values,
+  activeTemplate,
+  activeMappingProfileId,
+  onTemplateReady,
+  onUnsavedChange,
+}: TemplateUploadProps) {
   const [template, setTemplate] = useState<TemplateSummary | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -81,10 +92,55 @@ export default function TemplateUpload({ values, onTemplateReady, onUnsavedChang
     refreshRecentTemplates()
   }, [])
 
+  // What this tab last told App (or was told by it). Lets the two effects
+  // below tell an echo of our own change apart from an external one (deal
+  // loaded or switched), and skips reporting the empty initial state — which
+  // would otherwise unlink the deal's template before it's restored.
+  const syncedRef = useRef<{ templateId: string | null; profileId: string | null }>({
+    templateId: null,
+    profileId: null,
+  })
+
   useEffect(() => {
+    const current = { templateId: template?.id ?? null, profileId }
+    const synced = syncedRef.current
+    if (current.templateId === synced.templateId && current.profileId === synced.profileId) return
+    syncedRef.current = current
     onTemplateReady?.(template, profileId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template, profileId])
+
+  useEffect(() => {
+    const incoming = { templateId: activeTemplate?.id ?? null, profileId: activeMappingProfileId }
+    // App sets a loaded deal's profile id at once but fetches its template
+    // asynchronously — wait for the template rather than treating the gap
+    // as "no template" (which would unlink the deal's template).
+    if (incoming.templateId === null && incoming.profileId !== null) return
+    const synced = syncedRef.current
+    if (incoming.templateId === synced.templateId && incoming.profileId === synced.profileId) return
+    syncedRef.current = incoming
+    if (incoming.templateId === (template?.id ?? null) && incoming.profileId === profileId) return
+    if (unsaved) {
+      showToast({
+        kind: 'info',
+        message: 'Unsaved mapping changes were discarded',
+        detail: `The deal you opened uses ${activeTemplate ? `"${activeTemplate.filename}"` : 'no template'}.`,
+      })
+    }
+    if (!activeTemplate) {
+      syncedRef.current = { templateId: null, profileId: null }
+      setTemplate(null)
+      setMappings({})
+      setSavedMappings(null)
+      setProfiles([])
+      setProfileId(null)
+      setPreview(null)
+      setProfileLoadedNote(null)
+      return
+    }
+    void restoreTemplate(activeTemplate, activeMappingProfileId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTemplate?.id, activeMappingProfileId])
 
   const unsaved = profileId !== null && savedMappings !== null && !mappingsEqual(mappings, savedMappings)
   useEffect(() => {
@@ -161,6 +217,36 @@ export default function TemplateUpload({ values, onTemplateReady, onUnsavedChang
     setPickingFieldId(null)
     setFocusRef(null)
     await seedMappings(summary)
+  }
+
+  async function restoreTemplate(summary: TemplateSummary, wantedProfileId: string | null) {
+    let existing: MappingProfile[] = []
+    try {
+      existing = await fetchMappingProfiles(summary.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load this deal's mapping profiles")
+    }
+    const profile = existing.find((p) => p.id === wantedProfileId) ?? null
+    // Applied together (one render) so no half-restored state is reported
+    // back to App as a change of the deal's template/profile.
+    setTemplate(summary)
+    setProfiles(existing)
+    setPreview(null)
+    setPickingFieldId(null)
+    setFocusRef(null)
+    if (profile) {
+      applyProfile(profile)
+      setProfileLoadedNote(`This deal uses "${summary.filename}" with the mapping profile "${profile.profileName}".`)
+    } else {
+      setMappings({})
+      setSavedMappings(null)
+      setProfileId(null)
+      setProfileLoadedNote(
+        wantedProfileId
+          ? `This deal uses "${summary.filename}" but its mapping profile no longer exists — load or save one below.`
+          : `This deal uses "${summary.filename}" — no mapping profile saved yet.`,
+      )
+    }
   }
 
   async function seedMappings(summary: TemplateSummary) {
