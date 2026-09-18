@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ApiError,
-  computeNative,
   exportNativeModel,
   fetchExternalTools,
   fetchMappingProfile,
@@ -14,9 +13,9 @@ import { checkForGenerate, withSharedTargets, type GenerateCheckResult } from '.
 import { flattenFields, visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import { GeneratePreflight, GenerateReport } from './GenerateCheck'
-import type { Statement } from '../lib/cashflowStatement'
 import { fieldIdFromMissing, goToField } from '../lib/goToField'
 import { saveOutput } from '../lib/saveOutput'
+import type { ComputeFailure, NativeResult } from '../lib/useComputeResults'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
@@ -26,14 +25,16 @@ interface GeneratePanelProps {
   /** The Template tab has edits not yet saved to the profile Generate uses. */
   mappingUnsaved: boolean
   values: Record<string, unknown>
-  onGenerated?: (outputs: Record<string, unknown>) => void
+  dealId: string | null
+  /** Template read-back, with the inputs and deal it was generated from. */
+  onGenerated?: (outputs: Record<string, unknown>, values: Record<string, unknown>, dealId: string | null) => void
   onReviewMapping: () => void
-  onComputedNative?: (
-    outputs: Record<string, number | string>,
-    debt: DebtBlock | null,
-    irrConvention?: 'periodic_monthly' | 'xirr',
-    statement?: Statement | null,
-  ) => void
+  /** Shared engine results (owned by App so the sidebar can recompute). */
+  native: NativeResult | null
+  nativeStale: boolean
+  computing: boolean
+  failure: ComputeFailure | null
+  onCompute: () => void
 }
 
 const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
@@ -70,9 +71,14 @@ export default function GeneratePanel({
   mappingProfileId,
   mappingUnsaved,
   values,
+  dealId,
   onGenerated,
   onReviewMapping,
-  onComputedNative,
+  native,
+  nativeStale,
+  computing,
+  failure,
+  onCompute,
 }: GeneratePanelProps) {
   const [generating, setGenerating] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -101,46 +107,28 @@ export default function GeneratePanel({
     if (err instanceof ApiError) return { message: err.message, missing: err.missing }
     return { message: err instanceof Error ? err.message : fallback, missing: [] }
   }
-  const [computing, setComputing] = useState(false)
-  const [computeWarnings, setComputeWarnings] = useState<string[]>([])
-  const [computeError, setComputeError] = useState<{ message: string; missing: string[] } | null>(null)
-  const [debtBlock, setDebtBlock] = useState<DebtBlock | null>(null)
-  const [gpEconomics, setGpEconomics] = useState<GpEconomics | null>(null)
+  const [exportWarnings, setExportWarnings] = useState<string[]>([])
+  const [exportError, setExportError] = useState<{ message: string; missing: string[] } | null>(null)
   const [exportingModel, setExportingModel] = useState(false)
+  const computeError = exportError ?? failure
+  const computeWarnings = [...(native?.response.warnings ?? []), ...exportWarnings]
+  const debtBlock: DebtBlock | null = native?.response.debt ?? null
+  const gpEconomics: GpEconomics | null = native?.response.gpEconomics ?? null
 
   const ready = Boolean(template && mappingProfileId) && !mappingUnsaved
 
   async function handleExportModel() {
     setExportingModel(true)
-    setComputeError(null)
+    setExportError(null)
+    setExportWarnings([])
     try {
       const { blob, warnings } = await exportNativeModel(values)
       await saveOutput(blob, 'native-model.xlsx')
-      if (warnings.length > 0) setComputeWarnings(warnings)
+      setExportWarnings(warnings)
     } catch (err) {
-      setComputeError(errorParts(err, 'Excel model export failed'))
+      setExportError(errorParts(err, 'Excel model export failed'))
     } finally {
       setExportingModel(false)
-    }
-  }
-
-  async function handleComputeNative() {
-    setComputing(true)
-    setComputeError(null)
-    setComputeWarnings([])
-    try {
-      const response = await computeNative(values, { detail: true })
-      const { outputs, warnings, debt, irrConvention, statement } = response
-      setComputeWarnings(warnings)
-      setDebtBlock(debt)
-      setGpEconomics(response.gpEconomics ?? null)
-      onComputedNative?.(outputs, debt, irrConvention, statement ?? null)
-    } catch (err) {
-      setComputeError(errorParts(err, 'Native compute failed'))
-      setDebtBlock(null)
-      setGpEconomics(null)
-    } finally {
-      setComputing(false)
     }
   }
 
@@ -174,6 +162,8 @@ export default function GeneratePanel({
     setPreflight(null)
     setGenerating(true)
     const recalcRequested = recalc && recalcAvailable !== false
+    const requestValues = values
+    const requestDealId = dealId
     try {
       const { blob, filename, warnings, outputs } = await generateWorkbook({
         templateId: template.id,
@@ -189,7 +179,7 @@ export default function GeneratePanel({
         recalcRequested,
         savedTo: saved.status === 'saved' ? saved.path : saved.status === 'downloaded' ? `downloaded ${saved.filename}` : null,
       })
-      if (Object.keys(outputs).length > 0) onGenerated?.(outputs)
+      if (Object.keys(outputs).length > 0) onGenerated?.(outputs, requestValues, requestDealId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generate failed')
     } finally {
@@ -199,7 +189,7 @@ export default function GeneratePanel({
 
   return (
     <div className="sticky bottom-0 -mx-8 border-t border-slate-200 bg-white px-8 py-3">
-      <div className="flex max-w-3xl items-center justify-between gap-4">
+      <div className="flex max-w-3xl flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="text-xs text-slate-500">
           {!template && (
             <>Upload a template and save a mapping profile under "2. Template &amp; Mapping".</>
@@ -222,14 +212,17 @@ export default function GeneratePanel({
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={handleComputeNative}
+            onClick={() => {
+              setExportError(null)
+              onCompute()
+            }}
             disabled={computing}
-            title="Compute all return metrics with the built-in pro-forma engine — no template or mapping required."
+            title="Compute all return metrics with the built-in pro-forma engine — no template or mapping required. Shortcut: ⌘↩"
             className="rounded border border-sky-600 px-4 py-1.5 text-sm text-sky-700 hover:bg-sky-50 disabled:opacity-40"
           >
-            {computing ? 'Computing…' : 'Compute (native)'}
+            {computing ? 'Computing…' : 'Compute (native) ⌘↩'}
           </button>
           <button
             onClick={handleExportModel}
@@ -298,8 +291,13 @@ export default function GeneratePanel({
           ))}
         </ul>
       )}
+      {debtBlock && nativeStale && (
+        <div className="mt-3 text-xs font-medium text-amber-700">
+          Out of date — the debt and GP figures below are from earlier inputs. Recompute to refresh.
+        </div>
+      )}
       {debtBlock && (
-        <div className="mt-3 max-w-3xl">
+        <div className={`mt-3 max-w-3xl ${nativeStale ? 'opacity-50' : ''}`}>
           <div className="text-xs font-semibold tracking-wide text-slate-500">
             DEBT SIZING — {fmtMoney(debtBlock.loanAmount)} · governed by{' '}
             {debtBlock.governingConstraint}
@@ -400,7 +398,7 @@ export default function GeneratePanel({
         </div>
       )}
       {gpEconomics && (
-        <div className="mt-3 max-w-3xl text-xs">
+        <div className={`mt-3 max-w-3xl text-xs ${nativeStale ? 'opacity-50' : ''}`}>
           <div className="font-semibold tracking-wide text-slate-500">
             GP COMPENSATION — {fmtMoney(gpEconomics.totalCompensation)} total
           </div>

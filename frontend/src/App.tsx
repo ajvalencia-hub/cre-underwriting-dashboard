@@ -37,7 +37,6 @@ import {
   type Autosaver,
   type AutosaveState,
 } from './lib/dealPersistence'
-import type { Statement } from './lib/cashflowStatement'
 import { formatOutputValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
@@ -61,6 +60,10 @@ import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { toastError } from './lib/toast'
+import ResultsStatus from './components/ResultsStatus'
+import { goToField } from './lib/goToField'
+import { SOURCE_TAG, inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
+import { useComputeResults } from './lib/useComputeResults'
 import { shareParams } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
@@ -111,14 +114,6 @@ function App() {
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
   const [mappingUnsaved, setMappingUnsaved] = useState(false)
-  // Two provenance tiers of real computed outputs. Display precedence:
-  // server-recalc > native engine > quick-screen "est." — a lower tier never
-  // overwrites a higher one on screen.
-  const [serverOutputs, setServerOutputs] = useState<Record<string, unknown>>({})
-  const [nativeOutputs, setNativeOutputs] = useState<Record<string, unknown>>({})
-  const [nativeDebt, setNativeDebt] = useState<Record<string, unknown> | null>(null)
-  const [nativeIrrConvention, setNativeIrrConvention] = useState<'periodic_monthly' | 'xirr' | null>(null)
-  const [nativeStatement, setNativeStatement] = useState<Statement | null>(null)
   const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
   // The acquisition-side napkin (lifted here for URL sharing + sidebar
   // estimates, same as the development inputs above).
@@ -145,6 +140,9 @@ function App() {
   const importInputRef = useRef<FileChooserHandle>(null)
 
   const activeDealIdRef = useRef<string | null>(null)
+  // Computed results (engine + Excel read-back), each stamped with the deal
+  // and inputs it came from — see lib/resultFreshness.ts.
+  const results = useComputeResults(activeDealIdRef)
   const hydratedRef = useRef(false)
   // JSON of the state as last hydrated/saved — suppresses the no-op autosave
   // that hydration itself would otherwise trigger.
@@ -177,6 +175,34 @@ function App() {
     [],
   )
 
+  // Freshness of what's on screen vs the inputs on screen.
+  const currentInputsKey = useMemo(() => inputsKey(formValues), [formValues])
+  const nativeResponse = results.native?.response ?? null
+  const nativeStale = results.native ? isStale(results.native.stamp, currentInputsKey, activeDealId) : false
+  const excelStale = results.excel ? isStale(results.excel.stamp, currentInputsKey, activeDealId) : false
+  const resultSets = useMemo(
+    () => [
+      ...(results.native ? [{ stamp: results.native.stamp, outputs: results.native.response.outputs as Record<string, unknown> }] : []),
+      ...(results.excel ? [results.excel] : []),
+    ],
+    [results.native, results.excel],
+  )
+  const latestResult = latestStamp(results.native?.stamp ?? null, results.excel?.stamp ?? null)
+  const anyStale = (results.native !== null && nativeStale) || (results.excel !== null && excelStale)
+  // What Scenarios saves as "the current results": the most recent value of
+  // each metric, whichever source produced it.
+  const latestOutputs = useMemo(() => {
+    const merged: Record<string, unknown> = {}
+    for (const metric of state.status === 'ready' ? state.schema.outputs : []) {
+      const picked = pickMetric(metric.id, resultSets)
+      if (picked) merged[metric.id] = picked.value
+    }
+    return merged
+  }, [resultSets, state])
+  const formValuesRef = useRef(formValues)
+  formValuesRef.current = formValues
+  const computeNow = () => void results.compute(formValuesRef.current)
+
   // Cleanup only unsubscribes — never dispose here: StrictMode's simulated
   // remount would permanently kill the ref'd autosaver otherwise.
   useEffect(() => autosaverRef.current!.subscribe(setAutosaveState), [])
@@ -185,11 +211,7 @@ function App() {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
     setFormValues(hydrated.formValues)
     setQuickScreenInputs(hydrated.quickScreen)
-    setServerOutputs({})
-    setNativeOutputs({})
-    setNativeDebt(null)
-    setNativeIrrConvention(null)
-    setNativeStatement(null)
+    results.reset()
     setActiveMappingProfileId(deal.activeMappingProfileId)
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
@@ -238,17 +260,26 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // J13: Cmd/Ctrl+K opens the global search palette.
+  // J13: Cmd/Ctrl+K opens the global search palette; Cmd/Ctrl+Enter
+  // computes with the inputs on screen (committing a field being typed in
+  // first — its value only lands in the form on blur).
+  const { compute } = results
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((v) => !v)
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        const active = document.activeElement
+        if (active instanceof HTMLElement) active.blur()
+        requestAnimationFrame(() => void compute(formValuesRef.current))
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [compute])
 
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
@@ -460,6 +491,11 @@ function App() {
     return state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues))
   }, [state, formValues])
 
+  const labelsById = useMemo(
+    () => new Map(state.status === 'ready' ? flattenFields(state.schema).map((f) => [f.id, f.label]) : []),
+    [state],
+  )
+
   if (state.status === 'loading') {
     return <div className="p-8 text-slate-500">Loading…</div>
   }
@@ -522,6 +558,18 @@ function App() {
           >
             API {apiOk ? 'connected' : 'unreachable'}
           </div>
+          <ResultsStatus
+            latest={latestResult}
+            stale={anyStale}
+            computing={results.computing}
+            failure={results.failure}
+            onRecompute={computeNow}
+            onGoToField={(fieldId) => {
+              setTab('dashboard')
+              requestAnimationFrame(() => goToField(fieldId))
+            }}
+            labelOf={(id) => labelsById.get(id) ?? id}
+          />
           {Array.from(new Set(schema.outputs.map((m) => m.group ?? 'Metrics'))).map((group) => (
             <div key={group} className="mb-4">
               <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-slate-400">
@@ -531,22 +579,14 @@ function App() {
                 {schema.outputs
                   .filter((m) => (m.group ?? 'Metrics') === group)
                   .map((metric) => {
-                    // Provenance ladder: server-recalc > native engine >
-                    // quick-screen estimate. A lower tier never overwrites a
-                    // higher one, and estimates only ever appear while the
-                    // Quick Screen tab is active.
-                    const server = serverOutputs[metric.id]
-                    const native = nativeOutputs[metric.id]
+                    // The most recent computed value (engine or Excel
+                    // read-back), labelled with its source; Quick Screen
+                    // estimates only fill gaps, and only on that tab.
+                    const picked = pickMetric(metric.id, resultSets)
                     const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
-                    const displayValue = server !== undefined ? server : native !== undefined ? native : estimate
-                    const provenance =
-                      server !== undefined
-                        ? 'server'
-                        : native !== undefined
-                          ? 'native'
-                          : estimate !== undefined
-                            ? 'estimate'
-                            : 'none'
+                    const displayValue = picked ? picked.value : estimate
+                    const provenance = picked ? picked.stamp.source : estimate !== undefined ? 'estimate' : 'none'
+                    const metricStale = picked ? isStale(picked.stamp, currentInputsKey, activeDealId) : false
                     const isFullModelOnly =
                       tab === 'quickscreen' && displayValue === undefined && quickScreenFullModelOnlyIds.has(metric.id)
                     return (
@@ -568,18 +608,22 @@ function App() {
                             isFullModelOnly ? 'Requires full underwriting — map a template and generate.' : undefined
                           }
                           className={
-                            provenance === 'server'
-                              ? 'font-medium text-slate-800'
-                              : provenance === 'native'
-                                ? 'font-medium text-slate-700'
+                            metricStale
+                              ? 'text-slate-400 line-through decoration-slate-300'
+                              : provenance === 'native' || provenance === 'excel'
+                                ? 'font-medium text-slate-800'
                                 : provenance === 'estimate'
                                   ? 'italic text-slate-400'
                                   : 'text-slate-400'
                           }
                         >
                           {formatOutputValue(metric, displayValue)}
-                          {provenance === 'native' && (
-                            <span className="ml-1 text-[10px] font-normal text-sky-500">native</span>
+                          {(provenance === 'native' || provenance === 'excel') && (
+                            <span
+                              className={`ml-1 text-[10px] font-normal ${provenance === 'excel' ? 'text-emerald-600' : 'text-sky-500'}`}
+                            >
+                              {SOURCE_TAG[provenance]}
+                            </span>
                           )}
                           {provenance === 'estimate' && (
                             <span className="ml-1 not-italic text-slate-300">est.</span>
@@ -589,10 +633,10 @@ function App() {
                     )
                   })}
               </ul>
-              {group === 'Returns' && nativeIrrConvention && (
+              {group === 'Returns' && nativeResponse?.irrConvention && (
                 <p className="mt-1 text-[10px] text-slate-400">
                   IRRs:{' '}
-                  {nativeIrrConvention === 'xirr'
+                  {nativeResponse.irrConvention === 'xirr'
                     ? 'date-based XIRR (Actual/365)'
                     : 'periodic monthly, annualized'}
                 </p>
@@ -601,10 +645,10 @@ function App() {
           ))}
           <p className="mt-4 text-xs text-slate-400">
             {tab === 'quickscreen'
-              ? 'Bold values come from a server generation or the native engine; muted italic values marked "est." are Quick Screen approximations.'
-              : Object.keys(serverOutputs).length > 0 || Object.keys(nativeOutputs).length > 0
-                ? 'Bold slate values are from the last server-side recalculated generation; values tagged "native" are from the built-in pro-forma engine.'
-                : 'Metrics populate after "Compute (native)" or generating with "Recalculate on server" enabled.'}
+              ? 'Tagged values come from a full compute ("engine") or your template ("Excel"); muted italic "est." values are Quick Screen approximations.'
+              : latestResult
+                ? 'Each value shows its source: "engine" = built-in pro-forma, "Excel" = read back from your template. The newest result wins.'
+                : 'Metrics appear after Compute (⌘↩) or after generating with template read-back.'}
           </p>
         </>
       }
@@ -959,21 +1003,23 @@ function App() {
           mappingProfileId={activeMappingProfileId}
           mappingUnsaved={mappingUnsaved}
           values={formValues}
-          onGenerated={setServerOutputs}
-          onComputedNative={(outputs, debt, irrConvention, statement) => {
-            setNativeOutputs(outputs)
-            setNativeDebt(debt as Record<string, unknown> | null)
-            setNativeIrrConvention(irrConvention ?? null)
-            setNativeStatement(statement ?? null)
-          }}
+          onGenerated={results.recordExcel}
+          dealId={activeDealId}
+          native={results.native}
+          nativeStale={nativeStale}
+          computing={results.computing}
+          failure={results.failure}
+          onCompute={computeNow}
         />
       </div>
 
       <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
         <CashFlowTab
-          statement={nativeStatement}
+          statement={nativeResponse?.statement ?? null}
           values={formValues}
           onGoToCompute={() => setTab('dashboard')}
+          stale={nativeStale}
+          onRecompute={computeNow}
         />
       </div>
 
@@ -1000,8 +1046,9 @@ function App() {
           values={formValues}
           active={tab === 'scenarios'}
           dealId={activeDealId}
-          computedOutputs={{ ...nativeOutputs, ...serverOutputs }}
-          computedDebt={nativeDebt}
+          computedOutputs={latestOutputs}
+          computedDebt={(nativeResponse?.debt as Record<string, unknown> | null | undefined) ?? null}
+          outputsStale={anyStale}
           onLoadScenario={(inputs) => {
             setFormValues(inputs)
             setTab('dashboard')

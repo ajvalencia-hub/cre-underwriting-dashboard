@@ -32,6 +32,8 @@ interface ScenariosPanelProps {
    *  on save so the IC memo has a stored fallback. */
   computedOutputs?: Record<string, unknown>
   computedDebt?: Record<string, unknown> | null
+  /** computedOutputs came from inputs that have since changed. */
+  outputsStale?: boolean
   onLoadScenario: (inputs: Record<string, unknown>) => void
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
@@ -47,6 +49,7 @@ export default function ScenariosPanel({
   dealId,
   computedOutputs,
   computedDebt,
+  outputsStale = false,
   onLoadScenario,
   onLoadQuickScreenScenario,
 }: ScenariosPanelProps) {
@@ -93,8 +96,20 @@ export default function ScenariosPanel({
     setSaving(true)
     setError(null)
     try {
+      const hasOutputs = Boolean(computedOutputs && Object.keys(computedOutputs).length > 0)
+      // Never store results next to inputs they didn't come from.
+      if (
+        hasOutputs &&
+        outputsStale &&
+        !window.confirm(
+          'The results on screen are from earlier inputs. Save this scenario WITHOUT results? ' +
+            '(Recompute first to include them. The IC memo always recomputes from the inputs.)',
+        )
+      ) {
+        return
+      }
       const outputsSnapshot =
-        computedOutputs && Object.keys(computedOutputs).length > 0
+        hasOutputs && !outputsStale && computedOutputs
           ? { metrics: computedOutputs, ...(computedDebt ? { debt: computedDebt } : {}) }
           : undefined
       const existing = scenarios.find((s) => s.scenarioName === scenarioName)
