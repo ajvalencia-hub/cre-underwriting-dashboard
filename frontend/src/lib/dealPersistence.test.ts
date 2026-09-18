@@ -15,6 +15,39 @@ describe('createAutosaver', () => {
     vi.useRealTimers()
   })
 
+  it('retries a failed save on its own and reports unsaved work until it lands', async () => {
+    const save = vi
+      .fn<(v: number) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(undefined)
+    const saver = createAutosaver<number>(save, 2000)
+
+    saver.schedule(7)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(saver.getState()).toBe('error')
+    expect(saver.hasUnsaved()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(3000) // first retry
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(saver.getState()).toBe('error')
+
+    await vi.advanceTimersByTimeAsync(10000) // second retry succeeds
+    expect(save).toHaveBeenCalledTimes(3)
+    expect(save).toHaveBeenLastCalledWith(7)
+    expect(saver.getState()).toBe('saved')
+    expect(saver.hasUnsaved()).toBe(false)
+  })
+
+  it('flush says whether everything reached the server', async () => {
+    const save = vi.fn<(v: number) => Promise<void>>().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+    const saver = createAutosaver<number>(save, 2000)
+    saver.schedule(1)
+    expect(await saver.flush()).toBe(false)
+    expect(await saver.flush()).toBe(true)
+    expect(await saver.flush()).toBe(true) // nothing pending
+  })
+
   it('debounces: rapid schedules produce one save with the last value', async () => {
     const save = vi.fn().mockResolvedValue(undefined)
     const saver = createAutosaver<number>(save, 2000)

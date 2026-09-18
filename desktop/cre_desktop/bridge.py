@@ -101,6 +101,13 @@ class DesktopBridge:
         if path in self._saved_paths:
             subprocess.run(["/usr/bin/open", path], check=False)
 
+    def set_unsaved(self, unsaved: bool) -> None:
+        """The page reports whether it holds edits the backend hasn't saved;
+        while it does, closing the window or Cmd+Q asks first (the prompt
+        text is set in launcher.py)."""
+        if self._window is not None:
+            self._window.confirm_close = bool(unsaved)
+
     # --- settings ----------------------------------------------------------
 
     def get_settings(self) -> dict:

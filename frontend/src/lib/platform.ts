@@ -29,6 +29,7 @@ export interface DesktopApi {
   clear_tool_folder(): Promise<DesktopSettings>
   restart(): Promise<void>
   open_external(url: string): Promise<void>
+  set_unsaved(unsaved: boolean): Promise<void>
 }
 
 declare global {
@@ -139,6 +140,11 @@ export function openExternal(url: string): void {
   const api = desktopApi()
   if (api) void api.open_external(url)
   else window.open(url, '_blank', 'noreferrer')
+}
+
+/** Desktop: make closing the window / Cmd+Q ask while edits are unsaved. */
+export function reportUnsavedToShell(unsaved: boolean): void {
+  void desktopApi()?.set_unsaved(unsaved)
 }
 
 export function revealInFinder(path: string): void {

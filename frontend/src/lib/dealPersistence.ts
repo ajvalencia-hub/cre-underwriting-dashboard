@@ -23,18 +23,25 @@ export type AutosaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 export interface Autosaver<T> {
   /** Record a new value and (re)start the debounce clock. */
   schedule: (value: T) => void
-  /** Save any unsaved value immediately (e.g. before switching deals). */
-  flush: () => Promise<void>
+  /** Save any unsaved value immediately (e.g. before switching deals).
+   *  Resolves true when nothing is left unsaved. */
+  flush: () => Promise<boolean>
+  /** True while there are edits the server hasn't accepted yet. */
+  hasUnsaved: () => boolean
   dispose: () => void
   getState: () => AutosaveState
   subscribe: (listener: (state: AutosaveState) => void) => () => void
 }
+
+/** After a failed save, retry on its own (it used to wait for the next edit). */
+export const RETRY_DELAYS_MS = [3000, 10000, 30000]
 
 export function createAutosaver<T>(
   save: (value: T) => Promise<void>,
   delayMs = 2000,
 ): Autosaver<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
+  let failures = 0
   let state: AutosaveState = 'idle'
   let latest: { value: T } | null = null // most recent value not yet saved
   let saving = false
@@ -64,6 +71,7 @@ export function createAutosaver<T>(
     try {
       await save(value)
       saving = false
+      failures = 0
       if (latest !== null) {
         // A newer value arrived while this save was in flight — chain it.
         await saveNow()
@@ -76,6 +84,14 @@ export function createAutosaver<T>(
       // newer one already superseded it.
       if (latest === null) latest = { value }
       setState('error')
+      const retryIn = RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length - 1)]
+      failures++
+      if (!disposed && timer === null) {
+        timer = setTimeout(() => {
+          timer = null
+          void saveNow()
+        }, retryIn)
+      }
     }
   }
 
@@ -89,7 +105,11 @@ export function createAutosaver<T>(
         void saveNow()
       }, delayMs)
     },
-    flush: () => saveNow(),
+    async flush() {
+      await saveNow()
+      return latest === null && !saving && state !== 'error'
+    },
+    hasUnsaved: () => latest !== null || saving,
     dispose() {
       disposed = true
       clearTimer()

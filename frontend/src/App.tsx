@@ -60,6 +60,7 @@ import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { toastError } from './lib/toast'
+import { reportUnsavedToShell } from './lib/platform'
 import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
 import { goToField } from './lib/goToField'
@@ -107,7 +108,7 @@ const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
   pending: 'Saving…',
   saving: 'Saving…',
   saved: 'Saved',
-  error: 'Save failed — retrying on next change',
+  error: 'Not saved — retrying automatically',
 }
 
 function App() {
@@ -210,6 +211,22 @@ function App() {
   // remount would permanently kill the ref'd autosaver otherwise.
   useEffect(() => autosaverRef.current!.subscribe(setAutosaveState), [])
 
+  // Closing with edits the server hasn't accepted loses them: ask first.
+  // Browser: the standard leave-page prompt. Desktop: the window's quit
+  // confirmation (Cmd+Q / close button), switched on through the bridge.
+  const hasUnsavedWork = autosaveState === 'pending' || autosaveState === 'saving' || autosaveState === 'error'
+  useEffect(() => {
+    reportUnsavedToShell(hasUnsavedWork)
+    if (!hasUnsavedWork) return
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault()
+      // Kick off the save; if it lands before the user answers, nothing is lost.
+      void autosaverRef.current!.flush()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsavedWork])
+
   function applyDealState(schema: InputSchema, deal: Deal, urlParams: URLSearchParams) {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs, urlParams)
     setFormValues(hydrated.formValues)
@@ -303,10 +320,24 @@ function App() {
     return () => clearTimeout(handle)
   }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode])
 
+  /** Before leaving the current deal: make sure its edits reached the
+   *  server. If they didn't, stay put — otherwise the retry would be
+   *  superseded by the next deal's saves and the edits silently lost. */
+  async function ensureSaved(): Promise<boolean> {
+    const ok = await autosaverRef.current!.flush()
+    if (!ok) {
+      toastError(
+        "This deal's latest changes haven't been saved yet, so you're staying on it",
+        'The server did not accept the save. The app keeps retrying — try again in a moment.',
+      )
+    }
+    return ok
+  }
+
   async function switchDeal(dealId: string) {
     if (state.status !== 'ready' || dealId === activeDealId) return
+    if (!(await ensureSaved())) return
     try {
-      await autosaverRef.current!.flush()
       const deal = await fetchDeal(dealId)
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
       // Deal switches never re-apply URL params — those are first-load-only.
@@ -324,7 +355,7 @@ function App() {
   // "missing dealType" and a silent acquisition default.
   async function handleNewDeal(type: DealType) {
     if (state.status !== 'ready') return
-    await autosaverRef.current!.flush()
+    if (!(await ensureSaved())) return
     setNewDealMenuOpen(false)
     const label = type === 'development' ? 'Development' : 'Acquisition'
     try {
@@ -367,9 +398,10 @@ function App() {
   }
 
   // J10: the wizard finalized a deal — adopt it as the active deal.
-  function handleWizardCreated(deal: Deal) {
+  async function handleWizardCreated(deal: Deal) {
     if (state.status !== 'ready') return
     setOmWizardOpen(false)
+    if (!(await ensureSaved())) return
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
     localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
     applyDealState(state.schema, deal, new URLSearchParams())
@@ -451,6 +483,7 @@ function App() {
 
   async function handleConfirmImport() {
     if (state.status !== 'ready' || !importPreview) return
+    if (!(await ensureSaved())) return
     try {
       const imported = await importDeal(importPreview)
       setImportPreview(null)
