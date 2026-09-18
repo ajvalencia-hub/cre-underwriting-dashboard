@@ -5,6 +5,9 @@ export function formatOutputValue(metric: OutputMetric, value: unknown): string 
   if (value === undefined || value === null || value === '') return '—'
   const num = Number(value)
   if (Number.isNaN(num)) return String(value)
+  // Yield-on-cost minus exit cap (a fraction): shown in bps, matching the
+  // Quick Screen's "Spread over Exit Cap".
+  if (metric.id === 'developmentSpreadBps') return `${Math.round(num * 10000)} bps`
   switch (metric.type) {
     case 'percent':
       return `${(num * 100).toFixed(2)}%`
