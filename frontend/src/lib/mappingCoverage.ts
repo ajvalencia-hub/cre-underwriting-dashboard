@@ -35,6 +35,13 @@ export function statusInfo(row: MappingPreviewRow): StatusInfo {
       ? { label: 'Same cell as another output', tone: 'warn' }
       : { label: 'Same cell as another input', tone: 'error' }
   }
+  if (row.retired) {
+    return willWrite(row)
+      ? { label: 'Retired field — still written', tone: 'warn' }
+      : row.status === 'unresolved'
+        ? { label: 'Retired field — target missing', tone: 'error' }
+        : { label: 'Retired field — nothing written', tone: 'muted' }
+  }
   switch (row.status) {
     case 'ok':
       return { label: 'Will write', tone: 'ok' }

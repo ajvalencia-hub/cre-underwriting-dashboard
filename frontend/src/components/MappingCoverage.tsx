@@ -51,6 +51,7 @@ export default function MappingCoverage({
   const labels = useMemo(() => new Map(fields.map((f) => [f.id, f.label])), [fields])
   const labelOf = (id: string) => labels.get(id) ?? id
   const summary = useMemo(() => summarize(preview ?? [], relevantIds), [preview, relevantIds])
+  const retired = useMemo(() => (preview ?? []).filter((r) => r.retired), [preview])
   const [filter, setFilter] = useState<Filter | null>(null)
   // Default to the issues when there are any, otherwise to what's mapped.
   const activeFilter: Filter = filter ?? (summary.attention > 0 ? 'attention' : 'mapped')
@@ -256,7 +257,29 @@ export default function MappingCoverage({
           )
         })}
       </table>
-      {preview && sections.every(([, s]) => s.fields.filter(visible).length === 0) && (
+      {retired.length > 0 && (
+        <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="font-medium">Mappings for fields this app no longer has</div>
+          <ul className="mt-1 space-y-1">
+            {retired.map((row) => (
+              <li key={row.fieldId} className="flex flex-wrap items-center gap-2">
+                <code className="text-xs">{row.fieldId}</code>
+                <span className="text-xs">→ {row.resolvedRef ?? mappings[row.fieldId]?.ref ?? '—'}</span>
+                <span className={`rounded border px-1.5 text-[11px] ${TONE_CLASS[statusInfo(row).tone]}`}>
+                  {statusInfo(row).label}
+                </span>
+                <button type="button" className="text-xs text-amber-900 underline" onClick={() => onClear(row.fieldId)}>
+                  Remove mapping
+                </button>
+                {row.message && <div className="w-full text-xs">{row.message}</div>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {preview &&
+        sections.every(([, s]) => s.fields.filter(visible).length === 0) &&
+        !(activeFilter === 'attention' && retired.some(needsAttention)) && (
         <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
           {activeFilter === 'attention'
             ? 'Nothing needs attention — every mapped input will be written as shown.'

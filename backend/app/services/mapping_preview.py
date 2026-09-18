@@ -183,6 +183,23 @@ def _table_row(wb, entry: dict, value: Any) -> dict:
     return row
 
 
+def _mapped_row(wb, field: dict, entry: dict, value: Any, is_output: bool) -> dict:
+    try:
+        if entry.get("target") == "table":
+            return _table_row(wb, entry, value)
+        return _scalar_row(wb, field, entry, value, is_output)
+    except (KeyError, ValueError) as exc:
+        # A malformed reference used to fail the whole preview. Generate stops
+        # on it too, so say that on this row rather than hide every other one.
+        ref = entry.get("ref") or entry.get("anchor")
+        return {
+            "target": entry.get("target"),
+            "status": "unresolved",
+            "resolvedRef": None,
+            "message": f"The reference '{ref}' can't be read ({exc}) — Generate will stop on it. Pick the cell again.",
+        }
+
+
 def preview(template_path: Path, mappings: dict, values: dict) -> list[dict]:
     fields = mapping_service.load_flat_fields(include_outputs=False)
     outputs = mapping_service.load_output_fields()
@@ -201,10 +218,28 @@ def preview(template_path: Path, mappings: dict, values: dict) -> list[dict]:
                     message = "Has a value on this deal but isn't mapped — the template's own number is used."
                 result.append({**base, "status": status, "resolvedRef": None, "message": message})
                 continue
-            if entry.get("target") == "table":
-                result.append({**base, **_table_row(wb, entry, value)})
-            else:
-                result.append({**base, **_scalar_row(wb, field, entry, value, is_output)})
+            result.append({**base, **_mapped_row(wb, field, entry, value, is_output)})
+
+        # Generate walks every mapping key, not the schema: a profile can keep
+        # a field the app no longer has, and a deal can still carry its value.
+        known = {f["id"] for f in fields} | {o["id"] for o in outputs}
+        for field_id, entry in mappings.items():
+            if field_id in known:
+                continue
+            value = values.get(field_id)
+            row = {
+                "fieldId": field_id,
+                "isOutput": False,
+                "hasValue": not _is_blank(value),
+                "retired": True,
+                **_mapped_row(wb, {"id": field_id}, entry, value, False),
+            }
+            if row["status"] in ("ok", "unitWarning", "tableSkips"):
+                row["message"] = (
+                    "Not a field in this app any more, but Generate still writes this deal's saved value "
+                    f"here — remove the mapping unless that's intended. {row.get('message') or ''}"
+                ).strip()
+            result.append(row)
         return result
     finally:
         wb.close()

@@ -26,6 +26,9 @@ export interface MappingPreviewRow {
   tableRows?: number
   tableColumns?: number
   message?: string | null
+  /** A mapping kept in the profile for a field the app no longer has.
+   *  Generate still writes it when the deal carries a value. */
+  retired?: boolean
   /** Client-derived: other fields (same kind — input or output) resolving
    *  to this same cell. Inputs sharing a cell overwrite each other. */
   sharedWith?: string[]

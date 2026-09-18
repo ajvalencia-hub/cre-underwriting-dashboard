@@ -99,3 +99,30 @@ def test_preview_never_modifies_the_template(template):
 )
 def test_unit_warning(field_type, new, old, fmt, warns):
     assert (mapping_preview.unit_warning(field_type, new, old, fmt) is not None) is warns
+
+
+def test_mapping_for_a_retired_field_is_previewed_because_generate_writes_it(template, tmp_path):
+    mappings = {"oldFieldName": {"target": "cell", "ref": "Inputs!B7", "sheet": "Inputs"}}
+    values = {"oldFieldName": 42}
+    row = _by_id(mapping_preview.preview(template, mappings, values))["oldFieldName"]
+    assert row["retired"] is True and row["status"] == "ok" and row["writeValue"] == 42
+    assert "Not a field in this app any more" in row["message"]
+
+    result = excel_writer.inject_values(template, tmp_path / "out.xlsx", mappings, values)
+    assert "oldFieldName" in result["written"]
+
+
+def test_malformed_reference_marks_its_row_instead_of_failing_the_preview(template, tmp_path):
+    mappings = {
+        "purchasePrice": {"target": "cell", "ref": "Inputs!B!!2", "sheet": "Inputs"},
+        "vacancyPct": {"target": "cell", "ref": "Inputs!B4", "sheet": "Inputs"},
+    }
+    values = {"purchasePrice": 1, "vacancyPct": 0.05}
+    rows = _by_id(mapping_preview.preview(template, mappings, values))
+    assert rows["purchasePrice"]["status"] == "unresolved"
+    assert "Generate will stop" in rows["purchasePrice"]["message"]
+    assert rows["vacancyPct"]["status"] == "ok"
+
+    # The claim in that message: generation does stop on it.
+    with pytest.raises((KeyError, ValueError)):
+        excel_writer.inject_values(template, tmp_path / "out.xlsx", mappings, values)
