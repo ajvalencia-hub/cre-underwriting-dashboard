@@ -9,17 +9,73 @@ import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
 import type { MappingPreviewRow } from '../types/mappingPreview'
+import { isDesktop } from './platform'
 
 const API_BASE = '/api'
 
-async function extractErrorMessage(res: Response): Promise<string> {
+/** An API failure with what the UI needs to explain it: a readable
+ *  message, the HTTP status (0 = couldn't reach the server), the engine's
+ *  list of missing inputs when it refused to compute, and the request id
+ *  that matches the server log line. */
+export class ApiError extends Error {
+  readonly status: number
+  readonly missing: string[]
+  readonly requestId: string | null
+
+  constructor(message: string, status: number, missing: string[] = [], requestId: string | null = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.missing = missing
+    this.requestId = requestId
+  }
+}
+
+interface ValidationIssue {
+  loc?: (string | number)[]
+  msg?: string
+}
+
+/** FastAPI's 422 body is {detail: [{loc, msg, type}]} — turn it into words. */
+export function describeValidationDetail(detail: ValidationIssue[]): string {
+  const parts = detail.slice(0, 4).map((issue) => {
+    const where = (issue.loc ?? []).filter((p) => p !== 'body' && p !== 'query').join(' → ')
+    return where ? `${where}: ${issue.msg ?? 'invalid'}` : (issue.msg ?? 'invalid')
+  })
+  const more = detail.length > 4 ? ` (and ${detail.length - 4} more)` : ''
+  return `Some values weren't accepted — ${parts.join('; ')}${more}`
+}
+
+export async function apiError(res: Response): Promise<ApiError> {
+  const requestId = res.headers.get('X-Request-ID')
+  let message = res.status >= 500
+    ? `The server hit an unexpected error (${res.status}). Your inputs are unchanged — try again, and if it persists, report request ${requestId ?? 'id unavailable'}.`
+    : `${res.status} ${res.statusText}`
+  let missing: string[] = []
   try {
     const body = await res.json()
-    if (typeof body?.detail === 'string') return body.detail
+    if (typeof body?.detail === 'string') message = body.detail
+    else if (Array.isArray(body?.detail)) message = describeValidationDetail(body.detail as ValidationIssue[])
+    if (Array.isArray(body?.missing)) missing = body.missing.filter((m: unknown): m is string => typeof m === 'string')
   } catch {
     // response wasn't JSON
   }
-  return `${res.status} ${res.statusText}`
+  return new ApiError(message, res.status, missing, requestId)
+}
+
+/** fetch() that turns "couldn't connect" into an explanation. */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init)
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    throw new ApiError(
+      isDesktop()
+        ? "The app's calculation engine isn't responding. Quit and reopen CRE Underwriting — your saved deals are safe."
+        : "Can't reach the API server. Check that the backend is running (uvicorn on port 8000), then try again.",
+      0,
+    )
+  }
 }
 
 /** Prefer the RFC 5987 filename* (the backend sends the real, possibly
@@ -39,35 +95,35 @@ export function filenameFromDisposition(disposition: string | null, fallback: st
 
 /** GET a server-generated file (deck, CSV, share page, attachment). */
 export async function fetchServerFile(url: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  const res = await apiFetch(url)
+  if (!res.ok) throw await apiError(res)
   return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('Content-Disposition'), fallbackName) }
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`)
+  const res = await apiFetch(`${API_BASE}${path}`)
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   return res.json() as Promise<T>
 }
 
 async function postJson<T>(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   return res.json() as Promise<T>
 }
 
 async function del(path: string): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, { method: 'DELETE' })
+  const res = await apiFetch(`${API_BASE}${path}`, { method: 'DELETE' })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
 }
 
@@ -98,9 +154,9 @@ export function deleteMappingProfile(mappingId: string) {
 export async function uploadTemplate(file: File): Promise<TemplateSummary> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${API_BASE}/templates/upload`, { method: 'POST', body: form })
+  const res = await apiFetch(`${API_BASE}/templates/upload`, { method: 'POST', body: form })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   return res.json() as Promise<TemplateSummary>
 }
@@ -166,13 +222,13 @@ export async function generateWorkbook(payload: {
   values: Record<string, unknown>
   recalc?: boolean
 }): Promise<GenerateResult> {
-  const res = await fetch(`${API_BASE}/generate`, {
+  const res = await apiFetch(`${API_BASE}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   const warningsHeader = res.headers.get('X-Generation-Warnings')
   const warnings: string[] = warningsHeader ? JSON.parse(warningsHeader) : []
@@ -187,13 +243,13 @@ export async function generateWorkbook(payload: {
 export async function exportNativeModel(
   values: Record<string, unknown>,
 ): Promise<{ blob: Blob; warnings: string[] }> {
-  const res = await fetch(`${API_BASE}/generate/model`, {
+  const res = await apiFetch(`${API_BASE}/generate/model`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ values }),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   const warningsHeader = res.headers.get('X-Generation-Warnings')
   const warnings: string[] = warningsHeader ? JSON.parse(warningsHeader) : []
@@ -676,13 +732,13 @@ export function bulkUpdateDealStatus(
 export async function exportBatchDeck(
   dealIds: string[],
 ): Promise<{ blob: Blob; skipped: string[] }> {
-  const res = await fetch(`${API_BASE}/deals/batch-deck`, {
+  const res = await apiFetch(`${API_BASE}/deals/batch-deck`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dealIds }),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   const skippedHeader = res.headers.get('X-Deck-Skipped')
   const skipped: string[] = skippedHeader ? JSON.parse(skippedHeader) : []
@@ -697,22 +753,22 @@ export async function generateMemo(
   scenarioId: string,
   format: 'docx' | 'pdf' = 'docx',
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}/memo?format=${format}`, {
+  const res = await apiFetch(`${API_BASE}/scenarios/${scenarioId}/memo?format=${format}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   const filename = filenameFromDisposition(res.headers.get('Content-Disposition'), 'ic-memo.docx')
   return { blob: await res.blob(), filename }
 }
 
 export async function deleteScenario(scenarioId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/scenarios/${scenarioId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${API_BASE}/scenarios/${scenarioId}`, { method: 'DELETE' })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
 }
 
@@ -728,9 +784,9 @@ export function fetchDocuments() {
 export async function uploadDocument(file: File): Promise<DocumentSummary> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
+  const res = await apiFetch(`${API_BASE}/documents/upload`, { method: 'POST', body: form })
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res))
+    throw await apiError(res)
   }
   return res.json() as Promise<DocumentSummary>
 }
@@ -869,8 +925,8 @@ export function fetchAttachments(dealId: string) {
 export async function uploadAttachment(dealId: string, file: File): Promise<DealAttachment> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${API_BASE}/deals/${dealId}/attachments`, { method: 'POST', body: form })
-  if (!res.ok) throw new Error(await extractErrorMessage(res))
+  const res = await apiFetch(`${API_BASE}/deals/${dealId}/attachments`, { method: 'POST', body: form })
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<DealAttachment>
 }
 

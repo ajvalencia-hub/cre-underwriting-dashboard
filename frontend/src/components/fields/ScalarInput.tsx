@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { FieldType } from '../../types/schema'
 
 interface ScalarInputProps {
+  /** DOM id so a <label htmlFor> can point at the control. */
+  id?: string
   type: FieldType
   value: unknown
   onChange: (value: unknown) => void
@@ -27,7 +29,7 @@ function formatNumeric(value: number, type: FieldType): string {
   return String(Math.round(value * 1e6) / 1e6)
 }
 
-function NumericInput({ type, value, onChange, options: _options, min, max, step }: ScalarInputProps) {
+function NumericInput({ id, type, value, onChange, options: _options, min, max, step }: ScalarInputProps) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState('')
 
@@ -99,6 +101,7 @@ function NumericInput({ type, value, onChange, options: _options, min, max, step
       <div className="flex items-center gap-1">
         {type === 'currency' && <span className="text-slate-400">$</span>}
         <input
+          id={id}
           type="text"
           inputMode="decimal"
           className={`${baseClass} text-right ${rangeError ? 'border-red-300' : 'border-slate-300'}`}
@@ -115,11 +118,12 @@ function NumericInput({ type, value, onChange, options: _options, min, max, step
   )
 }
 
-export default function ScalarInput({ type, value, onChange, options, min, max, step }: ScalarInputProps) {
+export default function ScalarInput({ id, type, value, onChange, options, min, max, step }: ScalarInputProps) {
   switch (type) {
     case 'text':
       return (
         <input
+          id={id}
           type="text"
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -129,6 +133,7 @@ export default function ScalarInput({ type, value, onChange, options, min, max, 
     case 'textarea':
       return (
         <textarea
+          id={id}
           rows={3}
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -139,11 +144,12 @@ export default function ScalarInput({ type, value, onChange, options, min, max, 
     case 'currency':
     case 'percent':
       return (
-        <NumericInput type={type} value={value} onChange={onChange} options={options} min={min} max={max} step={step} />
+        <NumericInput id={id} type={type} value={value} onChange={onChange} options={options} min={min} max={max} step={step} />
       )
     case 'date':
       return (
         <input
+          id={id}
           type="date"
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -153,6 +159,7 @@ export default function ScalarInput({ type, value, onChange, options, min, max, 
     case 'select':
       return (
         <select
+          id={id}
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
           onChange={(e) => onChange(e.target.value)}
@@ -170,6 +177,7 @@ export default function ScalarInput({ type, value, onChange, options, min, max, 
     case 'boolean':
       return (
         <input
+          id={id}
           type="checkbox"
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}

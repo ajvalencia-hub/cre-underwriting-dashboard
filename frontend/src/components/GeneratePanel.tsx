@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ApiError,
   computeNative,
   exportNativeModel,
   fetchExternalTools,
@@ -14,6 +15,7 @@ import { flattenFields, visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import { GeneratePreflight, GenerateReport } from './GenerateCheck'
 import type { Statement } from '../lib/cashflowStatement'
+import { fieldIdFromMissing, goToField } from '../lib/goToField'
 import { saveOutput } from '../lib/saveOutput'
 import type { TemplateSummary } from '../types/template'
 
@@ -94,9 +96,14 @@ export default function GeneratePanel({
   }, [])
   const labels = useMemo(() => new Map([...flattenFields(schema), ...schema.outputs].map((f) => [f.id, f.label])), [schema])
   const labelOf = (id: string) => labels.get(id) ?? id
+
+  function errorParts(err: unknown, fallback: string): { message: string; missing: string[] } {
+    if (err instanceof ApiError) return { message: err.message, missing: err.missing }
+    return { message: err instanceof Error ? err.message : fallback, missing: [] }
+  }
   const [computing, setComputing] = useState(false)
   const [computeWarnings, setComputeWarnings] = useState<string[]>([])
-  const [computeError, setComputeError] = useState<string | null>(null)
+  const [computeError, setComputeError] = useState<{ message: string; missing: string[] } | null>(null)
   const [debtBlock, setDebtBlock] = useState<DebtBlock | null>(null)
   const [gpEconomics, setGpEconomics] = useState<GpEconomics | null>(null)
   const [exportingModel, setExportingModel] = useState(false)
@@ -111,7 +118,7 @@ export default function GeneratePanel({
       await saveOutput(blob, 'native-model.xlsx')
       if (warnings.length > 0) setComputeWarnings(warnings)
     } catch (err) {
-      setComputeError(err instanceof Error ? err.message : 'Excel model export failed')
+      setComputeError(errorParts(err, 'Excel model export failed'))
     } finally {
       setExportingModel(false)
     }
@@ -129,7 +136,7 @@ export default function GeneratePanel({
       setGpEconomics(response.gpEconomics ?? null)
       onComputedNative?.(outputs, debt, irrConvention, statement ?? null)
     } catch (err) {
-      setComputeError(err instanceof Error ? err.message : 'Native compute failed')
+      setComputeError(errorParts(err, 'Native compute failed'))
       setDebtBlock(null)
       setGpEconomics(null)
     } finally {
@@ -258,7 +265,32 @@ export default function GeneratePanel({
         </div>
       </div>
       {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
-      {computeError && <div className="mt-2 text-xs text-red-600">{computeError}</div>}
+      {computeError && computeError.missing.length > 0 && (
+        <div className="mt-2 max-w-3xl rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+          <span className="font-medium">Can't compute yet — fill in:</span>{' '}
+          {computeError.missing.map((entry) => {
+            const id = fieldIdFromMissing(entry)
+            const hint = entry
+              .slice(id.length)
+              .trim()
+              .replace(/[A-Za-z][A-Za-z0-9]+/g, (word) => labels.get(word) ?? word)
+            return (
+              <button
+                key={entry}
+                onClick={() => goToField(id)}
+                className="mr-2 underline decoration-dotted hover:text-red-600"
+                title="Go to this field"
+              >
+                {labelOf(id)}
+                {hint && <span className="ml-0.5 text-red-500 no-underline">{hint}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {computeError && computeError.missing.length === 0 && (
+        <div className="mt-2 text-xs text-red-600">{computeError.message}</div>
+      )}
       {computeWarnings.length > 0 && (
         <ul className="mt-2 list-disc pl-4 text-xs text-amber-600">
           {computeWarnings.map((w, i) => (

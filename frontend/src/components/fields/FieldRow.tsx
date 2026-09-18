@@ -1,4 +1,5 @@
 import type { InputField } from '../../types/schema'
+import { fieldDomId } from '../../lib/goToField'
 import { validateField } from '../../lib/validateField'
 import KeyValueField from './KeyValueField'
 import ScalarInput from './ScalarInput'
@@ -21,10 +22,12 @@ interface FieldRowProps {
 export default function FieldRow({ field, value, onChange, indicator }: FieldRowProps) {
   const error = validateField(field, value)
   const isWide = field.type === 'table' || field.type === 'keyvalue' || field.type === 'multiselect'
+  const isScalar = !isWide
+  const inputId = `input-${field.id}`
 
   return (
-    <div className="py-2">
-      <label className="block text-xs font-medium text-slate-600">
+    <div id={fieldDomId(field.id)} className="rounded py-2 transition-colors">
+      <label className="block text-xs font-medium text-slate-600" htmlFor={isScalar ? inputId : undefined}>
         {field.label}
         {field.required && <span className="text-red-400"> *</span>}
         {indicator && (
@@ -73,7 +76,7 @@ export default function FieldRow({ field, value, onChange, indicator }: FieldRow
           </div>
         )}
         {!['table', 'keyvalue', 'multiselect'].includes(field.type) && (
-          <ScalarInput type={field.type} value={value} options={field.options} onChange={onChange} />
+          <ScalarInput id={inputId} type={field.type} value={value} options={field.options} onChange={onChange} />
         )}
       </div>
       {error && <div className="mt-0.5 text-xs text-red-500">{error}</div>}

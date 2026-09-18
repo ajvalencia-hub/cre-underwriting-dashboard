@@ -455,7 +455,9 @@ function App() {
   function goToSection(sectionId: string) {
     setTab('dashboard')
     requestAnimationFrame(() => {
-      document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: 'smooth' })
+      const section = document.getElementById(`section-${sectionId}`)
+      if (section instanceof HTMLDetailsElement) section.open = true
+      section?.scrollIntoView({ behavior: 'smooth' })
     })
   }
 
