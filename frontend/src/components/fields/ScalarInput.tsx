@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   formatAsTyped,
   formatNumericDisplay,
@@ -51,6 +51,17 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
   const inputRef = useRef<HTMLInputElement>(null)
   const pendingCaret = useRef<number | null>(null)
 
+  // The value this field last wrote. Any other change to `value` came from
+  // outside (deal switch, preset, History restore), so a leftover unreadable
+  // entry or note no longer describes it — show the new value instead.
+  const ownValue = useRef<unknown>(value)
+  useEffect(() => {
+    if (Object.is(value, ownValue.current)) return
+    ownValue.current = value
+    setInvalid(null)
+    setNote(null)
+  }, [value])
+
   useLayoutEffect(() => {
     if (pendingCaret.current !== null && inputRef.current) {
       inputRef.current.setSelectionRange(pendingCaret.current, pendingCaret.current)
@@ -72,6 +83,7 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
       if (parsed.reason === 'empty') {
         setInvalid(null)
         setNote(null)
+        ownValue.current = undefined
         onChange(undefined)
       } else {
         setInvalid(parsed.reason)
@@ -95,6 +107,7 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
     } else {
       setNote(type === 'percent' ? fractionPercentHint(parsed.value, parsed.hadPercentSign) : null)
     }
+    ownValue.current = next
     onChange(next)
   }
 
@@ -162,6 +175,7 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
           inputMode="decimal"
           autoComplete="off"
           aria-invalid={message ? true : undefined}
+          data-unparsed={invalid !== null ? '' : undefined}
           className={`${baseClass} text-right tabular-nums ${message ? 'border-red-300' : 'border-slate-300'}`}
           value={displayValue}
           onFocus={handleFocus}

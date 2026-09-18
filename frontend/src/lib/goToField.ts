@@ -32,3 +32,13 @@ export function goToField(fieldId: string): boolean {
   window.setTimeout(() => row.classList.remove('bg-amber-50'), HIGHLIGHT_MS)
   return true
 }
+
+/** A number field still showing text that couldn't be read as a number. The
+ *  form keeps its previous value, so computing now would silently use that —
+ *  bring the field into view instead. */
+export function focusUnparsedEntry(): boolean {
+  const input = document.querySelector<HTMLInputElement>('input[data-unparsed]')
+  if (!openAndScrollTo(input) || !input) return false
+  input.focus({ preventScroll: true })
+  return true
+}

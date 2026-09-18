@@ -58,11 +58,11 @@ import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
-import { toastError } from './lib/toast'
+import { showToast, toastError } from './lib/toast'
 import { isDesktop, reportUnsavedToShell } from './lib/platform'
 import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
-import { goToField } from './lib/goToField'
+import { focusUnparsedEntry, goToField } from './lib/goToField'
 import { orderSections } from './lib/sectionOrder'
 import { presetDiff } from './lib/presetDiff'
 import { inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
@@ -107,6 +107,16 @@ function loadLastTab(): Tab {
   } catch {
     return 'quickscreen'
   }
+}
+
+function blockedByUnparsedEntry(): boolean {
+  if (!focusUnparsedEntry()) return false
+  showToast({
+    kind: 'error',
+    message: "Not computed — a field has an entry that isn't a number",
+    detail: 'Fix or clear it first; otherwise its previous value would be used.',
+  })
+  return true
 }
 
 function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
@@ -229,7 +239,10 @@ function App() {
   }, [resultSets, state])
   const formValuesRef = useRef(formValues)
   formValuesRef.current = formValues
-  const computeNow = () => void results.compute(formValuesRef.current)
+  const computeNow = () => {
+    if (blockedByUnparsedEntry()) return
+    void results.compute(formValuesRef.current)
+  }
 
   // Cleanup only unsubscribes — never dispose here: StrictMode's simulated
   // remount would permanently kill the ref'd autosaver otherwise.
@@ -352,7 +365,9 @@ function App() {
         e.preventDefault()
         const active = document.activeElement
         if (active instanceof HTMLElement) active.blur()
-        requestAnimationFrame(() => void compute(formValuesRef.current))
+        requestAnimationFrame(() => {
+          if (!blockedByUnparsedEntry()) void compute(formValuesRef.current)
+        })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1128,7 +1143,7 @@ function App() {
           values={formValues}
           onApply={(patch) => setFormValues((prev) => ({ ...prev, ...patch }))}
         />
-        <DealInputForm schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
         <GeneratePanel
           key={dealScope}
           schema={schema}
