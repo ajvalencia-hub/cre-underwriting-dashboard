@@ -142,3 +142,19 @@ export function formatCellValue(value: unknown, numberFormat?: string): string {
   })
   return fmt.includes('$') ? `$${text}` : text
 }
+
+export interface GenerateCheckResult {
+  rows: MappingPreviewRow[]
+  issues: MappingPreviewRow[]
+  unmappedWithValue: MappingPreviewRow[]
+}
+
+/** What Generate is about to do with this deal — mapped problems plus
+ *  relevant fields that have a value but no cell. */
+export function checkForGenerate(rows: MappingPreviewRow[], relevantIds: ReadonlySet<string>): GenerateCheckResult {
+  return {
+    rows,
+    issues: rows.filter(needsAttention),
+    unmappedWithValue: rows.filter((r) => isUnmappedWithValue(r) && relevantIds.has(r.fieldId)),
+  }
+}

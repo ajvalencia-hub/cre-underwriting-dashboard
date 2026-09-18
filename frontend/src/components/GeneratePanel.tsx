@@ -1,23 +1,31 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   computeNative,
   exportNativeModel,
+  fetchExternalTools,
+  fetchMappingProfile,
   generateWorkbook,
+  previewMapping,
   type DebtBlock,
   type GpEconomics,
 } from '../lib/api'
+import { checkForGenerate, withSharedTargets, type GenerateCheckResult } from '../lib/mappingCoverage'
+import { flattenFields, visibleFields } from '../lib/schemaFields'
+import type { InputSchema } from '../types/schema'
+import { GeneratePreflight, GenerateReport } from './GenerateCheck'
 import type { Statement } from '../lib/cashflowStatement'
-import { openSavedFile, revealInFinder, saveFile } from '../lib/platform'
-import { toastSaved } from '../lib/toast'
+import { saveOutput } from '../lib/saveOutput'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
+  schema: InputSchema
   template: TemplateSummary | null
   mappingProfileId: string | null
   /** The Template tab has edits not yet saved to the profile Generate uses. */
   mappingUnsaved: boolean
   values: Record<string, unknown>
   onGenerated?: (outputs: Record<string, unknown>) => void
+  onReviewMapping: () => void
   onComputedNative?: (
     outputs: Record<string, number | string>,
     debt: DebtBlock | null,
@@ -55,17 +63,37 @@ function RateSparkline({ rates }: { rates: number[] }) {
 }
 
 export default function GeneratePanel({
+  schema,
   template,
   mappingProfileId,
   mappingUnsaved,
   values,
   onGenerated,
+  onReviewMapping,
   onComputedNative,
 }: GeneratePanelProps) {
   const [generating, setGenerating] = useState(false)
-  const [result, setResult] = useState<{ warnings: string[]; writtenCount: number } | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [preflight, setPreflight] = useState<GenerateCheckResult | null>(null)
+  const [result, setResult] = useState<{
+    check: GenerateCheckResult | null
+    warnings: string[]
+    outputsReturned: number
+    recalcRequested: boolean
+    savedTo: string | null
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [recalc, setRecalc] = useState(true)
+  // null until known; false = LibreOffice isn't installed, so a template's
+  // results can't be read back (the workbook itself is still correct).
+  const [recalcAvailable, setRecalcAvailable] = useState<boolean | null>(null)
+  useEffect(() => {
+    fetchExternalTools()
+      .then((t) => setRecalcAvailable(t.libreoffice.available))
+      .catch(() => setRecalcAvailable(null))
+  }, [])
+  const labels = useMemo(() => new Map([...flattenFields(schema), ...schema.outputs].map((f) => [f.id, f.label])), [schema])
+  const labelOf = (id: string) => labels.get(id) ?? id
   const [computing, setComputing] = useState(false)
   const [computeWarnings, setComputeWarnings] = useState<string[]>([])
   const [computeError, setComputeError] = useState<string | null>(null)
@@ -80,7 +108,7 @@ export default function GeneratePanel({
     setComputeError(null)
     try {
       const { blob, warnings } = await exportNativeModel(values)
-      toastSaved(await saveFile(blob, 'native-model.xlsx'), { reveal: revealInFinder, open: openSavedFile })
+      await saveOutput(blob, 'native-model.xlsx')
       if (warnings.length > 0) setComputeWarnings(warnings)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Excel model export failed')
@@ -109,20 +137,51 @@ export default function GeneratePanel({
     }
   }
 
-  async function handleGenerate() {
+  /** What Generate will do with this deal under the SAVED profile (the
+   *  one the server uses). Null if the check itself couldn't run. */
+  async function runCheck(): Promise<GenerateCheckResult | null> {
+    if (!template || !mappingProfileId) return null
+    try {
+      const profile = await fetchMappingProfile(mappingProfileId)
+      const rows = withSharedTargets(await previewMapping(template.id, profile.mappings, values))
+      return checkForGenerate(rows, new Set(visibleFields(schema, values).map((f) => f.id)))
+    } catch {
+      return null
+    }
+  }
+
+  async function handleGenerate(skipCheck = false) {
     if (!template || !mappingProfileId) return
-    setGenerating(true)
     setError(null)
     setResult(null)
+    let check: GenerateCheckResult | null = preflight
+    if (!skipCheck) {
+      setChecking(true)
+      check = await runCheck()
+      setChecking(false)
+      if (check && (check.issues.length > 0 || check.unmappedWithValue.length > 0)) {
+        setPreflight(check)
+        return
+      }
+    }
+    setPreflight(null)
+    setGenerating(true)
+    const recalcRequested = recalc && recalcAvailable !== false
     try {
-      const { blob, filename, warnings, writtenCount, outputs } = await generateWorkbook({
+      const { blob, filename, warnings, outputs } = await generateWorkbook({
         templateId: template.id,
         mappingProfileId,
         values,
-        recalc,
+        recalc: recalcRequested,
       })
-      toastSaved(await saveFile(blob, filename), { reveal: revealInFinder, open: openSavedFile })
-      setResult({ warnings, writtenCount })
+      const saved = await saveOutput(blob, filename)
+      setResult({
+        check,
+        warnings,
+        outputsReturned: Object.keys(outputs).length,
+        recalcRequested,
+        savedTo: saved.status === 'saved' ? saved.path : saved.status === 'downloaded' ? `downloaded ${saved.filename}` : null,
+      })
       if (Object.keys(outputs).length > 0) onGenerated?.(outputs)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generate failed')
@@ -173,20 +232,28 @@ export default function GeneratePanel({
           >
             {exportingModel ? 'Exporting…' : 'Export Excel model'}
           </button>
-          <label className="flex items-center gap-1 text-xs text-slate-500">
+          <label
+            className="flex items-center gap-1 text-xs text-slate-500"
+            title={
+              recalcAvailable === false
+                ? "LibreOffice isn't installed, so your template's results can't be read back into the app. The saved workbook still recalculates when opened in Excel. See Settings → External tools."
+                : "Recalculate the filled-in workbook with LibreOffice and show your template's own results in the summary."
+            }
+          >
             <input
               type="checkbox"
-              checked={recalc}
+              checked={recalc && recalcAvailable !== false}
+              disabled={recalcAvailable === false}
               onChange={(e) => setRecalc(e.target.checked)}
             />
-            Recalculate on server
+            {recalcAvailable === false ? 'Recalculate & read back (needs LibreOffice)' : 'Recalculate & read back results'}
           </label>
           <button
-            onClick={handleGenerate}
-            disabled={!ready || generating}
+            onClick={() => void handleGenerate()}
+            disabled={!ready || generating || checking}
             className="rounded bg-emerald-600 px-4 py-1.5 text-sm text-white hover:bg-emerald-700 disabled:opacity-40"
           >
-            {generating ? 'Generating…' : 'Generate & Download'}
+            {checking ? 'Checking mapping…' : generating ? 'Generating…' : 'Generate workbook…'}
           </button>
         </div>
       </div>
@@ -320,17 +387,28 @@ export default function GeneratePanel({
           </div>
         </div>
       )}
+      {preflight && (
+        <GeneratePreflight
+          check={preflight}
+          labelOf={labelOf}
+          onGenerateAnyway={() => void handleGenerate(true)}
+          onReview={() => {
+            setPreflight(null)
+            onReviewMapping()
+          }}
+          onCancel={() => setPreflight(null)}
+        />
+      )}
       {result && (
-        <div className="mt-2 text-xs text-slate-500">
-          Wrote {result.writtenCount} field(s).
-          {result.warnings.length > 0 && (
-            <ul className="mt-1 list-disc pl-4 text-amber-600">
-              {result.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <GenerateReport
+          check={result.check}
+          labelOf={labelOf}
+          serverWarnings={result.warnings}
+          recalcRequested={result.recalcRequested}
+          outputsReturned={result.outputsReturned}
+          savedTo={result.savedTo}
+          recalcUnavailable={recalcAvailable === false}
+        />
       )}
     </div>
   )

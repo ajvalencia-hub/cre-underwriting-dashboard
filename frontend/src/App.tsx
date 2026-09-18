@@ -907,6 +907,8 @@ function App() {
         />
         <DealInputForm schema={schema} values={formValues} onFieldChange={handleFieldChange} />
         <GeneratePanel
+          schema={schema}
+          onReviewMapping={() => setTab('setup')}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
           mappingUnsaved={mappingUnsaved}
