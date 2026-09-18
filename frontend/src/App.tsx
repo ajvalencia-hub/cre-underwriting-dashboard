@@ -258,12 +258,23 @@ function App() {
     setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
     results.reset()
     setActiveMappingProfileId(deal.activeMappingProfileId)
+    // Clear the previous deal's template now: otherwise the template tab sees
+    // this deal's profile paired with the old deal's template until the fetch
+    // lands, and would link that template to this deal. (Re-applying the
+    // same deal, e.g. a History restore, keeps its template loaded.)
+    setActiveTemplate((prev) => (prev && prev.id === deal.activeTemplateId ? prev : null))
     if (deal.activeTemplateId) {
       fetchTemplate(deal.activeTemplateId)
-        .then(setActiveTemplate)
-        .catch(() => setActiveTemplate(null))
-    } else {
-      setActiveTemplate(null)
+        .then((template) => {
+          if (activeDealIdRef.current === deal.id) setActiveTemplate(template)
+        })
+        .catch((err) => {
+          if (activeDealIdRef.current !== deal.id) return
+          // Template gone (or unreachable): show "no template" rather than
+          // leave the tab waiting. The deal's stored link isn't touched.
+          setActiveMappingProfileId(null)
+          toastError(`Couldn't open "${deal.name}"'s Excel template — pick one on the Template tab`, err)
+        })
     }
     lastPersistedJsonRef.current = JSON.stringify(
       serializeDealInputs(hydrated.formValues, hydrated.quickScreen, hydrated.acquisitionQuickScreen),
@@ -381,11 +392,16 @@ function App() {
     return ok
   }
 
+  // Only the most recent switch applies: picking two deals in quick
+  // succession used to open whichever fetch finished last.
+  const switchRequestRef = useRef(0)
   async function switchDeal(dealId: string) {
     if (state.status !== 'ready' || dealId === activeDealId) return
+    const request = ++switchRequestRef.current
     if (!(await ensureSaved())) return
     try {
       const deal = await fetchDeal(dealId)
+      if (request !== switchRequestRef.current) return
       localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
       // Deal switches never re-apply URL params — those are first-load-only.
       applyDealState(state.schema, deal)

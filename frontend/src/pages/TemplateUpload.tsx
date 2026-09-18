@@ -100,6 +100,10 @@ export default function TemplateUpload({
     templateId: null,
     profileId: null,
   })
+  // Bumped by every template load/restore/clear; an async load that finishes
+  // after a newer one started (e.g. the deal was switched meanwhile) is
+  // dropped instead of applying — and reporting — the wrong template.
+  const loadRequest = useRef(0)
 
   useEffect(() => {
     const current = { templateId: template?.id ?? null, profileId }
@@ -115,7 +119,11 @@ export default function TemplateUpload({
     // App sets a loaded deal's profile id at once but fetches its template
     // asynchronously — wait for the template rather than treating the gap
     // as "no template" (which would unlink the deal's template).
-    if (incoming.templateId === null && incoming.profileId !== null) return
+    // A restore for the previous deal still in flight must not land meanwhile.
+    if (incoming.templateId === null && incoming.profileId !== null) {
+      loadRequest.current++
+      return
+    }
     const synced = syncedRef.current
     if (incoming.templateId === synced.templateId && incoming.profileId === synced.profileId) return
     syncedRef.current = incoming
@@ -128,6 +136,7 @@ export default function TemplateUpload({
       })
     }
     if (!activeTemplate) {
+      loadRequest.current++
       syncedRef.current = { templateId: null, profileId: null }
       setTemplate(null)
       setMappings({})
@@ -216,16 +225,19 @@ export default function TemplateUpload({
     setProfileLoadedNote(null)
     setPickingFieldId(null)
     setFocusRef(null)
-    await seedMappings(summary)
+    await seedMappings(summary, ++loadRequest.current)
   }
 
   async function restoreTemplate(summary: TemplateSummary, wantedProfileId: string | null) {
+    const request = ++loadRequest.current
     let existing: MappingProfile[] = []
     try {
       existing = await fetchMappingProfiles(summary.id)
     } catch (err) {
+      if (request !== loadRequest.current) return
       setError(err instanceof Error ? err.message : "Could not load this deal's mapping profiles")
     }
+    if (request !== loadRequest.current) return
     const profile = existing.find((p) => p.id === wantedProfileId) ?? null
     // Applied together (one render) so no half-restored state is reported
     // back to App as a change of the deal's template/profile.
@@ -249,9 +261,10 @@ export default function TemplateUpload({
     }
   }
 
-  async function seedMappings(summary: TemplateSummary) {
+  async function seedMappings(summary: TemplateSummary, request: number) {
     try {
       const existing = await fetchMappingProfiles(summary.id)
+      if (request !== loadRequest.current) return
       setProfiles(existing)
       if (existing.length > 0) {
         const latest = existing[0]
@@ -260,10 +273,12 @@ export default function TemplateUpload({
         return
       }
     } catch {
+      if (request !== loadRequest.current) return
       setProfiles([])
     }
     try {
       const autoMatch = await fetchAutoMatch(summary.id)
+      if (request !== loadRequest.current) return
       setMappings(autoMatch.mappings)
       if (Object.keys(autoMatch.mappings).length > 0) {
         setProfileLoadedNote(
