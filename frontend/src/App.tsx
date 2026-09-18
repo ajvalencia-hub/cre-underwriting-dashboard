@@ -702,7 +702,11 @@ function App() {
           schema={schema}
           metric={goalSeekMetric}
           values={formValues}
-          onApply={(fieldId, value) => handleFieldChange(fieldId, value)}
+          onApply={(fieldId, value) => {
+            handleFieldChange(fieldId, value)
+            // Recompute with the solved value so the sidebar isn't left stale.
+            requestAnimationFrame(() => computeNow())
+          }}
           onClose={() => setGoalSeekMetric(null)}
         />
       )}

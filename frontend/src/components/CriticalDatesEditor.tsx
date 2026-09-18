@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useModalFocus } from '../lib/useModalFocus'
 import {
   PRESETS_BY_TYPE,
   readCriticalDates,
@@ -16,6 +17,9 @@ interface CriticalDatesEditorProps {
 /** J11: per-deal key dates CRUD. */
 export default function CriticalDatesEditor({ values, onChange, onClose }: CriticalDatesEditorProps) {
   const [rows, setRows] = useState<CriticalDate[]>(() => sortByDate(readCriticalDates(values)))
+
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocus(dialogRef, onClose)
 
   function commit(next: CriticalDate[]) {
     setRows(next)
@@ -35,10 +39,17 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Critical dates"
+        className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-700">Critical dates</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <div className="flex flex-wrap gap-1 text-xs">
           {(values.dealType === 'development'
