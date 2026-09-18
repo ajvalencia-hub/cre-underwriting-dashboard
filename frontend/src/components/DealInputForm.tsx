@@ -111,14 +111,20 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
       setBenchmarks(null)
       return
     }
+    // Only the latest lookup may land: a slow response for an earlier
+    // address/subject must not set this deal's field warnings.
+    let current = true
     const handle = setTimeout(() => {
       setBenchmarksLoading(true)
       fetchBenchmarks({ address, market, submarket, assetClass, subject: { ...subject } })
-        .then(setBenchmarks)
-        .catch(() => setBenchmarks(null)) // offline/failed — panel just hides
-        .finally(() => setBenchmarksLoading(false))
+        .then((result) => current && setBenchmarks(result))
+        .catch(() => current && setBenchmarks(null)) // offline/failed — panel just hides
+        .finally(() => current && setBenchmarksLoading(false))
     }, BENCHMARK_DEBOUNCE_MS)
-    return () => clearTimeout(handle)
+    return () => {
+      current = false
+      clearTimeout(handle)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, market, submarket, assetClass, subjectKey])
 

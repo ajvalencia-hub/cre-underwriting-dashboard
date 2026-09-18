@@ -169,15 +169,19 @@ export default function MarketContextPanel({
       setContext(null)
       return
     }
+    let current = true // ignore responses for a market that's since changed
     const handle = setTimeout(() => {
       setLoading(true)
       setError(null)
       fetchMarketContext(market, submarket, assetClass)
-        .then(setContext)
-        .catch((err) => setError(err instanceof Error ? err.message : 'Could not load market context'))
-        .finally(() => setLoading(false))
+        .then((result) => current && setContext(result))
+        .catch((err) => current && setError(err instanceof Error ? err.message : 'Could not load market context'))
+        .finally(() => current && setLoading(false))
     }, DEBOUNCE_MS)
-    return () => clearTimeout(handle)
+    return () => {
+      current = false
+      clearTimeout(handle)
+    }
   }, [market, submarket, assetClass])
 
   if (!market.trim()) {
