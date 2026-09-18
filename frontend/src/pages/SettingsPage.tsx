@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
+import { ExternalToolsPanel, KeychainKeyRow, RestartBanner } from '../components/DesktopSettings'
 import {
   fetchBackups,
+  fetchExternalTools,
   fetchIntegrations,
   restoreBackup,
   runBackupNow,
   type BackupSnapshot,
+  type ExternalToolsStatus,
   type IntegrationStatus,
 } from '../lib/api'
+import { isDesktop } from '../lib/platform'
+import { useDesktopSettings } from '../lib/useDesktopSettings'
 import { loadThemePref, setThemePref, type ThemePref } from '../lib/uiPrefs'
 
 interface SettingsPageProps {
@@ -89,6 +94,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(window.localStorage))
   const [backups, setBackups] = useState<{ daily: BackupSnapshot[]; weekly: BackupSnapshot[] } | null>(null)
   const [integrations, setIntegrations] = useState<IntegrationStatus[] | null>(null)
+  const [tools, setTools] = useState<ExternalToolsStatus | null>(null)
+  const [desktopSettings, setDesktopSettings] = useDesktopSettings(active)
+  const [restoredNeedsRestart, setRestoredNeedsRestart] = useState(false)
+  const desktop = isDesktop()
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +106,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     if (!active) return
     fetchBackups().then(setBackups).catch(() => setBackups(null))
     fetchIntegrations().then(setIntegrations).catch(() => setIntegrations(null))
+    fetchExternalTools().then(setTools).catch(() => setTools(null))
   }, [active])
 
   function handleTheme(pref: ThemePref) {
@@ -122,7 +132,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   async function handleRestore(kind: string, name: string) {
     const sure = window.confirm(
       `Restore snapshot ${kind}/${name}?\n\nThis OVERWRITES the live database with the ` +
-        'snapshot state. You must restart the backend afterward so the restored ' +
+        `snapshot state. You must restart ${desktop ? 'the app' : 'the backend'} afterward so the restored ` +
         'database is loaded.',
     )
     if (!sure) return
@@ -132,9 +142,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     try {
       const result = await restoreBackup(kind, name)
       setNotice(
-        `Restored ${result.restored}. ${result.note} The snapshot's manifest lists ` +
-          `${result.uploads.length} upload file(s) that should still exist on disk.`,
+        `Restored ${result.restored}. ${desktop ? 'Restart the app to load it.' : result.note} ` +
+          `The snapshot's manifest lists ${result.uploads.length} upload file(s) that should still exist on disk.`,
       )
+      if (desktop) setRestoredNeedsRestart(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Restore failed.')
     } finally {
@@ -145,6 +156,13 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   return (
     <div className="max-w-3xl space-y-4">
       <h2 className="text-sm font-semibold text-slate-700">Settings</h2>
+      <RestartBanner
+        settings={
+          desktopSettings && (desktopSettings.restartNeeded || restoredNeedsRestart)
+            ? { ...desktopSettings, restartNeeded: true }
+            : desktopSettings
+        }
+      />
       {notice && (
         <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
           {notice}
@@ -203,9 +221,24 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         )}
       </Section>
 
+      <Section title="EXTERNAL TOOLS">
+        <ExternalToolsPanel tools={tools} settings={desktopSettings} onSettings={setDesktopSettings} />
+      </Section>
+
       <Section title="INTEGRATIONS">
         {integrations === null ? (
           <div className="text-xs text-slate-400">Status unavailable.</div>
+        ) : desktop && desktopSettings ? (
+          <ul className="space-y-3">
+            {integrations.map((item) => (
+              <KeychainKeyRow
+                key={item.envVar}
+                item={item}
+                stored={desktopSettings.storedKeys.includes(item.envVar)}
+                onSettings={setDesktopSettings}
+              />
+            ))}
+          </ul>
         ) : (
           <ul className="space-y-2">
             {integrations.map((item) => (
@@ -228,12 +261,28 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             ))}
           </ul>
         )}
-        <p className="mt-3 text-[11px] text-slate-400">
-          Keys are set in <code>backend/.env</code> (see <code>.env.example</code>) or the
-          Docker compose environment — values never leave the server; this panel only
-          shows whether each is present. Every source degrades gracefully when unset.
-        </p>
+        {desktop ? (
+          <p className="mt-3 text-[11px] text-slate-400">
+            All optional — every source degrades gracefully when unset. Keys are stored in
+            your macOS Keychain, never in a file, and are never shown again after saving.
+          </p>
+        ) : (
+          <p className="mt-3 text-[11px] text-slate-400">
+            Keys are set in <code>backend/.env</code> (see <code>.env.example</code>) or the
+            Docker compose environment — values never leave the server; this panel only
+            shows whether each is present. Every source degrades gracefully when unset.
+          </p>
+        )}
       </Section>
+
+      {desktopSettings && (
+        <Section title="DATA">
+          <p className="text-xs text-slate-500">
+            Deals, templates, documents and daily backups are stored in{' '}
+            <span className="font-mono">{desktopSettings.dataFolder}</span>.
+          </p>
+        </Section>
+      )}
     </div>
   )
 }

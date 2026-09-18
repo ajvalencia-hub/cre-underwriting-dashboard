@@ -11,11 +11,24 @@ interface DesktopPickedFile {
 type DesktopPickResult = { files: DesktopPickedFile[] } | { error: string }
 type DesktopSaveResult = { path: string } | { cancelled: true } | { error: string }
 
+export interface DesktopSettings {
+  storedKeys: string[]
+  extraToolDir: string | null
+  restartNeeded: boolean
+  dataFolder: string
+}
+
 export interface DesktopApi {
   pick_files(options: { accept: string[]; multiple: boolean; description: string }): Promise<DesktopPickResult>
   save_file(options: { suggestedName: string; base64: string }): Promise<DesktopSaveResult>
   reveal_path(path: string): Promise<void>
   open_path(path: string): Promise<void>
+  get_settings(): Promise<DesktopSettings>
+  set_api_key(name: string, value: string): Promise<DesktopSettings | { error: string }>
+  choose_tool_folder(): Promise<DesktopSettings>
+  clear_tool_folder(): Promise<DesktopSettings>
+  restart(): Promise<void>
+  open_external(url: string): Promise<void>
 }
 
 declare global {
@@ -118,6 +131,14 @@ export async function saveFile(blob: Blob, suggestedName: string): Promise<SaveR
   if ('error' in result) throw new Error(result.error)
   if ('cancelled' in result) return { status: 'cancelled' }
   return { status: 'saved', path: result.path }
+}
+
+/** Open an https link outside the app (default browser); a plain anchor
+ *  in the desktop window would navigate the app itself. */
+export function openExternal(url: string): void {
+  const api = desktopApi()
+  if (api) void api.open_external(url)
+  else window.open(url, '_blank', 'noreferrer')
 }
 
 export function revealInFinder(path: string): void {

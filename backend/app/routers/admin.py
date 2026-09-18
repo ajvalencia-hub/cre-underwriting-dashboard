@@ -35,6 +35,32 @@ def integration_status():
     ]
 
 
+@router.get("/tools")
+def external_tools_status():
+    """Which optional system programs were found — read-only. Lets the UI
+    explain up front why template recalculation / memo PDF / OCR are
+    unavailable instead of failing at use time. Discovery itself lives in
+    soffice.py and extraction/ocr.py and is unchanged."""
+    from app.services import soffice
+    from app.services.extraction import ocr
+
+    return {
+        "libreoffice": {
+            "available": soffice.is_available(),
+            "path": soffice.LIBREOFFICE_BIN,
+            "enables": [
+                "Reading recalculated results back from your Excel template",
+                "Sensitivity runs verified through your Excel template",
+                "IC memo as PDF",
+            ],
+        },
+        "ocr": {
+            "available": ocr.is_available(),
+            "enables": ["Reading scanned (image-only) PDFs"],
+        },
+    }
+
+
 @router.get("/backups")
 def list_backups():
     return backup_service.list_backups()

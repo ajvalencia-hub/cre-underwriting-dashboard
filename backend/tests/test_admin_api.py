@@ -68,3 +68,19 @@ def test_backup_endpoints_wire_to_the_service(client, monkeypatch, tmp_path):
     missing = client.post("/api/admin/backups/restore",
                           json={"kind": "daily", "name": "missing"})
     assert missing.status_code == 404
+
+
+def test_external_tools_status_reports_discovery(client, monkeypatch):
+    from app.services import soffice
+    from app.services.extraction import ocr
+
+    monkeypatch.setattr(soffice, "LIBREOFFICE_BIN", "/Applications/LibreOffice.app/Contents/MacOS/soffice")
+    monkeypatch.setattr(ocr, "_TESSERACT_BIN", None)
+    payload = client.get("/api/admin/tools").json()
+    assert payload["libreoffice"]["available"] is True
+    assert payload["libreoffice"]["path"].endswith("soffice")
+    assert payload["libreoffice"]["enables"]
+    assert payload["ocr"]["available"] is False
+
+    monkeypatch.setattr(soffice, "LIBREOFFICE_BIN", None)
+    assert client.get("/api/admin/tools").json()["libreoffice"]["available"] is False

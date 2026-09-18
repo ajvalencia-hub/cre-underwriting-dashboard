@@ -773,6 +773,15 @@ export function fetchIntegrations() {
   return getJson<IntegrationStatus[]>('/admin/integrations')
 }
 
+export interface ExternalToolsStatus {
+  libreoffice: { available: boolean; path: string | null; enables: string[] }
+  ocr: { available: boolean; enables: string[] }
+}
+
+export function fetchExternalTools() {
+  return getJson<ExternalToolsStatus>('/admin/tools')
+}
+
 // ---- J15: portfolio roll-up ----
 
 export interface PortfolioRollup {

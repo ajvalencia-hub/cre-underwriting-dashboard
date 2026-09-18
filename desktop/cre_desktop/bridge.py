@@ -6,12 +6,15 @@ backend's upload limit is 50 MB per file, so that's the ceiling here too.
 """
 
 import base64
+import json
 import logging
 import re
 import subprocess
 from pathlib import Path
 
 import webview
+
+from . import keys
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ class DesktopBridge:
         self._window = None
         self._last_dir = str(Path.home() / "Downloads")
         self._saved_paths: set[str] = set()  # only these may be revealed/opened
+        self._restart_needed = False  # a setting changed that applies on next launch
         self.restart_requested = False
 
     def attach(self, window) -> None:
@@ -96,6 +100,70 @@ class DesktopBridge:
         """Open a file this session saved in its default app (e.g. Excel)."""
         if path in self._saved_paths:
             subprocess.run(["/usr/bin/open", path], check=False)
+
+    # --- settings ----------------------------------------------------------
+
+    def get_settings(self) -> dict:
+        settings = self._read_settings()
+        return {
+            "storedKeys": keys.stored_names(),
+            "extraToolDir": settings.get("extraToolDir") or None,
+            "restartNeeded": self._restart_needed,
+            "dataFolder": str(self._paths.support),
+        }
+
+    def set_api_key(self, name: str, value: str) -> dict:
+        """Store (or, with an empty value, remove) a key in the Keychain."""
+        try:
+            keys.set_key(str(name), str(value or ""))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 — Keychain denied/locked
+            log.exception("Keychain write failed for %s", name)
+            return {"error": f"The Keychain refused the change: {exc}"}
+        self._restart_needed = True
+        return self.get_settings()
+
+    def choose_tool_folder(self) -> dict:
+        """Folder with LibreOffice's `soffice` (or tesseract) when it's
+        installed somewhere non-standard. Applied on next launch (PATH)."""
+        result = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        if not result:
+            return self.get_settings()
+        folder = Path(result if isinstance(result, str) else result[0])
+        # Accept the .app bundle itself and dig to the binary folder.
+        if folder.suffix == ".app" and (folder / "Contents" / "MacOS").is_dir():
+            folder = folder / "Contents" / "MacOS"
+        self._write_settings({**self._read_settings(), "extraToolDir": str(folder)})
+        self._restart_needed = True
+        return self.get_settings()
+
+    def clear_tool_folder(self) -> dict:
+        settings = self._read_settings()
+        settings.pop("extraToolDir", None)
+        self._write_settings(settings)
+        self._restart_needed = True
+        return self.get_settings()
+
+    def restart(self) -> None:
+        """Quit and relaunch so Keychain keys / tool folder take effect."""
+        self.restart_requested = True
+        self._window.destroy()
+
+    def open_external(self, url: str) -> None:
+        """Open an https link (e.g. the LibreOffice download page) in the
+        user's default browser rather than inside the app window."""
+        if isinstance(url, str) and url.startswith("https://"):
+            subprocess.run(["/usr/bin/open", url], check=False)
+
+    def _read_settings(self) -> dict:
+        try:
+            return json.loads(self._paths.settings_file.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def _write_settings(self, settings: dict) -> None:
+        self._paths.settings_file.write_text(json.dumps(settings, indent=2))
 
     def reveal_logs(self) -> None:
         subprocess.run(["/usr/bin/open", "-R", str(self._paths.log_file)], check=False)
