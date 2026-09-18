@@ -1,6 +1,10 @@
 # CRE Underwriting Dashboard: desktop packaging and UI/UX plan
 
-Status: **proposal, awaiting approval.** No implementation code has been written.
+Status: **approved and implemented** on branch `desktop-app-and-ux` (Gatekeeper: one documented
+first-launch step; Quick Screen gets Copy share link). Every Critical and High finding below is
+addressed, plus most Medium/Low ones. Not done, by choice: two-browser-tab last-write-wins,
+arrow-key stepping in the main form, confirmation on table-row removal. Out of scope as agreed:
+signing/notarization, auto-update, Windows. The sections below are the original proposal.
 Target platform: macOS on Apple Silicon (this machine is arm64). Windows is out of scope.
 
 ---

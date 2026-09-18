@@ -102,7 +102,16 @@ The browser workflow below (uvicorn + `npm run dev`) is unchanged.
 - **2. Template & Mapping** — upload your firm's Excel model, map schema
   fields to cells/named ranges (sheet-scoped names and merged cells
   handled), generate populated workbooks, optionally recalculated
-  server-side via LibreOffice.
+  server-side via LibreOffice. A coverage table shows, for the active deal,
+  each field's value, the resolved target cell, what that cell holds now,
+  and whether Generate will write it — flagging blanks that leave the
+  template's placeholder in place, formula cells, missing targets, two
+  fields in one cell, and likely unit mismatches. Generate runs the same
+  check first and reports what was written afterwards.
+- **Results you can trust at a glance** — every result is stamped with the
+  inputs it came from; editing any input marks it out of date (struck
+  through, with Recompute / ⌘↩), and each value is tagged with its source
+  ("engine" or "Excel"). Key metrics lead the summary.
 - **3. Deal Inputs** — the schema-driven form. **Compute (native)** produces
   all 30+ return metrics with the built-in pro-forma engine — no template
   required — including constraint-based debt sizing (LTV / DSCR / debt
