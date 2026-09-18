@@ -37,7 +37,7 @@ import {
   type Autosaver,
   type AutosaveState,
 } from './lib/dealPersistence'
-import { formatOutputValue, formatValue } from './lib/formatValue'
+import { formatValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
 import {
@@ -60,11 +60,12 @@ import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { toastError } from './lib/toast'
+import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
 import { goToField } from './lib/goToField'
 import { orderSections } from './lib/sectionOrder'
 import { presetDiff } from './lib/presetDiff'
-import { SOURCE_TAG, inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
+import { inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
 import { shareParams } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
@@ -589,79 +590,27 @@ function App() {
             }}
             labelOf={(id) => labelsById.get(id) ?? id}
           />
-          {Array.from(new Set(schema.outputs.map((m) => m.group ?? 'Metrics'))).map((group) => (
-            <div key={group} className="mb-4">
-              <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-slate-400">
-                {group.toUpperCase()}
-              </div>
-              <ul className="space-y-1.5 text-sm">
-                {schema.outputs
-                  .filter((m) => (m.group ?? 'Metrics') === group)
-                  .map((metric) => {
-                    // The most recent computed value (engine or Excel
-                    // read-back), labelled with its source; Quick Screen
-                    // estimates only fill gaps, and only on that tab.
-                    const picked = pickMetric(metric.id, resultSets)
-                    const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
-                    const displayValue = picked ? picked.value : estimate
-                    const provenance = picked ? picked.stamp.source : estimate !== undefined ? 'estimate' : 'none'
-                    const metricStale = picked ? isStale(picked.stamp, currentInputsKey, activeDealId) : false
-                    const isFullModelOnly =
-                      tab === 'quickscreen' && displayValue === undefined && quickScreenFullModelOnlyIds.has(metric.id)
-                    return (
-                      <li key={metric.id} className="group flex items-center justify-between text-slate-500">
-                        <span>
-                          {metric.label}
-                          {metric.type !== ('text' as string) && (
-                            <button
-                              onClick={() => setGoalSeekMetric(metric)}
-                              title={`Goal-seek ${metric.label}`}
-                              className="ml-1 hidden text-[10px] text-sky-500 hover:text-sky-700 group-hover:inline"
-                            >
-                              ◎
-                            </button>
-                          )}
-                        </span>
-                        <span
-                          title={
-                            isFullModelOnly ? 'Requires full underwriting — map a template and generate.' : undefined
-                          }
-                          className={
-                            metricStale
-                              ? 'text-slate-400 line-through decoration-slate-300'
-                              : provenance === 'native' || provenance === 'excel'
-                                ? 'font-medium text-slate-800'
-                                : provenance === 'estimate'
-                                  ? 'italic text-slate-400'
-                                  : 'text-slate-400'
-                          }
-                        >
-                          {formatOutputValue(metric, displayValue)}
-                          {(provenance === 'native' || provenance === 'excel') && (
-                            <span
-                              className={`ml-1 text-[10px] font-normal ${provenance === 'excel' ? 'text-emerald-600' : 'text-sky-500'}`}
-                            >
-                              {SOURCE_TAG[provenance]}
-                            </span>
-                          )}
-                          {provenance === 'estimate' && (
-                            <span className="ml-1 not-italic text-slate-300">est.</span>
-                          )}
-                        </span>
-                      </li>
-                    )
-                  })}
-              </ul>
-              {group === 'Returns' && nativeResponse?.irrConvention && (
-                <p className="mt-1 text-[10px] text-slate-400">
-                  IRRs:{' '}
-                  {nativeResponse.irrConvention === 'xirr'
-                    ? 'date-based XIRR (Actual/365)'
-                    : 'periodic monthly, annualized'}
-                </p>
-              )}
-            </div>
-          ))}
+          <MetricsSidebar
+            metrics={schema.outputs}
+            view={(metric) => {
+              // The most recent computed value (engine or Excel read-back),
+              // labelled with its source; Quick Screen estimates only fill
+              // gaps, and only on that tab.
+              const picked = pickMetric(metric.id, resultSets)
+              const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
+              const value = picked ? picked.value : estimate
+              return {
+                value,
+                provenance: picked ? picked.stamp.source : estimate !== undefined ? 'estimate' : 'none',
+                stale: picked ? isStale(picked.stamp, currentInputsKey, activeDealId) : false,
+                fullModelOnly:
+                  tab === 'quickscreen' && value === undefined && quickScreenFullModelOnlyIds.has(metric.id),
+              }
+            }}
+            dealType={tab === 'quickscreen' ? quickScreenMode : formValues.dealType}
+            irrConvention={nativeResponse?.irrConvention ?? null}
+            onGoalSeek={setGoalSeekMetric}
+          />
           <p className="mt-4 text-xs text-slate-400">
             {tab === 'quickscreen'
               ? 'Tagged values come from a full compute ("engine") or your template ("Excel"); muted italic "est." values are Quick Screen approximations.'
