@@ -694,11 +694,12 @@ function App() {
           <MetricsSidebar
             metrics={schema.outputs}
             view={(metric) => {
-              // The most recent computed value (engine or Excel read-back),
-              // labelled with its source; Quick Screen estimates only fill
-              // gaps, and only on that tab.
-              const picked = pickMetric(metric.id, resultSets)
+              // Elsewhere: the most recent computed value (engine or Excel
+              // read-back), labelled with its source. On the Quick Screen the
+              // napkin leads — its estimates move as you edit it — and full
+              // results only fill metrics the napkin can't estimate.
               const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
+              const picked = estimate === undefined ? pickMetric(metric.id, resultSets) : null
               const value = picked ? picked.value : estimate
               return {
                 value,
@@ -714,7 +715,7 @@ function App() {
           />
           <p className="mt-4 text-xs text-slate-400">
             {tab === 'quickscreen'
-              ? 'Tagged values come from a full compute ("engine") or your template ("Excel"); muted italic "est." values are Quick Screen approximations.'
+              ? 'On this tab the napkin leads: italic "est." values are Quick Screen approximations that move as you edit; values tagged "engine" / "Excel" come from the last full compute.'
               : latestResult
                 ? 'Each value shows its source: "engine" = built-in pro-forma, "Excel" = read back from your template. The newest result wins.'
                 : 'Metrics appear after Compute (⌘↩) or after generating with template read-back.'}
