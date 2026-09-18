@@ -15,6 +15,9 @@ function inputNextToLabel(page: Page, labelText: string): Locator {
 }
 
 test('underwriting happy path', async ({ page }) => {
+  // Confirmations (e.g. Send to Deal Inputs replacing existing values) are
+  // accepted — this path intends every change it makes.
+  page.on('dialog', (dialog) => void dialog.accept())
   await page.goto('/')
 
   // A "Default Deal" is created automatically on first boot.
@@ -24,7 +27,7 @@ test('underwriting happy path', async ({ page }) => {
   // Quick Screen renders a feasibility verdict and the sidebar shows
   // Quick Screen estimates marked "est.".
   await expect(page.getByText(/Strong —|Marginal —|Weak —/).first()).toBeVisible()
-  await expect(page.getByText('est.').first()).toBeVisible()
+  await expect(page.getByText('est.', { exact: true }).first()).toBeVisible()
 
   // Nudge the rent input and confirm the verdict block is still live.
   const rentInput = inputNextToLabel(page, 'Monthly Rent per Unit')
@@ -36,9 +39,11 @@ test('underwriting happy path', async ({ page }) => {
   await page.getByRole('button', { name: /Send to Deal Inputs/ }).click()
   await expect(page.getByRole('button', { name: 'Compute (native)' })).toBeVisible()
 
-  // Native compute populates the sidebar with 'native'-tagged metrics.
+  // Native compute populates the sidebar with 'engine'-tagged metrics and
+  // marks them current.
   await page.getByRole('button', { name: 'Compute (native)' }).click()
-  await expect(page.getByText('native', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('engine', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText('Current', { exact: true })).toBeVisible()
 
   // Cash Flow tab renders the statement.
   await page.getByRole('button', { name: '4. Cash Flow' }).click()
@@ -84,17 +89,19 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await page.goto('/')
   await expect(page.locator('select').first()).toBeVisible()
 
-  // Deals (pipeline) tab: stage chips, the auto-created deal row, staleness-free.
+  // Deals (pipeline) tab. The auto-created deal starts untyped (it predates
+  // typed creation); assigning it a dealflow puts it on the Acquisitions
+  // board, whose stage chips then count it.
   await page.getByRole('button', { name: 'Deals' }).click()
-  await expect(page.getByText(/Screening · \d/)).toBeVisible()
-  // exact: the header's own "New Deal" button is a different control
-  await expect(page.getByRole('button', { name: 'New deal', exact: true })).toBeVisible()
+  await page.locator('li', { hasText: 'Default Deal' }).getByRole('button', { name: 'Acquisition', exact: true }).click()
+  await expect(page.getByText('Screening · 1', { exact: true })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByRole('button', { name: 'New acquisition deal' })).toBeVisible()
   const dealRow = page.locator('tr', { hasText: 'Default Deal' }).first()
   await expect(dealRow).toBeVisible()
 
   // Status select persists a stage change.
   await dealRow.locator('select').selectOption('underwriting')
-  await expect(page.getByText(/Underwriting · 1/)).toBeVisible()
+  await expect(page.getByText('Underwriting · 1', { exact: true })).toBeVisible()
 
   // Read-only HTML share responds with a self-contained page for the deal.
   const shareHref = await dealRow.locator('a', { hasText: 'Share' }).getAttribute('href')

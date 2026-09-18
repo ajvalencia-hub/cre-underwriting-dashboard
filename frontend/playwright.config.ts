@@ -20,7 +20,7 @@ const pythonBin =
 // best-effort sweeps older ones.
 export const scratchDbDir = path.resolve(__dirname, '.e2e-scratch')
 fs.mkdirSync(scratchDbDir, { recursive: true })
-const scratchDbPath = path.join(scratchDbDir, `e2e-${Date.now()}.sqlite3`)
+export const scratchDbPath = path.join(scratchDbDir, `e2e-${Date.now()}.sqlite3`)
 
 export default defineConfig({
   testDir: './e2e',
