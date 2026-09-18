@@ -9,6 +9,20 @@ interface LayoutProps {
 export default function Layout({ nav, summary, children }: LayoutProps) {
   return (
     <div className="flex h-full min-h-screen bg-slate-50 text-slate-900">
+      {/* Keyboard users otherwise tab through the nav, header and tabs (~40
+          stops) before reaching a field. Visible only when focused. */}
+      <button
+        type="button"
+        onClick={() => {
+          const target = [...document.querySelectorAll<HTMLElement>('main input, main select, main textarea')].find(
+            (el) => el.offsetParent !== null,
+          )
+          target?.focus()
+        }}
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[70] focus:rounded focus:bg-slate-900 focus:px-3 focus:py-1.5 focus:text-sm focus:text-white"
+      >
+        Skip to the first field
+      </button>
       <aside className="w-64 shrink-0 border-r border-slate-200 bg-white">
         <div className="px-4 py-4 text-sm font-semibold tracking-wide text-slate-500">
           CRE UNDERWRITING

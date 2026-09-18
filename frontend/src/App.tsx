@@ -407,7 +407,13 @@ function App() {
     const label = type === 'development' ? 'Development' : 'Acquisition'
     try {
       const deal = await createDeal({
-        name: `Untitled ${label} ${deals.length + 1}`,
+        // Next unused number — count-based names repeated after a delete.
+        name: `Untitled ${label} ${
+          Math.max(
+            0,
+            ...deals.map((d) => Number(d.name.match(new RegExp(`^Untitled ${label} (\\d+)$`))?.[1] ?? 0)),
+          ) + 1
+        }`,
         inputs: { dealType: type },
       })
       setDeals((prev) => [deal, ...prev])
