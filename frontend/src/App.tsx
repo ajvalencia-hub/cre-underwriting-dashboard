@@ -37,7 +37,7 @@ import {
   type Autosaver,
   type AutosaveState,
 } from './lib/dealPersistence'
-import { formatOutputValue } from './lib/formatValue'
+import { formatOutputValue, formatValue } from './lib/formatValue'
 import { flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
 import {
@@ -63,6 +63,7 @@ import { toastError } from './lib/toast'
 import ResultsStatus from './components/ResultsStatus'
 import { goToField } from './lib/goToField'
 import { orderSections } from './lib/sectionOrder'
+import { presetDiff } from './lib/presetDiff'
 import { SOURCE_TAG, inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
 import { shareParams } from './lib/shareLink'
@@ -467,19 +468,36 @@ function App() {
     }
   }
 
-  function handleSendQuickScreenToDealInputs() {
-    setFormValues((prev) => ({
-      ...prev,
-      ...mapQuickScreenToDealInputs(quickScreenInputs, quickScreenResults),
-    }))
+  /** Apply napkin values to the full form — after confirming any field that
+   *  already holds a different value (it used to be overwritten silently). */
+  function sendToDealInputs(patch: Record<string, unknown>) {
+    const overwrites = presetDiff(formValues, patch).filter(
+      (row) => row.changed && row.current !== undefined && row.current !== null && row.current !== '',
+    )
+    if (overwrites.length > 0 && state.status === 'ready') {
+      const byId = new Map(flattenFields(state.schema).map((f) => [f.id, f]))
+      const lines = overwrites.slice(0, 12).map((row) => {
+        const field = byId.get(row.fieldId)
+        return `• ${field?.label ?? row.fieldId}: ${formatValue(field, row.current)} → ${formatValue(field, row.proposed)}`
+      })
+      const more = overwrites.length > 12 ? `\n…and ${overwrites.length - 12} more` : ''
+      const ok = window.confirm(
+        `This replaces ${overwrites.length} value(s) already in Deal Inputs:\n\n${lines.join('\n')}${more}\n\nReplace them?`,
+      )
+      if (!ok) return
+    }
+    setFormValues((prev) => ({ ...prev, ...patch }))
     setTab('dashboard')
+  }
+
+  function handleSendQuickScreenToDealInputs() {
+    sendToDealInputs(mapQuickScreenToDealInputs(quickScreenInputs, quickScreenResults))
   }
 
   // Acquisition-side quick screen send (the mapped values arrive already
   // shaped by mapAcquisitionQuickScreenToDealInputs, incl. dealType).
   function handleSendAcquisitionToDealInputs(values: Record<string, unknown>) {
-    setFormValues((prev) => ({ ...prev, ...values }))
-    setTab('dashboard')
+    sendToDealInputs(values)
   }
 
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
