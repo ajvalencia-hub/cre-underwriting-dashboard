@@ -8,6 +8,77 @@ assumptions against public data, and render an IC memo.
 **Stack:** React / TypeScript / Vite / Tailwind (`frontend/`), FastAPI /
 SQLAlchemy / SQLite / openpyxl (`backend/`).
 
+## Desktop app (macOS)
+
+**CRE Underwriting.app** runs the whole dashboard as a normal Mac app. You
+don't need a terminal or a browser tab.
+
+### Before you start: two things to know
+
+1. **The first launch needs one extra click.** The app isn't signed by Apple
+   yet, so macOS blocks the first double-click.
+   - **macOS 15 (Sequoia) and later:** double-click the app and choose
+     **Done** on the warning. Open **System Settings → Privacy & Security**,
+     scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
+     and confirm.
+   - **macOS 14 and earlier:** right-click (or Control-click) the app,
+     choose **Open**, then click **Open** again.
+
+   From then on, a normal double-click works.
+2. **Install LibreOffice (free) if you use your own Excel template.**
+   [Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
+   drag it to Applications, then restart CRE Underwriting. **It's the only
+   way the app can recalculate your workbook and show *your template's*
+   results.** It's also needed for template-verified sensitivity runs and
+   for the IC memo as PDF. Without it:
+   - generated workbooks are still correct when you open them in Excel,
+     because Excel recalculates on open;
+   - the built-in engine (Compute), the Excel model export, the .docx memo
+     and the decks all work normally;
+   - **Settings → External tools** shows whether LibreOffice was found.
+
+   OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
+   (`brew install tesseract poppler`). It's optional; text PDFs, Excel and
+   CSV work without it.
+
+### Install and run
+
+Unzip `CRE-Underwriting-mac.zip` and drag **CRE Underwriting** into
+Applications. Double-click it to start; quit it with ⌘Q or by closing the
+window.
+
+- **Your data** (deals, templates, documents, daily backups) is stored in
+  `~/Library/Application Support/CRE Underwriting/`. Logs are in
+  `~/Library/Logs/CRE Underwriting/`. Replacing the app with a newer build
+  keeps your data.
+- **Optional API keys** (FRED, Census, HUD, BEA, BLS, Anthropic): enter them
+  in **Settings → Integrations**. They're stored in your macOS Keychain.
+- **Files** open and save through the standard Mac dialogs.
+- The app runs its own private server on a random local port that only its
+  window can use. Quitting the app stops the server.
+
+### Building the app
+
+```bash
+brew install node python@3.12
+/opt/homebrew/bin/python3.12 -m venv desktop/.venv
+desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirements.txt
+desktop/build_mac.sh
+```
+
+This produces `desktop/dist/CRE Underwriting.app` and
+`desktop/dist/CRE-Underwriting-mac.zip` (about 62 MB) for the architecture
+you build on. The build runs `--self-test` inside the finished app before
+zipping. The self-test checks compute, the Excel export, the decks, the
+memo with charts, PDF reading and the Keychain, so a bad freeze fails the
+build instead of reaching a colleague.
+
+To run the desktop shell from source without building, first run
+`npm run build` in `frontend/`, then run
+`desktop/.venv/bin/python desktop/launcher.py`.
+
+The browser workflow below (uvicorn + `npm run dev`) is unchanged.
+
 ## Features
 
 - **Deals (pipeline home)** — every working session is a persistent deal
