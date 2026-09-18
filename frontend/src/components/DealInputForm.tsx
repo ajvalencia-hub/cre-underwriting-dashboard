@@ -1,3 +1,4 @@
+import { orderSections } from '../lib/sectionOrder'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import FieldRow, { type FieldIndicator } from './fields/FieldRow'
 import MarketContextPanel from './MarketContextPanel'
@@ -71,7 +72,7 @@ function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
 }
 
 export default function DealInputForm({ schema, values, onFieldChange }: DealInputFormProps) {
-  const visibleSections = schema.sections.filter((s) => isVisible(s.visibleWhen, values))
+  const visibleSections = orderSections(schema.sections.filter((s) => isVisible(s.visibleWhen, values)))
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult | null>(null)
   const [benchmarksLoading, setBenchmarksLoading] = useState(false)

@@ -62,6 +62,7 @@ import { saveOutput } from './lib/saveOutput'
 import { toastError } from './lib/toast'
 import ResultsStatus from './components/ResultsStatus'
 import { goToField } from './lib/goToField'
+import { orderSections } from './lib/sectionOrder'
 import { SOURCE_TAG, inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
 import { shareParams } from './lib/shareLink'
@@ -488,7 +489,7 @@ function App() {
 
   const visibleSections = useMemo(() => {
     if (state.status !== 'ready') return []
-    return state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues))
+    return orderSections(state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues)))
   }, [state, formValues])
 
   const labelsById = useMemo(
