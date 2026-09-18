@@ -7,6 +7,8 @@ import {
   type GpEconomics,
 } from '../lib/api'
 import type { Statement } from '../lib/cashflowStatement'
+import { openSavedFile, revealInFinder, saveFile } from '../lib/platform'
+import { toastSaved } from '../lib/toast'
 import type { TemplateSummary } from '../types/template'
 
 interface GeneratePanelProps {
@@ -75,14 +77,7 @@ export default function GeneratePanel({
     setComputeError(null)
     try {
       const { blob, warnings } = await exportNativeModel(values)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'native-model.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      toastSaved(await saveFile(blob, 'native-model.xlsx'), { reveal: revealInFinder, open: openSavedFile })
       if (warnings.length > 0) setComputeWarnings(warnings)
     } catch (err) {
       setComputeError(err instanceof Error ? err.message : 'Excel model export failed')
@@ -123,14 +118,7 @@ export default function GeneratePanel({
         values,
         recalc,
       })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      toastSaved(await saveFile(blob, filename), { reveal: revealInFinder, open: openSavedFile })
       setResult({ warnings, writtenCount })
       if (Object.keys(outputs).length > 0) onGenerated?.(outputs)
     } catch (err) {

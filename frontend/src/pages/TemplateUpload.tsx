@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   deleteMappingProfile,
   deleteTemplate,
@@ -11,6 +11,7 @@ import {
   updateMappingProfile,
   uploadTemplate,
 } from '../lib/api'
+import FileChooser from '../components/FileChooser'
 import { describeMapping } from '../lib/mappingFormat'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
@@ -44,8 +45,6 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
   const [profileLoadedNote, setProfileLoadedNote] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     fetchInputSchema()
       .then((schema) => {
@@ -73,9 +72,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       .catch(() => setRecentTemplates([]))
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function handleFile(file: File) {
     setUploading(true)
     setError(null)
     try {
@@ -86,7 +83,6 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -293,11 +289,11 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       )}
 
       <div className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-center">
-        <input
-          ref={fileInputRef}
-          type="file"
+        <FileChooser
           accept=".xlsx,.xlsm"
-          onChange={handleFileChange}
+          description="Excel workbooks"
+          label="Open Excel template…"
+          onFiles={(files) => void handleFile(files[0])}
           disabled={uploading}
           className="text-sm"
         />
