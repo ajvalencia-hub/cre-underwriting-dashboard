@@ -1,6 +1,7 @@
 import type { InputField } from '../../types/schema'
 import { cellType, columnLabel } from '../../lib/tableCellType'
 import ScalarInput from './ScalarInput'
+import { showToast } from '../../lib/toast'
 
 type Row = Record<string, unknown>
 
@@ -25,7 +26,15 @@ export default function TableField({ field, value, onChange }: TableFieldProps) 
 
   function removeRow(idx: number) {
     if (field.minRows && rows.length <= field.minRows) return
+    const before = rows
     onChange(rows.filter((_, i) => i !== idx))
+    // Rows can hold a lot (a lease, a unit type) — make removal undoable
+    // rather than asking every time.
+    showToast({
+      kind: 'info',
+      message: `Removed a row from ${field.label}`,
+      actions: [{ label: 'Undo', run: () => onChange(before) }],
+    })
   }
 
   return (
