@@ -32,6 +32,7 @@ class GridCell(BaseModel):
     ref: str
     value: str | float | int | bool | None
     isFormula: bool
+    numberFormat: str = "General"
 
 
 class SheetGrid(BaseModel):
@@ -40,6 +41,7 @@ class SheetGrid(BaseModel):
     rows: list[list[GridCell]]
     totalRows: int
     totalCols: int
+    startRow: int = 1
 
 
 class MappingEntry(BaseModel):

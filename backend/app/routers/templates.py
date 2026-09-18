@@ -85,6 +85,7 @@ def get_sheet_grid(
     sheet_name: str,
     max_rows: int = 60,
     max_cols: int = 30,
+    start_row: int = 1,
     db: Session = Depends(get_db),
 ):
     template = db.get(Template, template_id)
@@ -92,7 +93,11 @@ def get_sheet_grid(
         raise HTTPException(404, "Template not found")
     try:
         return template_service.get_sheet_grid(
-            Path(template.stored_path), sheet_name, max_rows=max_rows, max_cols=max_cols
+            Path(template.stored_path),
+            sheet_name,
+            max_rows=min(max_rows, 500),
+            max_cols=min(max_cols, 100),
+            start_row=start_row,
         )
     except KeyError:
         raise HTTPException(404, f"Sheet '{sheet_name}' not found in template")
