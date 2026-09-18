@@ -88,10 +88,10 @@ export default function QuickScreen({
       }
       const response = await computeNative(values)
       setTakeout({ status: 'ready', debt: response.debt })
-    } catch {
+    } catch (err) {
       setTakeout({
         status: 'error',
-        message: 'Backend unreachable — the takeout check needs the API.',
+        message: `The takeout check couldn't run: ${err instanceof Error ? err.message : 'unknown error'}`,
       })
     }
   }
@@ -135,7 +135,7 @@ export default function QuickScreen({
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,
       })
-      setSaveMessage('Saved — see it under "5. Scenarios".')
+      setSaveMessage('Saved — see it under "6. Scenarios".')
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {

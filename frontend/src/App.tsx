@@ -60,6 +60,7 @@ import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
 import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
+import { toastError } from './lib/toast'
 import { shareParams } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
@@ -270,13 +271,17 @@ function App() {
 
   async function switchDeal(dealId: string) {
     if (state.status !== 'ready' || dealId === activeDealId) return
-    await autosaverRef.current!.flush()
-    const deal = await fetchDeal(dealId)
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    // Deal switches never re-apply URL params — those are first-load-only.
-    applyDealState(state.schema, deal, new URLSearchParams())
-    setActiveDealId(deal.id)
-    setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+    try {
+      await autosaverRef.current!.flush()
+      const deal = await fetchDeal(dealId)
+      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+      // Deal switches never re-apply URL params — those are first-load-only.
+      applyDealState(state.schema, deal, new URLSearchParams())
+      setActiveDealId(deal.id)
+      setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
+    } catch (err) {
+      toastError("Couldn't open that deal — you're still on the current one", err)
+    }
   }
 
   // Typed creation: every new deal carries its dealflow (acquisition |
@@ -288,14 +293,18 @@ function App() {
     await autosaverRef.current!.flush()
     setNewDealMenuOpen(false)
     const label = type === 'development' ? 'Development' : 'Acquisition'
-    const deal = await createDeal({
-      name: `Untitled ${label} ${deals.length + 1}`,
-      inputs: { dealType: type },
-    })
-    setDeals((prev) => [deal, ...prev])
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal, new URLSearchParams())
-    setActiveDealId(deal.id)
+    try {
+      const deal = await createDeal({
+        name: `Untitled ${label} ${deals.length + 1}`,
+        inputs: { dealType: type },
+      })
+      setDeals((prev) => [deal, ...prev])
+      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+      applyDealState(state.schema, deal, new URLSearchParams())
+      setActiveDealId(deal.id)
+    } catch (err) {
+      toastError("Couldn't create the deal", err)
+    }
   }
 
   // Assign a dealflow to an untyped (legacy) deal. The active deal routes
@@ -308,10 +317,14 @@ function App() {
     }
     const deal = deals.find((d) => d.id === dealId)
     if (!deal) return
-    const updated = await updateDeal(dealId, {
-      inputs: { ...deal.inputs, dealType: type },
-    })
-    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    try {
+      const updated = await updateDeal(dealId, {
+        inputs: { ...deal.inputs, dealType: type },
+      })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+    } catch (err) {
+      toastError(`Couldn't change the type of "${deal.name}"`, err)
+    }
   }
 
   async function refreshDeals() {
@@ -335,37 +348,56 @@ function App() {
       setRenamingName(null)
       return
     }
-    const updated = await updateDeal(activeDealId, { name: name.trim() })
-    setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-    setRenamingName(null)
+    try {
+      const updated = await updateDeal(activeDealId, { name: name.trim() })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+      setRenamingName(null)
+    } catch (err) {
+      // Keep the rename box open with what was typed so nothing is lost.
+      toastError("Couldn't rename the deal", err)
+    }
   }
 
   async function handleDeleteDeal() {
     if (state.status !== 'ready' || !activeDealId) return
     const deal = deals.find((d) => d.id === activeDealId)
-    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?`)) return
-    await deleteDeal(activeDealId)
-    const remaining = deals.filter((d) => d.id !== activeDealId)
-    if (remaining.length === 0) {
-      const fresh = await createDeal({ name: 'Default Deal' })
-      setDeals([fresh])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
-      applyDealState(state.schema, fresh, new URLSearchParams())
-      setActiveDealId(fresh.id)
+    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?\n\nThis cannot be undone.`)) return
+    try {
+      await deleteDeal(activeDealId)
+    } catch (err) {
+      toastError("Couldn't delete the deal — nothing was removed", err)
       return
     }
-    setDeals(remaining)
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, remaining[0].id)
-    applyDealState(state.schema, remaining[0], new URLSearchParams())
-    setActiveDealId(remaining[0].id)
+    try {
+      const remaining = deals.filter((d) => d.id !== activeDealId)
+      if (remaining.length === 0) {
+        const fresh = await createDeal({ name: 'Default Deal' })
+        setDeals([fresh])
+        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
+        applyDealState(state.schema, fresh, new URLSearchParams())
+        setActiveDealId(fresh.id)
+        return
+      }
+      const next = await fetchDeal(remaining[0].id)
+      setDeals(remaining)
+      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, next.id)
+      applyDealState(state.schema, next, new URLSearchParams())
+      setActiveDealId(next.id)
+    } catch (err) {
+      toastError('The deal was deleted, but the next one could not be opened — reopen the app', err)
+    }
   }
 
   async function handleExportDeal() {
     if (!activeDealId) return
-    await autosaverRef.current!.flush()
-    const bundle = await exportDeal(activeDealId)
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-    await saveOutput(blob, `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`)
+    try {
+      await autosaverRef.current!.flush()
+      const bundle = await exportDeal(activeDealId)
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      await saveOutput(blob, `${bundle.deal.name.replace(/[^\w\- ]+/g, '')}.deal.json`)
+    } catch (err) {
+      toastError("Couldn't export the deal", err)
+    }
   }
 
   function handleImportFile(file: File) {
@@ -436,10 +468,14 @@ function App() {
     return (
       <div className="p-8">
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-red-700">
-          Could not reach the backend API: {state.message}
-          <div className="mt-1 text-sm text-red-500">
-            Is the FastAPI server running at http://127.0.0.1:8000?
-          </div>
+          <div className="font-medium">The app couldn't load your deals.</div>
+          <div className="mt-1 text-sm">{state.message}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-3 rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+          >
+            Try again
+          </button>
         </div>
       </div>
     )
@@ -796,14 +832,18 @@ function App() {
             void switchDeal(dealId).then(() => setTab('dashboard'))
           }}
           onStatusChange={(dealId, status) => {
-            void updateDeal(dealId, { status }).then((updated) =>
-              setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
-            )
+            updateDeal(dealId, { status })
+              .then((updated) => setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))))
+              .catch((err) => toastError("Couldn't change the deal's status", err))
           }}
           onBulkStatus={async (dealIds, status) => {
-            const { updated } = await bulkUpdateDealStatus(dealIds, status)
-            const byId = new Map(updated.map((d) => [d.id, d]))
-            setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
+            try {
+              const { updated } = await bulkUpdateDealStatus(dealIds, status)
+              const byId = new Map(updated.map((d) => [d.id, d]))
+              setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
+            } catch (err) {
+              toastError(`Couldn't change the status of ${dealIds.length} deal(s) — none were changed`, err)
+            }
           }}
           onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
@@ -885,10 +925,12 @@ function App() {
             setActiveTemplate(template)
             setActiveMappingProfileId(mappingProfileId)
             if (activeDealId) {
-              void updateDeal(activeDealId, {
+              updateDeal(activeDealId, {
                 activeTemplateId: template?.id ?? null,
                 activeMappingProfileId: mappingProfileId,
-              })
+              }).catch((err) =>
+                toastError("Couldn't save which template this deal uses — it may not be remembered next time", err),
+              )
             }
           }}
         />

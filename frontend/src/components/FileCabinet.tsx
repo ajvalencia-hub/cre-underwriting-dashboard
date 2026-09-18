@@ -13,6 +13,7 @@ import {
 } from '../lib/api'
 import FileChooser from './FileChooser'
 import ServerFileLink from './ServerFileLink'
+import { toastError } from '../lib/toast'
 
 const TYPE_ICONS: Record<string, string> = {
   pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
@@ -117,25 +118,38 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
       setPreview({ id: att.id, content: '__image__' })
       return
     }
-    const result = await fetchAttachmentPreview(dealId!, att.id)
-    setPreview({
-      id: att.id,
-      content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
-    })
+    try {
+      const result = await fetchAttachmentPreview(dealId!, att.id)
+      setPreview({
+        id: att.id,
+        content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
+      })
+    } catch (err) {
+      toastError(`Couldn't preview ${att.filename}`, err)
+    }
   }
 
   async function addNote() {
     if (!noteDraft.trim() || !dealId) return
-    const note = await createNote(dealId, noteDraft)
-    setNotes((prev) => [note, ...prev])
-    setNoteDraft('')
+    try {
+      const note = await createNote(dealId, noteDraft)
+      setNotes((prev) => [note, ...prev])
+      setNoteDraft('')
+    } catch (err) {
+      // The draft stays in the box so nothing typed is lost.
+      toastError("Couldn't save the note", err)
+    }
   }
 
   async function saveEdit(noteId: string) {
     if (!dealId) return
-    const updated = await updateNote(dealId, noteId, editDraft)
-    setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
-    setEditingId(null)
+    try {
+      const updated = await updateNote(dealId, noteId, editDraft)
+      setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
+      setEditingId(null)
+    } catch (err) {
+      toastError("Couldn't save the note edit", err)
+    }
   }
 
   return (
@@ -238,11 +252,12 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                     edit
                   </button>
                   <button
-                    onClick={() =>
-                      void deleteNote(dealId, note.id).then(() =>
-                        setNotes((prev) => prev.filter((n) => n.id !== note.id)),
-                      )
-                    }
+                    onClick={() => {
+                      if (!window.confirm('Delete this note? This cannot be undone.')) return
+                      deleteNote(dealId, note.id)
+                        .then(() => setNotes((prev) => prev.filter((n) => n.id !== note.id)))
+                        .catch((err) => toastError("Couldn't delete the note", err))
+                    }}
                     className="text-red-500 hover:underline"
                   >
                     delete
