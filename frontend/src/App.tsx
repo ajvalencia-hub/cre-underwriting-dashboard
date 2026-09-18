@@ -452,8 +452,12 @@ function App() {
     const deal = deals.find((d) => d.id === dealId)
     if (!deal) return
     try {
+      // Merge into the server's current inputs, not the pipeline's cached
+      // copy: that copy isn't refreshed by autosave, and the server replaces
+      // inputs wholesale, so a stale merge would erase this session's edits.
+      const fresh = await fetchDeal(dealId)
       const updated = await updateDeal(dealId, {
-        inputs: { ...deal.inputs, dealType: type },
+        inputs: { ...fresh.inputs, dealType: type },
       })
       setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
     } catch (err) {
