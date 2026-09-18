@@ -14,6 +14,8 @@ import type { TemplateSummary } from '../types/template'
 interface GeneratePanelProps {
   template: TemplateSummary | null
   mappingProfileId: string | null
+  /** The Template tab has edits not yet saved to the profile Generate uses. */
+  mappingUnsaved: boolean
   values: Record<string, unknown>
   onGenerated?: (outputs: Record<string, unknown>) => void
   onComputedNative?: (
@@ -55,6 +57,7 @@ function RateSparkline({ rates }: { rates: number[] }) {
 export default function GeneratePanel({
   template,
   mappingProfileId,
+  mappingUnsaved,
   values,
   onGenerated,
   onComputedNative,
@@ -70,7 +73,7 @@ export default function GeneratePanel({
   const [gpEconomics, setGpEconomics] = useState<GpEconomics | null>(null)
   const [exportingModel, setExportingModel] = useState(false)
 
-  const ready = Boolean(template && mappingProfileId)
+  const ready = Boolean(template && mappingProfileId) && !mappingUnsaved
 
   async function handleExportModel() {
     setExportingModel(true)
@@ -133,7 +136,7 @@ export default function GeneratePanel({
       <div className="flex max-w-3xl items-center justify-between gap-4">
         <div className="text-xs text-slate-500">
           {!template && (
-            <>Upload a template and save a mapping profile under "1. Template &amp; Mapping".</>
+            <>Upload a template and save a mapping profile under "2. Template &amp; Mapping".</>
           )}
           {template && !mappingProfileId && (
             <>
@@ -141,7 +144,13 @@ export default function GeneratePanel({
               first.
             </>
           )}
-          {template && mappingProfileId && (
+          {template && mappingProfileId && mappingUnsaved && (
+            <span className="text-amber-700">
+              Unsaved mapping changes in <strong>2. Template &amp; Mapping</strong> — save them
+              before generating (Generate uses the saved profile).
+            </span>
+          )}
+          {template && mappingProfileId && !mappingUnsaved && (
             <>
               Template <strong>{template.filename}</strong> &middot; mapping profile ready.
             </>

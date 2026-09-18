@@ -109,6 +109,7 @@ function App() {
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
+  const [mappingUnsaved, setMappingUnsaved] = useState(false)
   // Two provenance tiers of real computed outputs. Display precedence:
   // server-recalc > native engine > quick-screen "est." — a lower tier never
   // overwrites a higher one on screen.
@@ -874,6 +875,7 @@ function App() {
 
       <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
         <TemplateUpload
+          onUnsavedChange={setMappingUnsaved}
           onTemplateReady={(template, mappingProfileId) => {
             setActiveTemplate(template)
             setActiveMappingProfileId(mappingProfileId)
@@ -906,6 +908,7 @@ function App() {
         <GeneratePanel
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
+          mappingUnsaved={mappingUnsaved}
           values={formValues}
           onGenerated={setServerOutputs}
           onComputedNative={(outputs, debt, irrConvention, statement) => {
@@ -930,6 +933,7 @@ function App() {
           schema={schema}
           template={activeTemplate}
           mappingProfileId={activeMappingProfileId}
+          mappingUnsaved={mappingUnsaved}
           baseValues={formValues}
           dealId={activeDealId}
         />

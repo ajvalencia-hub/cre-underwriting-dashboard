@@ -18,6 +18,8 @@ interface SensitivityPanelProps {
   schema: InputSchema
   template: TemplateSummary | null
   mappingProfileId: string | null
+  /** The Template tab has edits not yet saved to the profile runs use. */
+  mappingUnsaved: boolean
   baseValues: Record<string, unknown>
   dealId: string | null
 }
@@ -50,6 +52,7 @@ export default function SensitivityPanel({
   schema,
   template,
   mappingProfileId,
+  mappingUnsaved,
   baseValues,
   dealId,
 }: SensitivityPanelProps) {
@@ -113,7 +116,7 @@ export default function SensitivityPanel({
   }
 
   async function handleRun() {
-    if (mode === 'template' && (!template || !mappingProfileId)) return
+    if (mode === 'template' && (!template || !mappingProfileId || mappingUnsaved)) return
     if (!driver1.fieldId) return
     // Guard against Number('') === 0: never sweep from a blank bound.
     if (!boundsReady(driver1) || (driver2.fieldId !== '' && !boundsReady(driver2))) return
@@ -210,6 +213,13 @@ export default function SensitivityPanel({
         </button>
       </div>
 
+      {mode === 'template' && mappingUnsaved && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          The mapping in "2. Template &amp; Mapping" has unsaved changes. Template runs use the saved
+          profile, so save (Update Mapping Profile) before running.
+        </div>
+      )}
+
       {mode === 'template' && eligibleDrivers.length === 0 && (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
           No numeric/percent/currency fields are mapped in the active mapping profile yet. Map at
@@ -267,7 +277,8 @@ export default function SensitivityPanel({
               !driver2Ready ||
               selectedOutputs.size === 0 ||
               totalPoints === 0 ||
-              totalPoints > MAX_POINTS[mode]
+              totalPoints > MAX_POINTS[mode] ||
+              (mode === 'template' && mappingUnsaved)
             }
             className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-40"
           >

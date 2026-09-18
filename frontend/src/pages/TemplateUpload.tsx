@@ -12,18 +12,21 @@ import {
   uploadTemplate,
 } from '../lib/api'
 import FileChooser from '../components/FileChooser'
-import { describeMapping } from '../lib/mappingFormat'
+import { describeMapping, mappingsEqual } from '../lib/mappingFormat'
 import { flattenFields, type FlatField } from '../lib/schemaFields'
 import type { MappingEntry, MappingProfile, MappingsById } from '../types/mapping'
 import type { SheetGrid, TemplateSummary } from '../types/template'
 
 interface TemplateUploadProps {
   onTemplateReady?: (template: TemplateSummary | null, mappingProfileId: string | null) => void
+  /** True while the mapping on screen differs from the saved profile that
+   *  Generate / template sensitivity actually use. */
+  onUnsavedChange?: (unsaved: boolean) => void
 }
 
 const OUTPUTS_SECTION_ID = 'computed_outputs'
 
-export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps) {
+export default function TemplateUpload({ onTemplateReady, onUnsavedChange }: TemplateUploadProps) {
   const [template, setTemplate] = useState<TemplateSummary | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,6 +39,8 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
 
   const [fields, setFields] = useState<FlatField[]>([])
   const [mappings, setMappings] = useState<MappingsById>({})
+  // What the active saved profile contains — the mapping Generate will use.
+  const [savedMappings, setSavedMappings] = useState<MappingsById | null>(null)
   const [formulaWarnings, setFormulaWarnings] = useState<Set<string>>(new Set())
   const [pickingFieldId, setPickingFieldId] = useState<string | null>(null)
 
@@ -66,6 +71,12 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template, profileId])
 
+  const unsaved = profileId !== null && savedMappings !== null && !mappingsEqual(mappings, savedMappings)
+  useEffect(() => {
+    onUnsavedChange?.(unsaved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unsaved])
+
   function refreshRecentTemplates() {
     fetchTemplates()
       .then(setRecentTemplates)
@@ -90,6 +101,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
     setTemplate(summary)
     setGrid(null)
     setMappings({})
+    setSavedMappings(null)
     setFormulaWarnings(new Set())
     setProfileId(null)
     setProfileLoadedNote(null)
@@ -125,6 +137,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
 
   function applyProfile(profile: MappingProfile) {
     setMappings(profile.mappings)
+    setSavedMappings(profile.mappings)
     setProfileId(profile.id)
     setProfileName(profile.profileName)
     setFormulaWarnings(new Set())
@@ -136,6 +149,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       if (template?.id === id) {
         setTemplate(null)
         setMappings({})
+        setSavedMappings(null)
         setProfiles([])
         setProfileId(null)
       }
@@ -152,6 +166,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
       if (profileId === id) {
         setProfileId(null)
         setMappings({})
+        setSavedMappings(null)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete mapping profile')
@@ -230,6 +245,7 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
         ? await updateMappingProfile(profileId, { templateId: template.id, profileName, mappings })
         : await saveMappingProfile({ templateId: template.id, profileName, mappings })
       setProfileId(result.id)
+      setSavedMappings(result.mappings)
       setProfiles((prev) => [result, ...prev.filter((p) => p.id !== result.id)])
       setProfileLoadedNote(
         result.unmappedRequiredFields.length > 0
@@ -525,6 +541,13 @@ export default function TemplateUpload({ onTemplateReady }: TemplateUploadProps)
                 </details>
               ))}
             </div>
+
+            {unsaved && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                <strong>Unsaved mapping changes.</strong> Generate and template sensitivity still use
+                the saved profile “{profileName}” until you click Update Mapping Profile.
+              </div>
+            )}
 
             <div className="mt-4 flex items-center gap-2">
               <input
