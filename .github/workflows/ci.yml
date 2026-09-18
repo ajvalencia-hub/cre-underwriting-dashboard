@@ -101,3 +101,22 @@ jobs:
           name: playwright-traces
           path: frontend/test-results/
           retention-days: 7
+
+  # Desktop shell (pywebview/pyobjc need macOS): access gate, dialog filters,
+  # PATH handling, quit cleanup. The full .app build stays a local step
+  # (desktop/build_mac.sh), which also runs these plus a frozen self-test.
+  desktop-shell:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            desktop/requirements.txt
+      - name: Install backend + desktop dependencies
+        run: pip install -r backend/requirements.txt -r desktop/requirements.txt
+      - name: Desktop shell tests
+        run: python -m pytest desktop/tests -q
