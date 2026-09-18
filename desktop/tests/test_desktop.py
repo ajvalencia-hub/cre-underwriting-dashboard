@@ -46,6 +46,7 @@ def test_gate_auth_sets_a_strict_httponly_cookie_then_admits(client):
     cookie = r.headers["set-cookie"]
     assert f"{COOKIE_NAME}={TOKEN}" in cookie
     assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    assert any(v.startswith("cre_desktop=1;") for v in r.headers.get_list("set-cookie"))
     assert client.get("/api/ping").json() == {"ok": True}
 
 

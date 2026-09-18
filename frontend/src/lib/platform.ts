@@ -39,7 +39,27 @@ declare global {
 }
 
 export function desktopApi(): DesktopApi | null {
-  return typeof window !== 'undefined' && window.pywebview?.api ? window.pywebview.api : null
+  const api = typeof window !== 'undefined' ? window.pywebview?.api : undefined
+  // pywebview first injects `api: {}` and adds the methods in a second step.
+  return typeof api?.set_unsaved === 'function' ? api : null
+}
+
+/** In the desktop window, resolve once pywebview's bridge is usable. It is
+ *  injected only after the page finishes loading, so rendering straight away
+ *  would start in browser mode (browser downloads, no quit prompt). The
+ *  gate's hint cookie says whether to wait; the timeout keeps a broken bridge
+ *  from leaving a blank window. */
+export function whenDesktopReady(timeoutMs = 5000): Promise<void> {
+  if (isDesktop() || !document.cookie.split('; ').includes('cre_desktop=1')) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => {
+      window.removeEventListener('pywebviewready', done)
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(done, timeoutMs)
+    window.addEventListener('pywebviewready', done)
+  })
 }
 
 export function isDesktop(): boolean {

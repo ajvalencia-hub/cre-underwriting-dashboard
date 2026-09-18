@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary.tsx'
 import Toaster from './components/Toaster.tsx'
 import { toastError } from './lib/toast.ts'
 import { initTheme } from './lib/uiPrefs.ts'
+import { whenDesktopReady } from './lib/platform.ts'
 
 // Apply the stored theme before first paint (no light flash on dark setups).
 initTheme()
@@ -18,11 +19,13 @@ window.addEventListener('unhandledrejection', (event) => {
   toastError("Something didn't finish", reason)
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-    <Toaster />
-  </StrictMode>,
+void whenDesktopReady().then(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+      <Toaster />
+    </StrictMode>,
+  ),
 )

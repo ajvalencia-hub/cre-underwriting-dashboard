@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 
 AUTH_PATH = "/__desktop_auth"
 COOKIE_NAME = "cre_desktop_token"
+# Readable by the page (not a secret): tells the frontend it's in the desktop
+# window, so it waits for pywebview's bridge — injected only after the page
+# loads — instead of rendering browser-mode file handling first.
+HINT_COOKIE = "cre_desktop=1; Path=/; SameSite=Strict"
 
 
 class AccessGate:
@@ -48,7 +52,11 @@ class AccessGate:
             await send({
                 "type": "http.response.start",
                 "status": 303,
-                "headers": [(b"location", b"/"), (b"set-cookie", cookie.encode())],
+                "headers": [
+                    (b"location", b"/"),
+                    (b"set-cookie", cookie.encode()),
+                    (b"set-cookie", HINT_COOKIE.encode()),
+                ],
             })
             return await send({"type": "http.response.body", "body": b""})
 
