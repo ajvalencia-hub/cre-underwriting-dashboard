@@ -431,6 +431,22 @@ function App() {
   async function handleSetDealType(dealId: string, type: DealType) {
     if (dealId === activeDealId) {
       handleFieldChange('dealType', type)
+      // Save it explicitly: the form may already show this type as its
+      // default, in which case the change is a no-op for autosave and the
+      // deal would stay untyped on the server. And update the pipeline's
+      // deal list, which the form change alone doesn't touch — otherwise the
+      // deal stayed under "untyped" and the click looked like it did nothing.
+      autosaverRef.current!.schedule({
+        dealId,
+        inputs: serializeDealInputs(
+          { ...formValuesRef.current, dealType: type },
+          quickScreenInputs,
+          acquisitionQuickScreenInputs,
+        ),
+      })
+      setDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? { ...d, inputs: { ...d.inputs, dealType: type } } : d)),
+      )
       return
     }
     const deal = deals.find((d) => d.id === dealId)
@@ -950,7 +966,11 @@ function App() {
             void switchDeal(dealId).then(() => setTab('dashboard'))
           }}
           onStatusChange={(dealId, status) => {
-            updateDeal(dealId, { status })
+            // The reply carries the server's copy of the deal; for the open
+            // deal, save pending edits first so it can't roll them back
+            // on screen.
+            ;(dealId === activeDealId ? autosaverRef.current!.flush() : Promise.resolve(true))
+              .then(() => updateDeal(dealId, { status }))
               .then((updated) => setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))))
               .catch((err) => toastError("Couldn't change the deal's status", err))
           }}
