@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { InputField } from '../../types/schema'
 import { fieldDomId } from '../../lib/goToField'
 import { validateField } from '../../lib/validateField'
@@ -21,12 +22,16 @@ interface FieldRowProps {
 
 export default function FieldRow({ field, value, onChange, indicator }: FieldRowProps) {
   const error = validateField(field, value)
+  // "Required" appears once the user has been in the field — not across a
+  // brand-new deal before anything was typed. Range errors show at once.
+  const [touched, setTouched] = useState(false)
+  const shownError = error === 'Required' && !touched ? null : error
   const isWide = field.type === 'table' || field.type === 'keyvalue' || field.type === 'multiselect'
   const isScalar = !isWide
   const inputId = `input-${field.id}`
 
   return (
-    <div id={fieldDomId(field.id)} className="rounded py-2 transition-colors">
+    <div id={fieldDomId(field.id)} className="rounded py-2 transition-colors" onBlur={() => setTouched(true)}>
       <label className="block text-xs font-medium text-slate-600" htmlFor={isScalar ? inputId : undefined}>
         {field.label}
         {field.required && <span className="text-red-400"> *</span>}
@@ -79,7 +84,7 @@ export default function FieldRow({ field, value, onChange, indicator }: FieldRow
           <ScalarInput id={inputId} type={field.type} value={value} options={field.options} onChange={onChange} />
         )}
       </div>
-      {error && <div className="mt-0.5 text-xs text-red-500">{error}</div>}
+      {shownError && <div className="mt-0.5 text-xs text-red-500">{shownError}</div>}
     </div>
   )
 }
