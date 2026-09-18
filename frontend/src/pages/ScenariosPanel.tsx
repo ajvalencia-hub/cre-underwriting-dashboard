@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  computeNative,
   deleteScenario,
   fetchScenarios,
   fetchTornado,
@@ -183,6 +184,26 @@ export default function ScenariosPanel({
   }
 
   const compared = scenarios.filter((s) => compareIds.includes(s.id))
+
+  // The comparison recomputes each scenario from its own inputs, so every
+  // column's numbers are guaranteed to belong to the inputs shown above it.
+  // (A saved snapshot may predate an edit, or come from a template run.)
+  const [recomputed, setRecomputed] = useState<Record<string, Record<string, unknown> | 'failed'>>({})
+  const comparedKey = compared.map((s) => `${s.id}:${s.updatedAt}`).join('|')
+  useEffect(() => {
+    let current = true
+    for (const s of compared) {
+      const key = `${s.id}:${s.updatedAt}`
+      if (recomputed[key] !== undefined) continue
+      computeNative(s.inputs)
+        .then((r) => current && setRecomputed((prev) => ({ ...prev, [key]: r.outputs })))
+        .catch(() => current && setRecomputed((prev) => ({ ...prev, [key]: 'failed' })))
+    }
+    return () => {
+      current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparedKey])
   const [showIdentical, setShowIdentical] = useState(false)
   const comparisonRows = useMemo(
     () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
@@ -516,24 +537,45 @@ export default function ScenariosPanel({
                   </thead>
                   <tbody>
                     {schema.outputs.map((metric) => {
-                      const values = compared.map((s) => {
-                        const metrics = (s.outputs as { metrics?: Record<string, unknown> })?.metrics
-                        const v = metrics?.[metric.id]
-                        return typeof v === 'number' ? v : null
+                      const cells = compared.map((s) => {
+                        const saved = (s.outputs as { metrics?: Record<string, unknown> })?.metrics?.[metric.id]
+                        const savedNum = typeof saved === 'number' ? saved : null
+                        const fresh = recomputed[`${s.id}:${s.updatedAt}`]
+                        const freshNum =
+                          fresh && fresh !== 'failed' && typeof fresh[metric.id] === 'number'
+                            ? (fresh[metric.id] as number)
+                            : null
+                        const usingSaved = fresh === 'failed' || fresh === undefined
+                        const value = freshNum ?? (usingSaved ? savedNum : null)
+                        const disagrees =
+                          freshNum !== null &&
+                          savedNum !== null &&
+                          Math.abs(freshNum - savedNum) > Math.max(1e-9, Math.abs(freshNum) * 0.005)
+                        return { value, savedNum, usingSaved: usingSaved && savedNum !== null, disagrees }
                       })
+                      const values = cells.map((c) => c.value)
                       if (values.every((v) => v === null)) return null
                       const best = bestValueIndex(metric.id, values)
                       return (
                         <tr key={metric.id} className="border-b border-slate-50">
                           <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
-                          {values.map((v, i) => (
+                          {cells.map((c, i) => (
                             <td
                               key={i}
                               className={`px-3 py-1.5 tabular-nums ${
                                 best === i ? 'bg-emerald-50 font-semibold text-emerald-700' : ''
                               }`}
                             >
-                              {v === null ? '—' : formatOutputValue(metric, v)}
+                              {c.value === null ? '—' : formatOutputValue(metric, c.value)}
+                              {c.usingSaved && <span className="ml-1 text-[10px] font-normal text-slate-400">saved</span>}
+                              {c.disagrees && c.savedNum !== null && (
+                                <div
+                                  className="text-[10px] font-normal text-amber-600"
+                                  title="The number saved with this scenario differs from a fresh compute of its inputs — it was probably saved before an input changed, or came from an Excel template run."
+                                >
+                                  saved: {formatOutputValue(metric, c.savedNum)}
+                                </div>
+                              )}
                             </td>
                           ))}
                         </tr>
@@ -543,8 +585,9 @@ export default function ScenariosPanel({
                 </table>
               </div>
               <p className="mt-1 text-[11px] text-slate-400">
-                Outputs come from each scenario's saved compute snapshot — re-save a scenario after
-                computing to refresh them.
+                Outputs are recomputed from each scenario's own inputs with the built-in engine. Where the
+                number saved with a scenario differs, it's shown beneath in amber; “saved” marks a value
+                that couldn't be recomputed (e.g. incomplete inputs).
               </p>
             </section>
           )}
