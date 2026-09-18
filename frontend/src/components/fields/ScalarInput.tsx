@@ -1,4 +1,11 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import {
+  formatAsTyped,
+  formatNumericDisplay,
+  fractionPercentHint,
+  parseNumericInput,
+  type NumericKind,
+} from '../../lib/numericInput'
 import type { FieldType } from '../../types/schema'
 
 interface ScalarInputProps {
@@ -24,41 +31,78 @@ function fromEditScale(value: number, type: FieldType): number {
   return type === 'percent' ? value / 100 : value
 }
 
-function formatNumeric(value: number, type: FieldType): string {
-  if (type === 'currency') return Math.round(value).toLocaleString()
-  return String(Math.round(value * 1e6) / 1e6)
+function kindOf(type: FieldType): NumericKind {
+  return type === 'currency' ? 'currency' : type === 'percent' ? 'percent' : 'number'
+}
+
+function describeBound(value: number, type: FieldType): string {
+  return type === 'percent' ? `${+(value * 100).toFixed(4)}%` : value.toLocaleString('en-US')
 }
 
 function NumericInput({ id, type, value, onChange, options: _options, min, max, step }: ScalarInputProps) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState('')
+  // Text that couldn't be read as a number stays visible (with the reason)
+  // instead of silently reverting to the previous value.
+  const [invalid, setInvalid] = useState<string | null>(null)
+  // Something the user should know about the value just committed: it was
+  // limited to the allowed range, or looks like a fraction typed as a percent.
+  const [note, setNote] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pendingCaret = useRef<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (pendingCaret.current !== null && inputRef.current) {
+      inputRef.current.setSelectionRange(pendingCaret.current, pendingCaret.current)
+      pendingCaret.current = null
+    }
+  })
 
   const numValue = value === undefined || value === null || value === '' ? null : Number(value)
   const rangeError =
     numValue !== null && min !== undefined && numValue < min
-      ? `Min ${type === 'percent' ? `${(min * 100).toFixed(2)}%` : min.toLocaleString()}`
+      ? `Min ${describeBound(min, type)}`
       : numValue !== null && max !== undefined && numValue > max
-        ? `Max ${type === 'percent' ? `${(max * 100).toFixed(2)}%` : max.toLocaleString()}`
+        ? `Max ${describeBound(max, type)}`
         : null
 
   function commit(raw: string) {
-    if (raw.trim() === '') {
-      onChange(undefined)
+    const parsed = parseNumericInput(raw)
+    if (!parsed.ok) {
+      if (parsed.reason === 'empty') {
+        setInvalid(null)
+        setNote(null)
+        onChange(undefined)
+      } else {
+        setInvalid(parsed.reason)
+        setDraft(raw)
+      }
       return
     }
-    const parsed = Number(raw.replace(/,/g, ''))
-    if (!Number.isFinite(parsed)) return
+    setInvalid(null)
     // Convert to value-scale (fraction, for percent) before clamping — min/max
     // are always expressed in value-scale, but `parsed` is still edit-scale.
-    let next = fromEditScale(parsed, type)
+    const typed = fromEditScale(parsed.value, type)
+    let next = typed
     if (min !== undefined) next = Math.max(min, next)
     if (max !== undefined) next = Math.min(max, next)
+    if (next !== typed) {
+      setNote(
+        `You entered ${describeBound(typed, type)}; the allowed range is ` +
+          `${min !== undefined ? describeBound(min, type) : '…'}–${max !== undefined ? describeBound(max, type) : '…'}, ` +
+          `so ${describeBound(next, type)} is used.`,
+      )
+    } else {
+      setNote(type === 'percent' ? fractionPercentHint(parsed.value, parsed.hadPercentSign) : null)
+    }
     onChange(next)
   }
 
   function handleFocus() {
     setFocused(true)
-    setDraft(numValue === null ? '' : String(toEditScale(numValue, type)))
+    if (invalid === null) {
+      setDraft(numValue === null ? '' : formatNumericDisplay(toEditScale(numValue, type), kindOf(type)))
+    }
   }
 
   function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
@@ -68,6 +112,16 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
     // captures the just-set draft, committing a stale value otherwise.
     setFocused(false)
     commit(e.target.value)
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (type === 'currency') {
+      const { text, caret } = formatAsTyped(e.target.value, e.target.selectionStart ?? e.target.value.length)
+      pendingCaret.current = caret
+      setDraft(text)
+    } else {
+      setDraft(e.target.value)
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -81,39 +135,44 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
     // An empty/unparseable draft steps from the field's committed value, not
     // from 0 (audit L5) — clearing a "5.5%" cap rate and tapping ArrowUp
     // should land on 5.75, not 0.25.
-    const draftNumber = Number(draft.replace(/,/g, ''))
+    const draftParsed = parseNumericInput(draft)
     const committed = numValue === null ? 0 : toEditScale(numValue, type)
-    const current =
-      focused && draft.trim() !== '' && Number.isFinite(draftNumber) ? draftNumber : committed
+    const current = focused && draftParsed.ok ? draftParsed.value : committed
     const next = current + (e.key === 'ArrowUp' ? editStep : -editStep)
     setDraft(String(Math.round(next * 1e6) / 1e6))
     commit(String(next))
   }
 
-  const displayValue = focused
-    ? draft
-    : numValue === null
-      ? ''
-      : formatNumeric(toEditScale(numValue, type), type)
+  const displayValue =
+    focused || invalid !== null
+      ? draft
+      : numValue === null
+        ? ''
+        : formatNumericDisplay(toEditScale(numValue, type), kindOf(type))
 
+  const message = invalid ?? rangeError
   return (
     <div>
       <div className="flex items-center gap-1">
         {type === 'currency' && <span className="text-slate-400">$</span>}
         <input
           id={id}
+          ref={inputRef}
           type="text"
           inputMode="decimal"
-          className={`${baseClass} text-right ${rangeError ? 'border-red-300' : 'border-slate-300'}`}
+          autoComplete="off"
+          aria-invalid={message ? true : undefined}
+          className={`${baseClass} text-right tabular-nums ${message ? 'border-red-300' : 'border-slate-300'}`}
           value={displayValue}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
         />
         {type === 'percent' && <span className="text-slate-400">%</span>}
       </div>
-      {rangeError && <div className="mt-0.5 text-[11px] text-red-500">{rangeError}</div>}
+      {message && <div className="mt-0.5 text-[11px] text-red-500">{message}</div>}
+      {!message && note && <div className="mt-0.5 text-[11px] text-amber-600">{note}</div>}
     </div>
   )
 }
