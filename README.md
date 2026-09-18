@@ -73,6 +73,9 @@ zipping. The self-test checks compute, the Excel export, the decks, the
 memo with charts, PDF reading and the Keychain, so a bad freeze fails the
 build instead of reaching a colleague.
 
+The shell's own tests (access gate, dialogs, PATH, quit cleanup) run with
+`desktop/.venv/bin/python -m pytest desktop/tests -q`, and first in every build.
+
 To run the desktop shell from source without building, first run
 `npm run build` in `frontend/`, then run
 `desktop/.venv/bin/python desktop/launcher.py`.

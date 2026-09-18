@@ -19,6 +19,9 @@ if [[ ! -x "$VENV_PY" ]]; then
   exit 1
 fi
 
+echo "==> Desktop shell tests"
+"$VENV_PY" -m pytest "$REPO/desktop/tests" -q -p no:cacheprovider
+
 echo "==> Building frontend"
 (cd "$REPO/frontend" && npm ci --no-audit --no-fund && npm run build)
 
