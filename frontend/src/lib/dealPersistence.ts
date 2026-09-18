@@ -47,7 +47,9 @@ export function createAutosaver<T>(
   let failures = 0
   let state: AutosaveState = 'idle'
   let latest: { value: T } | null = null // most recent value not yet saved
-  let saving = false
+  // The running save (and any newer values it chains). flush() awaits it,
+  // so a save that's merely in progress isn't reported as a failure.
+  let inflight: Promise<void> | null = null
   let disposed = false
   const listeners = new Set<(s: AutosaveState) => void>()
 
@@ -64,38 +66,42 @@ export function createAutosaver<T>(
     }
   }
 
-  async function saveNow(): Promise<void> {
-    clearTimer()
-    if (saving || latest === null || disposed) return
-    saving = true
-    const { value } = latest
-    latest = null
-    setState('saving')
-    try {
-      await save(value)
-      saving = false
-      failures = 0
-      if (latest !== null) {
-        // A newer value arrived while this save was in flight — chain it.
-        await saveNow()
-      } else {
-        setState('saved')
-      }
-    } catch {
-      saving = false
-      // Keep the failed value so a later schedule/flush retries it, unless a
-      // newer one already superseded it.
-      if (latest === null) latest = { value }
-      setState('error')
-      const retryIn = RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length - 1)]
-      failures++
-      if (!disposed && timer === null) {
-        timer = setTimeout(() => {
-          timer = null
-          void saveNow()
-        }, retryIn)
+  async function run(): Promise<void> {
+    while (latest !== null && !disposed) {
+      const { value } = latest
+      latest = null
+      setState('saving')
+      try {
+        await save(value)
+        failures = 0
+      } catch {
+        // Keep the failed value so a later schedule/flush retries it, unless
+        // a newer one already superseded it.
+        if (latest === null) latest = { value }
+        setState('error')
+        const retryIn = RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length - 1)]
+        failures++
+        if (!disposed && timer === null) {
+          timer = setTimeout(() => {
+            timer = null
+            void saveNow()
+          }, retryIn)
+        }
+        return
       }
     }
+    setState('saved')
+  }
+
+  function saveNow(): Promise<void> {
+    clearTimer()
+    // A value scheduled mid-save is picked up by the running loop.
+    if (inflight) return inflight
+    if (latest === null || disposed) return Promise.resolve()
+    inflight = run().finally(() => {
+      inflight = null
+    })
+    return inflight
   }
 
   return {
@@ -110,9 +116,9 @@ export function createAutosaver<T>(
     },
     async flush() {
       await saveNow()
-      return latest === null && !saving && state !== 'error'
+      return latest === null && inflight === null && state !== 'error'
     },
-    hasUnsaved: () => latest !== null || saving,
+    hasUnsaved: () => latest !== null || inflight !== null,
     dispose() {
       disposed = true
       clearTimer()

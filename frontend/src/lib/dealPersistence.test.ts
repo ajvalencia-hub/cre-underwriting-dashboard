@@ -97,6 +97,45 @@ describe('createAutosaver', () => {
     expect(save).toHaveBeenLastCalledWith(2)
   })
 
+  it('flush during an in-flight save waits for it (and the value queued behind it)', async () => {
+    let resolveFirst!: () => void
+    const save = vi
+      .fn<(v: number) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((r) => (resolveFirst = r)))
+      .mockResolvedValue(undefined)
+    const saver = createAutosaver<number>(save, 2000)
+
+    saver.schedule(1)
+    await vi.advanceTimersByTimeAsync(2000) // save of 1 now in flight
+    saver.schedule(2)
+    let flushed: boolean | undefined
+    void saver.flush().then((ok) => (flushed = ok))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flushed).toBeUndefined() // it used to resolve false right here
+
+    resolveFirst()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(flushed).toBe(true)
+    expect(save).toHaveBeenLastCalledWith(2)
+    expect(saver.hasUnsaved()).toBe(false)
+  })
+
+  it('flush during an in-flight save that fails reports false', async () => {
+    let rejectFirst!: (e: Error) => void
+    const save = vi
+      .fn<(v: number) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((_, rej) => (rejectFirst = rej)))
+    const saver = createAutosaver<number>(save, 2000)
+
+    saver.schedule(1)
+    await vi.advanceTimersByTimeAsync(2000)
+    const flushed = saver.flush()
+    rejectFirst(new Error('offline'))
+    expect(await flushed).toBe(false)
+    expect(saver.hasUnsaved()).toBe(true)
+    saver.dispose()
+  })
+
   it('keeps the failed value so flush retries it', async () => {
     const save = vi
       .fn<(v: number) => Promise<void>>()
