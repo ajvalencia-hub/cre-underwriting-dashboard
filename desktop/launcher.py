@@ -236,4 +236,8 @@ def relaunch() -> None:
 
 
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        from cre_desktop import selftest
+
+        sys.exit(selftest.run())
     sys.exit(main())
