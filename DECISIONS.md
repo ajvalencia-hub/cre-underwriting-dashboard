@@ -106,6 +106,15 @@ stated reason.
   legitimately feed mapped Excel templates) and silently implementing
   them piecemeal. test_template_only_fields keeps the flag honest both
   ways (flagged-but-read and read-nowhere-but-unflagged both fail).
+- **Going-in debt yield** (`goingInDebtYield`, acquisitions with debt) =
+  in-place / year-1 NOI over the loan; the existing debtYield (stabilized
+  NOI, the sizing view) is relabelled "(stabilized NOI)". Lenders quote the
+  going-in figure; a deal sized on stabilized NOI showed only the
+  flattering one. Baseline: key-only additions.
+- **American waterfall says when tier 1's hurdle isn't applied**: the G1
+  deal-by-deal convention (tier-1 promote starts once pref + capital are
+  returned) is kept, but a tier-1 hurdle above the pref now produces a
+  warning pointing to the european style. Baseline unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

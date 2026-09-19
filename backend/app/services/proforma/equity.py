@@ -133,6 +133,13 @@ def run_waterfall(
             # european: pro-rata continues to the first tier hurdle.
             promote_bands.append((normalized_tiers[0]["hurdle"], lp_share, gp_share))
         # american without catch-up: tier-1 splits start right after pref+ROC.
+        if style == "american" and not catch_up_active and normalized_tiers[0]["hurdle"] > preferred_return + 1e-9:
+            warnings.append(
+                f"American waterfall: tier 1's {normalized_tiers[0]['hurdle']:.2%} IRR hurdle is treated "
+                f"as met once the {preferred_return:.2%} pref and capital are returned (deal-by-deal "
+                "convention), so its promote starts there. Use the european style to hold the "
+                "promote until the LP reaches that IRR."
+            )
         for i, tier in enumerate(normalized_tiers):
             next_hurdle = (
                 normalized_tiers[i + 1]["hurdle"] if i + 1 < len(normalized_tiers) else None

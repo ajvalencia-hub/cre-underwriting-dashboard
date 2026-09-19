@@ -99,6 +99,7 @@
   "developmentSpreadBps": 0.00046685817508353156,
   "equityMultiple": 1.6945337061784298,
   "goingInCapRate": 0.05729003911111111,
+  "goingInDebtYield": 0.09235758006395917,
   "governingConstraint": "DSCR",
   "gpIrr": 0.12108472634029699,
   "interestCoverageRatio": 1.4777212810233467,

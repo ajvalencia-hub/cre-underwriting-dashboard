@@ -923,6 +923,10 @@ def _compute(inputs: dict) -> dict:
         purchase_price = _num(inputs, "purchasePrice")
         if purchase_price > 0:
             put("goingInCapRate", going_in_noi / purchase_price)
+        if perm_loan > 0:
+            # debtYield uses stabilized NOI (the sizing view); lenders also
+            # quote going-in debt yield on in-place / year-1 NOI.
+            put("goingInDebtYield", going_in_noi / perm_loan)
     else:
         put("goingInCapRate", yield_on_cost)
     if yield_on_cost is not None:

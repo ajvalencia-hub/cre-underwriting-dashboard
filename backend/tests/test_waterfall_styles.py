@@ -170,3 +170,20 @@ def test_engine_defaults_preserve_run1_behavior(analytic):
     result = engine.compute(analytic)
     assert result["irrConvention"] == "periodic_monthly"
     assert result["waterfallStyle"] == "european"
+
+
+def test_american_says_when_a_tier_1_hurdle_above_the_pref_is_not_applied():
+    # Audit: an analyst who types a 12% tier-1 hurdle on an American
+    # waterfall wasn't told the promote starts at the 8% pref instead.
+    american = _run(FLOWS_1500, style="american")
+    assert any("tier 1's 12.00% IRR hurdle is treated as met" in w for w in american["warnings"])
+    assert not any("treated as met" in w for w in _run(FLOWS_1500, style="european")["warnings"])
+    at_pref = [{"irrHurdle": 0.08, "lpSplitAboveHurdle": 0.7, "gpSplitAboveHurdle": 0.3}]
+    assert not any("treated as met" in w for w in _run(FLOWS_1500, style="american", tiers=at_pref)["warnings"])
+
+
+def test_going_in_debt_yield_uses_year_one_noi():
+    analytic = json.loads((FIXTURES / "analytic_acquisition.json").read_text())
+    outputs = engine.compute(analytic)["outputs"]
+    # Fixture comment: NOI 80,000 on a 600,000 loan.
+    assert outputs["goingInDebtYield"] == pytest.approx(80_000 / 600_000, rel=1e-9)

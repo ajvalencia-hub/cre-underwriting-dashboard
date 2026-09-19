@@ -97,6 +97,7 @@
   "developmentSpreadBps": 0.020000000000000004,
   "equityMultiple": 2.3625,
   "goingInCapRate": 0.1,
+  "goingInDebtYield": 0.16666666666666666,
   "governingConstraint": "Manual (loan amount input)",
   "gpIrr": 0.24637468332042012,
   "interestCoverageRatio": 2.7777777777777777,

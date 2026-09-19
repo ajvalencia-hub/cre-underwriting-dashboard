@@ -44,8 +44,9 @@
 
     { "id": "minDscr", "label": "Min DSCR (lowest loan year)", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "minMonthlyDscr", "label": "Min Monthly DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "goingInDebtYield", "label": "Going-In Debt Yield (year-1 NOI)", "type": "percent", "group": "Debt & Leverage" },
     { "id": "avgDscr", "label": "Avg DSCR", "type": "multiple", "group": "Debt & Leverage" },
-    { "id": "debtYield", "label": "Debt Yield", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "debtYield", "label": "Debt Yield (stabilized NOI)", "type": "percent", "group": "Debt & Leverage" },
     { "id": "ltv", "label": "LTV", "type": "percent", "group": "Debt & Leverage" },
     { "id": "ltc", "label": "LTC", "type": "percent", "group": "Debt & Leverage" },
     { "id": "loanConstant", "label": "Loan Constant", "type": "percent", "group": "Debt & Leverage" },
