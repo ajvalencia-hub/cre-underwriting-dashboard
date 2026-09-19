@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services import backup_service
+from app.api_models import BackupListingOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -61,7 +62,7 @@ def external_tools_status():
     }
 
 
-@router.get("/backups")
+@router.get("/backups", response_model=BackupListingOut)
 def list_backups():
     return backup_service.list_backups()
 

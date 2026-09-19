@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AssumptionPreset
 from app.services.presets import PRESET_FIELD_IDS, filter_preset_values
+from app.api_models import PresetOut
 
 router = APIRouter(prefix="/api/presets", tags=["presets"])
 
@@ -35,7 +36,7 @@ def preset_fields():
     return PRESET_FIELD_IDS
 
 
-@router.get("")
+@router.get("", response_model=list[PresetOut])
 def list_presets(db: Session = Depends(get_db)):
     presets = db.execute(
         select(AssumptionPreset).order_by(AssumptionPreset.created_at)
@@ -43,7 +44,7 @@ def list_presets(db: Session = Depends(get_db)):
     return [_to_out(p) for p in presets]
 
 
-@router.post("")
+@router.post("", response_model=PresetOut)
 def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
     if not payload.name.strip():
         raise HTTPException(400, "Preset name cannot be empty")
@@ -59,7 +60,7 @@ def create_preset(payload: PresetIn, db: Session = Depends(get_db)):
     return _to_out(preset)
 
 
-@router.put("/{preset_id}")
+@router.put("/{preset_id}", response_model=PresetOut)
 def update_preset(preset_id: str, payload: PresetIn, db: Session = Depends(get_db)):
     preset = db.get(AssumptionPreset, preset_id)
     if preset is None:

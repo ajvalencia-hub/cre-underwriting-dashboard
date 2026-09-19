@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.services import compute_cache, goal_seek, monte_carlo, tornado_service
 from app.services.proforma import engine, hold
+from app.api_models import ComputeResponseOut
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
 
@@ -109,7 +110,7 @@ def monte_carlo_poll(job_id: str):
     return status
 
 
-@router.post("")
+@router.post("", response_model=ComputeResponseOut)
 def compute(payload: ComputeRequest, detail: bool = False):
     try:
         # H13: LRU-cached — the engine is pure, and scenario comparisons /

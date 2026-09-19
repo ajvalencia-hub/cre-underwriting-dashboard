@@ -43,7 +43,8 @@ def test_backup_endpoints_wire_to_the_service(client, monkeypatch, tmp_path):
     monkeypatch.setattr(
         backup_service, "list_backups",
         lambda **kw: {"daily": [{"name": "20260812T000000Z", "createdAt": None,
-                                 "uploadCount": 0, "hasDb": True}], "weekly": []},
+                                 "uploadCount": 0, "hasDb": True}], "weekly": [],
+                      "pre_restore": [], "pre_migration": [], "lastAutomatic": None},
     )
 
     listing = client.get("/api/admin/backups").json()

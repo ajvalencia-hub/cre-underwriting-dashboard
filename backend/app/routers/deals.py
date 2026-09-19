@@ -15,6 +15,7 @@ from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
 from app.services import deal_history, deck_service, document_storage, share_html
 from app.services.proforma import engine
+from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
@@ -139,7 +140,7 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
     return _to_out(deal)
 
 
-@router.get("/metrics")
+@router.get("/metrics", response_model=dict[str, DealMetricsOk | DealMetricsIncomplete])
 def deal_metrics(db: Session = Depends(get_db)):
     """Key numbers for every deal, computed from its saved inputs (roadmap
     #18: the pipeline showed no numbers). Uses the compute cache, so an
@@ -290,7 +291,7 @@ def batch_deck(payload: BatchDeckRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/{deal_id}/history")
+@router.get("/{deal_id}/history", response_model=list[SnapshotMetaOut])
 def deal_history_list(deal_id: str, db: Session = Depends(get_db)):
     """Snapshot list, newest first — metadata only (full inputs stay on the
     server until a restore)."""

@@ -1432,12 +1432,80 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AttachmentOut */
+        AttachmentOut: {
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Documenttype */
+            documentType: string;
+            /** Fileext */
+            fileExt: string;
+            /** Filehash */
+            fileHash: string;
+            /** Filename */
+            filename: string;
+            /** Id */
+            id: string;
+            /** Sizebytes */
+            sizeBytes: number | null;
+            /**
+             * Source
+             * @default attachment
+             * @enum {string}
+             */
+            source: "attachment" | "extraction";
+        } & {
+            [key: string]: unknown;
+        };
         /** AutoMatchResult */
         AutoMatchResult: {
             /** Mappings */
             mappings: {
                 [key: string]: components["schemas"]["MappingEntry"];
             };
+        };
+        /** AutomaticBackupStatusOut */
+        AutomaticBackupStatusOut: {
+            /** At */
+            at: string;
+            /** Error */
+            error: string | null;
+            /** Ok */
+            ok: boolean;
+            /** Result */
+            result: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** BackupListingOut */
+        BackupListingOut: {
+            /** Daily */
+            daily: components["schemas"]["BackupSnapshotOut"][];
+            lastAutomatic: components["schemas"]["AutomaticBackupStatusOut"] | null;
+            /** Pre Migration */
+            pre_migration: components["schemas"]["BackupSnapshotOut"][];
+            /** Pre Restore */
+            pre_restore: components["schemas"]["BackupSnapshotOut"][];
+            /** Weekly */
+            weekly: components["schemas"]["BackupSnapshotOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** BackupSnapshotOut */
+        BackupSnapshotOut: {
+            /** Createdat */
+            createdAt: string | null;
+            /** Hasdb */
+            hasDb: boolean;
+            /** Name */
+            name: string;
+            /** Uploadcount */
+            uploadCount: number;
+        } & {
+            [key: string]: unknown;
         };
         /** BatchDeckRequest */
         BatchDeckRequest: {
@@ -1616,6 +1684,30 @@ export interface components {
             /** Values */
             values: Record<string, unknown>;
         };
+        /** ComputeResponseOut */
+        ComputeResponseOut: {
+            debt: components["schemas"]["DebtBlockOut"] | null;
+            /**
+             * Irrconvention
+             * @default periodic_monthly
+             * @enum {string}
+             */
+            irrConvention: "periodic_monthly" | "xirr";
+            /** Outputs */
+            outputs: {
+                [key: string]: number | string;
+            };
+            /** Warnings */
+            warnings: string[];
+            /**
+             * Waterfallstyle
+             * @default european
+             * @enum {string}
+             */
+            waterfallStyle: "european" | "american";
+        } & {
+            [key: string]: unknown;
+        };
         /** CrossValidationCheckOut */
         CrossValidationCheckOut: {
             /**
@@ -1660,6 +1752,40 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** DealMetricsIncomplete */
+        DealMetricsIncomplete: {
+            /** Missing */
+            missing: string[];
+            /**
+             * Status
+             * @constant
+             */
+            status: "incomplete";
+        } & {
+            [key: string]: unknown;
+        };
+        /** DealMetricsOk */
+        DealMetricsOk: {
+            /** Equity */
+            equity: number | null;
+            /** Equitymultiple */
+            equityMultiple: number | null;
+            /** Goingincaprate */
+            goingInCapRate: number | null;
+            /** Leveredirr */
+            leveredIrr: number | null;
+            /**
+             * Status
+             * @constant
+             */
+            status: "ok";
+            /** Totalcost */
+            totalCost: number | null;
+            /** Yieldoncost */
+            yieldOnCost: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** DealOut */
         DealOut: {
             /** Activemappingprofileid */
@@ -1701,6 +1827,44 @@ export interface components {
             name?: string | null;
             /** Status */
             status?: string | null;
+        };
+        /** DebtBlockOut */
+        DebtBlockOut: {
+            /** Candidates */
+            candidates: {
+                [key: string]: number;
+            };
+            /** Governingconstraint */
+            governingConstraint: string;
+            /** Loanamount */
+            loanAmount: number;
+            /** Sizedloanamount */
+            sizedLoanAmount: number;
+            /** Sizingnoi */
+            sizingNoi: number;
+            /** Stress */
+            stress: components["schemas"]["DebtStressCellOut"][];
+            /** Value */
+            value: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DebtStressCellOut */
+        DebtStressCellOut: {
+            /** Dscr */
+            dscr: number | null;
+            /** Governingconstraint */
+            governingConstraint: string;
+            /** Noihaircutpct */
+            noiHaircutPct: number;
+            /** Ratebumpbps */
+            rateBumpBps: number;
+            /** Refiproceeds */
+            refiProceeds: number;
+            /** Refishortfall */
+            refiShortfall: number;
+        } & {
+            [key: string]: unknown;
         };
         /** DocumentSummary */
         DocumentSummary: {
@@ -2090,6 +2254,25 @@ export interface components {
             /** Body */
             body: string;
         };
+        /** NoteOut */
+        NoteOut: {
+            /** Body */
+            body: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** PresetIn */
         PresetIn: {
             /**
@@ -2101,6 +2284,35 @@ export interface components {
             name: string;
             /** Values */
             values: Record<string, unknown>;
+        };
+        /** PresetOut */
+        PresetOut: {
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Source
+             * @default user
+             * @enum {string}
+             */
+            source: "user" | "seed";
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+            /** Values */
+            values: Record<string, unknown>;
+        } & {
+            [key: string]: unknown;
         };
         /** PropertyTaxLookupRequest */
         PropertyTaxLookupRequest: {
@@ -2325,6 +2537,31 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** SnapshotMetaOut */
+        SnapshotMetaOut: {
+            /** Changedpaths */
+            changedPaths: string[];
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default autosave
+             * @enum {string}
+             */
+            kind: "baseline" | "autosave" | "restore";
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** SourceRefOut */
         SourceRefOut: {
             /** Cell */
@@ -2440,7 +2677,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BackupListingOut"];
                 };
             };
         };
@@ -2827,7 +3064,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ComputeResponseOut"];
                 };
             };
             /** @description Validation Error */
@@ -3224,7 +3461,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: components["schemas"]["DealMetricsOk"] | components["schemas"]["DealMetricsIncomplete"];
+                    };
                 };
             };
         };
@@ -3343,7 +3582,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AttachmentOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3378,7 +3617,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AttachmentOut"];
                 };
             };
             /** @description Validation Error */
@@ -3537,7 +3776,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SnapshotMetaOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3665,7 +3904,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NoteOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3700,7 +3939,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NoteOut"];
                 };
             };
             /** @description Validation Error */
@@ -3736,7 +3975,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NoteOut"];
                 };
             };
             /** @description Validation Error */
@@ -4516,7 +4755,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PresetOut"][];
                 };
             };
         };
@@ -4540,7 +4779,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PresetOut"];
                 };
             };
             /** @description Validation Error */
@@ -4595,7 +4834,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PresetOut"];
                 };
             };
             /** @description Validation Error */

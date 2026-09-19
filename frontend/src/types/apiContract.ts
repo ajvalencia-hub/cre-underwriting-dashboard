@@ -4,6 +4,15 @@
 // the UI reads it as; if either side drifts, `tsc` fails here — locally and
 // in CI (which also checks api.gen.ts is up to date).
 import type { components } from './api.gen'
+import type {
+  AssumptionPreset,
+  BackupListing,
+  ComputeResponse,
+  DealAttachment,
+  DealMetrics,
+  DealNote,
+  DealSnapshotMeta,
+} from '../lib/api'
 import type { Deal } from './deal'
 import type { DocumentSummary } from './document'
 import type { ExtractionResult } from './extraction'
@@ -29,4 +38,11 @@ export type ApiContract = [
   Check<Fits<Schemas['ScenarioOut'], Scenario>>,
   Check<Fits<Schemas['ExtractionResultOut'], ExtractionResult>>,
   Check<Fits<Schemas['SensitivityResponse'], SensitivityResponse>>,
+  Check<Fits<Schemas['AttachmentOut'], DealAttachment>>,
+  Check<Fits<Schemas['NoteOut'], DealNote>>,
+  Check<Fits<Schemas['SnapshotMetaOut'], DealSnapshotMeta>>,
+  Check<Fits<Schemas['PresetOut'], AssumptionPreset>>,
+  Check<Fits<Schemas['BackupListingOut'], BackupListing>>,
+  Check<Fits<Schemas['DealMetricsOk'] | Schemas['DealMetricsIncomplete'], DealMetrics>>,
+  Check<Fits<Schemas['ComputeResponseOut'], ComputeResponse>>,
 ]
