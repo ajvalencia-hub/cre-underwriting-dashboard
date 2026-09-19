@@ -23,9 +23,11 @@ def monthly_payment(principal: float, annual_rate: float, amort_years: float) ->
     if n <= 0:
         return principal  # degenerate: no amortization period -> due now
     r = annual_rate / 12
-    if r == 0:
+    discount = 1 - (1 + r) ** -n
+    if r == 0 or discount == 0:
+        # A rate so small that (1 + r) rounds to 1 is a zero rate in floats.
         return principal / n
-    return principal * r / (1 - (1 + r) ** -n)
+    return principal * r / discount
 
 
 @dataclass(frozen=True)
@@ -118,10 +120,11 @@ def amortization_schedule_floating(
             principal_paid = 0.0
         else:
             remaining = max(1, total_amort_months - (month - io_months - 1))
-            if r == 0:
+            discount = 1 - (1 + r) ** -remaining
+            if r == 0 or discount == 0:
                 payment = balance / remaining
             else:
-                payment = balance * r / (1 - (1 + r) ** -remaining)
+                payment = balance * r / discount
             principal_paid = min(max(payment - interest, 0.0), balance)
         balance -= principal_paid
         schedule.append(DebtServiceMonth(interest, principal_paid, balance))

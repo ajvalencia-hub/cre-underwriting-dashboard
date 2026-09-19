@@ -1050,12 +1050,17 @@ def _compute(inputs: dict) -> dict:
         ]
         windows = debt.annual_dscr_windows(service_month_ids[0], service_month_ids[-1])
 
-        def _annual_min(noi_of) -> float:
-            return min(
-                sum(noi_of(m) for m in range(a, b + 1))
-                / sum(debt_service[m].payment for m in range(a, b + 1) if debt_service[m] is not None)
-                for a, b in windows
-            )
+        def _annual_min(noi_of) -> float | None:
+            # A loan year with no debt service (the loan was repaid and a
+            # refinance hasn't started) has no DSCR to test.
+            ratios = []
+            for a, b in windows:
+                service = sum(
+                    debt_service[m].payment for m in range(a, b + 1) if debt_service[m] is not None
+                )
+                if service > 0:
+                    ratios.append(sum(noi_of(m) for m in range(a, b + 1)) / service)
+            return min(ratios) if ratios else None
 
         put("minDscr", _annual_min(lambda m: noi[m - 1]))
         put("minMonthlyDscr", min(dscrs))
@@ -1093,8 +1098,9 @@ def _compute(inputs: dict) -> dict:
         if gross_revenue > 0:
             # Break-even ratio: (opex + debt service) / gross potential revenue.
             put("breakEvenRatio", (stabilized_opex + annual_service) / gross_revenue)
-        if gpr_annual > 0:
-            # Occupancy at which collections cover opex + debt service.
+        if gpr_annual > 0 and credit_loss < 1:
+            # Occupancy at which collections cover opex + debt service
+            # (none exists when every dollar billed is lost to credit).
             put(
                 "breakEvenOccupancy",
                 (stabilized_opex + annual_service - other_annual)
