@@ -183,7 +183,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
                     return (
                       <tr
                         key={row.fieldId}
-                        className={row.changed ? 'text-slate-700' : 'text-slate-300'}
+                        className={row.changed ? 'text-slate-700' : 'text-slate-400'}
                       >
                         <td className="py-0.5 pr-2">
                           <input

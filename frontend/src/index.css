@@ -36,7 +36,7 @@ html, body, #root {
 .dark .text-slate-700 { color: #cbd5e1; }
 .dark .text-slate-600 { color: #a5b4c5; }
 .dark .text-slate-500 { color: #94a3b8; }
-.dark .text-slate-400 { color: #64748b; }
+.dark .text-slate-400 { color: #8b9ab0; } /* 5.1:1 on the dark card (was #64748b, ~3:1) */
 .dark .text-slate-300 { color: #475569; }
 
 /* Borders */
@@ -107,3 +107,12 @@ html, body, #root {
 
 /* Known light-only surfaces (documented): matplotlib chart PNGs in the memo
    and downloaded documents keep their light rendering by design. */
+
+/* Readable secondary text: Tailwind's slate-400 (#94a3b8) is ~2.6:1 on white,
+   below WCAG AA's 4.5:1 for normal text, and it's used for labels, units,
+   timestamps and the "est." / "saved" tags. Text only — borders and fills
+   keep the palette colour. #667587 is 4.7:1 on white, 4.5:1 on slate-50.
+   Inside the utilities layer so hover:/focus: text colours still win. */
+@layer utilities {
+  .text-slate-400 { color: #667587; }
+}

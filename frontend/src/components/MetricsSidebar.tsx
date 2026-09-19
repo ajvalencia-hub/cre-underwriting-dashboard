@@ -32,21 +32,33 @@ function hasValue(v: MetricView): boolean {
 }
 
 function valueClass(v: MetricView): string {
-  if (v.stale) return 'text-slate-400 line-through decoration-slate-300'
+  // Stale: still legible (to compare against the new result), marked by a
+  // tag rather than a strike-through that made the number hard to read.
+  if (v.stale) return 'text-slate-500'
   if (v.provenance === 'native' || v.provenance === 'excel') return 'text-slate-800'
   if (v.provenance === 'estimate') return 'italic text-slate-400'
   return 'text-slate-400'
 }
 
 function SourceTag({ v }: { v: MetricView }) {
+  if (v.stale) {
+    return (
+      <span
+        className="ml-1 rounded bg-amber-50 px-1 text-[10px] font-normal not-italic text-amber-700"
+        title="Inputs changed since this was computed — recompute to update it."
+      >
+        stale
+      </span>
+    )
+  }
   if (v.provenance === 'native' || v.provenance === 'excel') {
     return (
-      <span className={`ml-1 text-[10px] font-normal ${v.provenance === 'excel' ? 'text-emerald-600' : 'text-sky-500'}`}>
+      <span className={`ml-1 text-[10px] font-normal ${v.provenance === 'excel' ? 'text-emerald-700' : 'text-sky-700'}`}>
         {SOURCE_TAG[v.provenance]}
       </span>
     )
   }
-  if (v.provenance === 'estimate') return <span className="ml-1 not-italic text-[10px] text-slate-300">est.</span>
+  if (v.provenance === 'estimate') return <span className="ml-1 not-italic text-[10px] text-slate-400">est.</span>
   return null
 }
 
