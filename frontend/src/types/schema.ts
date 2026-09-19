@@ -41,6 +41,8 @@ export interface InputField {
   max?: number
   /** 0 is a valid "off" setting outside [min, max] (e.g. a sizing constraint). */
   zeroDisables?: boolean
+  /** Not read by the built-in engine — only written to a mapped Excel template. */
+  templateOnly?: boolean
   default?: string | number | boolean
   options?: string[]
   columns?: TableColumn[]

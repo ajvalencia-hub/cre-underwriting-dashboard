@@ -154,26 +154,34 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
         benchmarksLoading={benchmarksLoading}
       />
 
-      {visibleSections.map((section) => (
-        <details
-          key={section.id}
-          id={`section-${section.id}`}
-          open
-          className="rounded border border-slate-200 bg-white"
-        >
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold text-slate-700">
-            {section.label}
-          </summary>
-          <div className="divide-y divide-slate-50 px-3 pb-2">
-            {section.fields
-              .filter((f) => isVisible(f.visibleWhen, values))
-              .map((field) => (
+      {visibleSections.map((section) => {
+        const shown = section.fields.filter((f) => isVisible(f.visibleWhen, values))
+        const allTemplateOnly = shown.length > 0 && shown.every((f) => f.templateOnly)
+        return (
+          <details
+            key={section.id}
+            id={`section-${section.id}`}
+            open
+            className="rounded border border-slate-200 bg-white"
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold text-slate-700">
+              {section.label}
+            </summary>
+            {allTemplateOnly && (
+              <div className="mx-3 mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                The built-in engine doesn't model these yet — Compute ignores them. They're only written to
+                an Excel template that maps them.
+              </div>
+            )}
+            <div className="divide-y divide-slate-50 px-3 pb-2">
+              {shown.map((field) => (
                 <Fragment key={field.id}>
                   <FieldRow
                     field={field}
                     value={values[field.id]}
                     onChange={(v) => onFieldChange(field.id, v)}
                     indicator={fieldIndicators[field.id]}
+                    hideTemplateOnlyNote={allTemplateOnly}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
                   {field.id === 'currentIndexPct' && (
@@ -194,9 +202,10 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                   )}
                 </Fragment>
               ))}
-          </div>
-        </details>
-      ))}
+            </div>
+          </details>
+        )
+      })}
     </div>
   )
 }

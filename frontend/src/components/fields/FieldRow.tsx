@@ -18,9 +18,13 @@ interface FieldRowProps {
   /** Market-benchmark flag tied to this input — hover for the explanation.
    *  Context only; never blocks or mutates the field. */
   indicator?: FieldIndicator
+  /** The section already says all of its fields are template-only. */
+  hideTemplateOnlyNote?: boolean
 }
 
-export default function FieldRow({ field, value, onChange, indicator }: FieldRowProps) {
+const TEMPLATE_ONLY_NOTE = 'Not used by Compute — only written to an Excel template that maps it.'
+
+export default function FieldRow({ field, value, onChange, indicator, hideTemplateOnlyNote }: FieldRowProps) {
   const error = validateField(field, value)
   // "Required" appears once the user has been in the field — not across a
   // brand-new deal before anything was typed. Range errors show at once.
@@ -85,6 +89,11 @@ export default function FieldRow({ field, value, onChange, indicator }: FieldRow
         )}
       </div>
       {shownError && <div className="mt-0.5 text-xs text-red-500">{shownError}</div>}
+      {/* Without this an analyst reasonably assumes the number feeds the
+          built-in results (audit: hotel ADR, draw schedule, loan term...). */}
+      {field.templateOnly && !hideTemplateOnlyNote && (
+        <div className="mt-0.5 text-xs text-slate-500">{TEMPLATE_ONLY_NOTE}</div>
+      )}
     </div>
   )
 }

@@ -97,6 +97,15 @@ stated reason.
   means "off" (dscrConstraint's min of 1 contradicted the engine's
   0 = no constraint); the frontend range check honours it too. ~0.05 ms per
   compute. Baseline unchanged.
+- **Inputs the engine ignores are labelled, not hidden**: 25 schema fields
+  (hotel, for-sale homes, retail rent roll, loan term, total equity, draw
+  schedule, TI/LC PSF, …) looked modeled but Compute never reads them.
+  They carry `"templateOnly": true`; the form says "Not used by Compute —
+  only written to an Excel template that maps it", or one banner for a
+  section that is entirely template-only. Rejected: removing them (they
+  legitimately feed mapped Excel templates) and silently implementing
+  them piecemeal. test_template_only_fields keeps the flag honest both
+  ways (flagged-but-read and read-nowhere-but-unflagged both fail).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
