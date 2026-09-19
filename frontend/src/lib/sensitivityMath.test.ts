@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundsReady, linspace } from './sensitivityMath'
+import { boundsReady, defaultRange, divergingColor, linspace } from './sensitivityMath'
 
 // FINDINGS.md M8: Number('') === 0, so a driver with empty min/max could run
 // a sweep from 0 (e.g. a 0% exit cap grid point). The run button stays
@@ -37,5 +37,19 @@ describe('linspace', () => {
 
   it('collapses to [min] when steps <= 1', () => {
     expect(linspace(4, 6, 1)).toEqual([4])
+  })
+})
+
+describe('base-anchored sensitivity', () => {
+  it('centres a default range on the current value', () => {
+    expect(defaultRange('percent', 5.5)).toEqual({ min: '4.5', max: '6.5' })
+    expect(defaultRange('currency', 10_000_000)).toEqual({ min: '9000000', max: '11000000' })
+    expect(defaultRange('number', null)).toBeNull()
+  })
+
+  it('colours white at the base, blue above, orange below', () => {
+    expect(divergingColor(0.12, 0.12, 0.02)).toBe('rgb(255 255 255)')
+    expect(divergingColor(0.14, 0.12, 0.02)).toBe('rgb(191 219 254)')
+    expect(divergingColor(0.10, 0.12, 0.02)).toBe('rgb(254 215 170)')
   })
 })

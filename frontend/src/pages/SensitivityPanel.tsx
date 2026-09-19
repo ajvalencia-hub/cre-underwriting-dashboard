@@ -8,7 +8,7 @@ import {
 } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
 import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
-import { boundsReady, heatColor, linspace } from '../lib/sensitivityMath'
+import { boundsReady, defaultRange, divergingColor, linspace } from '../lib/sensitivityMath'
 import type { OutputMetric, InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { SensitivityPoint } from '../types/sensitivity'
@@ -61,6 +61,11 @@ export default function SensitivityPanel({
   const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
   // Only fields VISIBLE for this deal (type-aware): sweeping the other
   // dealflow's inputs would produce a silent flat grid.
+  function currentOf(fieldId: string): number | null {
+    const raw = baseValues[fieldId]
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return null
+    return fieldById.get(fieldId)?.type === 'percent' ? raw * 100 : raw
+  }
   const driverCandidates = visibleFields(schema, baseValues).filter((f) =>
     DRIVER_TYPES.has(f.type),
   )
@@ -102,7 +107,9 @@ export default function SensitivityPanel({
   // template mode is limited to what the mapping profile carries.
   const eligibleDrivers =
     mode === 'native'
-      ? driverCandidates
+      ? // The built-in engine ignores template-only fields: sweeping one
+        // would show a flat grid that looks like "no sensitivity".
+        driverCandidates.filter((f) => !f.templateOnly)
       : driverCandidates.filter((f) => mappedFieldIds.has(f.id))
   const eligibleOutputs =
     mode === 'native' ? schema.outputs : schema.outputs.filter((m) => mappedFieldIds.has(m.id))
@@ -236,6 +243,7 @@ export default function SensitivityPanel({
           options={eligibleDrivers}
           allowNone={false}
           maxSteps={MAX_STEPS[mode]}
+          currentOf={currentOf}
         />
         <DriverRow
           label="Driver 2 (optional)"
@@ -244,6 +252,7 @@ export default function SensitivityPanel({
           options={eligibleDrivers.filter((f) => f.id !== driver1.fieldId)}
           allowNone
           maxSteps={MAX_STEPS[mode]}
+          currentOf={currentOf}
         />
 
         <div>
@@ -311,6 +320,7 @@ export default function SensitivityPanel({
           driver2Values={driver2Values}
           fieldById={fieldById}
           outputs={schema.outputs.filter((m) => selectedOutputs.has(m.id))}
+          baseValues={baseValues}
         />
       )}
 
@@ -445,6 +455,7 @@ function DriverRow({
   options,
   allowNone,
   maxSteps = 10,
+  currentOf,
 }: {
   label: string
   config: DriverConfig
@@ -452,6 +463,8 @@ function DriverRow({
   options: FlatField[]
   allowNone: boolean
   maxSteps?: number
+  /** The deal's current value for a field, in display units. */
+  currentOf: (fieldId: string) => number | null
 }) {
   return (
     <div>
@@ -459,7 +472,14 @@ function DriverRow({
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <select
           value={config.fieldId}
-          onChange={(e) => onChange({ ...config, fieldId: e.target.value })}
+          onChange={(e) => {
+            // Pre-fill a range centred on the deal's current value, 5 steps
+            // so the base case sits in the middle of the grid.
+            const fieldId = e.target.value
+            const type = options.find((f) => f.id === fieldId)?.type ?? ''
+            const range = fieldId ? defaultRange(type, currentOf(fieldId)) : null
+            onChange(range ? { fieldId, ...range, steps: '5' } : { ...config, fieldId })
+          }}
           className="rounded border border-slate-300 px-2 py-1 text-sm"
         >
           {allowNone && <option value="">None</option>}
@@ -515,6 +535,7 @@ function SensitivityResults({
   driver2Values,
   fieldById,
   outputs,
+  baseValues,
 }: {
   points: SensitivityPoint[]
   driver1: DriverConfig
@@ -523,9 +544,17 @@ function SensitivityResults({
   driver2Values: number[]
   fieldById: Map<string, FlatField>
   outputs: OutputMetric[]
+  baseValues: Record<string, unknown>
 }) {
   const field1 = fieldById.get(driver1.fieldId)
   const field2 = fieldById.get(driver2.fieldId)
+  // Per-grid hurdle, typed in display units (percent metrics as %).
+  const [hurdles, setHurdles] = useState<Record<string, string>>({})
+  const isBase = (p: SensitivityPoint) =>
+    [driver1.fieldId, driver2.fieldId]
+      .filter(Boolean)
+      .every((id) => typeof baseValues[id] === 'number' && Math.abs(p.driverValues[id] - (baseValues[id] as number)) < 1e-9)
+  const basePoint = points.find(isBase)
 
   function findPoint(v1: number, v2?: number): SensitivityPoint | undefined {
     return points.find((p) => {
@@ -577,13 +606,39 @@ function SensitivityResults({
     <div className="mt-6 space-y-6">
       {outputs.map((m) => {
         const values = points.map((p) => Number(p.outputs[m.id])).filter((v) => Number.isFinite(v))
-        const min = Math.min(...values)
-        const max = Math.max(...values)
+        const sorted = [...values].sort((a, b) => a - b)
+        const baseValue = basePoint ? Number(basePoint.outputs[m.id]) : sorted[Math.floor(sorted.length / 2)]
+        const maxAbsDelta = Math.max(0, ...values.map((v) => Math.abs(v - baseValue)))
+        const hurdleText = hurdles[m.id] ?? ''
+        const hurdleRaw =
+          hurdleText.trim() === '' || !Number.isFinite(Number(hurdleText))
+            ? null
+            : m.type === 'percent'
+              ? Number(hurdleText) / 100
+              : Number(hurdleText)
         return (
           <div key={m.id} className="overflow-x-auto rounded-md border border-slate-200 bg-white p-4">
-            <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500">
+            <h2 className="mb-1 text-sm font-semibold tracking-wide text-slate-500">
               {m.label.toUpperCase()} — {field1?.label} (rows) × {field2?.label} (cols)
             </h2>
+            <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+              <span>
+                {basePoint
+                  ? 'Outlined cell = the deal as it stands. Blue: above it, orange: below.'
+                  : "The deal's current values aren't on this grid — colours are relative to the grid's median."}
+              </span>
+              <label className="flex items-center gap-1">
+                Hurdle{m.type === 'percent' ? ' (%)' : ''}
+                <input
+                  type="number"
+                  value={hurdleText}
+                  onChange={(e) => setHurdles((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                  className="w-20 rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  placeholder="optional"
+                />
+              </label>
+              {hurdleRaw !== null && <span>Bold ✓ = meets the hurdle.</span>}
+            </div>
             <table className="border-collapse text-sm">
               <thead>
                 <tr>
@@ -604,14 +659,18 @@ function SensitivityResults({
                     {driver2Values.map((v2) => {
                       const point = findPoint(v1, v2)
                       const rawValue = point ? Number(point.outputs[m.id]) : NaN
-                      const t = Number.isFinite(rawValue) && max > min ? (rawValue - min) / (max - min) : 0.5
+                      const meets = hurdleRaw !== null && Number.isFinite(rawValue) && rawValue >= hurdleRaw
+                      const base = point !== undefined && point === basePoint
                       return (
                         <td
                           key={v2}
-                          className="border border-slate-200 px-2 py-1 text-center"
-                          style={{ backgroundColor: point ? heatColor(t) : undefined }}
+                          className={`border border-slate-200 px-2 py-1 text-center text-slate-900 ${
+                            base ? 'outline outline-2 -outline-offset-2 outline-slate-900' : ''
+                          } ${meets ? 'font-semibold' : ''}`}
+                          style={{ backgroundColor: point ? divergingColor(rawValue, baseValue, maxAbsDelta) : undefined }}
                         >
                           {point ? formatOutputValue(m, point.outputs[m.id]) : '—'}
+                          {meets && ' ✓'}
                         </td>
                       )
                     })}
