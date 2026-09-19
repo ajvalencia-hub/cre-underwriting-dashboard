@@ -230,6 +230,36 @@ stated reason.
   tax, benchmarks and demographics stay undeclared: provider-dependent
   shapes. Found and fixed on the way: a stale backup-listing test fake,
   and untyped extraction results (now fully modeled).
+- **Engineering hygiene** (roadmap #32).
+  - ruff + mypy (dev-only, `backend/requirements-dev.txt`, config in
+    `backend/pyproject.toml`), run by a `backend-lint` CI job. mypy passes
+    with the pydantic plugin; the 20 modules that still had errors (the
+    engine, memo/deck/extraction services…) sit on a ratchet override —
+    entries come off as they're cleaned, never go on. Target stays Python
+    3.10: the local backend venv runs it (ruff's 3.11-only `UTC` rewrite
+    broke the suite before the target was lowered).
+  - SQLite runs in WAL with a 15 s busy timeout; backup snapshots switch
+    back to a rollback journal so each stays one file. Rejected:
+    `synchronous=NORMAL` (faster, but can drop the last commit on power
+    loss).
+  - Hypothesis perturbs the analytic deals within the schema's ranges
+    (money in cents, percentages to a millionth — subnormal values produced
+    only meaningless infinities) and found four inputs the form accepts
+    that crashed Compute: min DSCR over a loan year with no debt service,
+    100% credit loss in break-even occupancy, and fixed/floating payments
+    at a rate where 1 + r rounds to 1. All fixed with regression tests.
+    Negative exit NOI still gives a negative terminal value — left as is
+    and raised with the owner.
+  - Quick Screen and engine share cases: the vitest file writes napkin
+    results and the Send to Deal Inputs payload to
+    `backend/tests/fixtures/quick_screen_cases.json`; the backend computes
+    the same payload. Costs, loans and acquisition cap rate agree; the
+    development yield on cost does not, because the payload omits
+    operating expenses by design — a strict xfail until the owner decides.
+  - App.tsx split into navigation, a Quick Screen hook and header
+    components (1,321 → 968 lines). The deal lifecycle stays in App.
+  - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
+    on pull requests and main (not every push: several macOS minutes).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

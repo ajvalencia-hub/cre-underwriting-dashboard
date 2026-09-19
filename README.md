@@ -360,9 +360,11 @@ percent ±1bp, multiples ±0.001, IRR ±2bp). Drop real firm templates into
 `backend/tests/parity/corpus/dropin/` (gitignored) to check them ad hoc.
 
 CI (`.github/workflows/ci.yml`) runs the full backend suite (with
-LibreOffice + Tesseract installed), the parity CLI, the frontend
-build/lint/test gates, a Playwright e2e job, and a Docker job (`docker
-compose config` + image build) on every push/PR.
+LibreOffice + Tesseract installed), the parity CLI, ruff and mypy, the
+frontend build/lint/test gates, the API-types check, a Playwright e2e job,
+and a Docker job (`docker compose config` + image build) on every push/PR.
+Pull requests and main also build the desktop `.app` on macOS, run its
+self-test, and keep the zip as a build artifact for a week.
 
 ## Run 5 defaults-compatibility statement
 
