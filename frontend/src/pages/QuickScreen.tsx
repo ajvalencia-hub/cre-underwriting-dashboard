@@ -135,7 +135,7 @@ export default function QuickScreen({
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,
       })
-      setSaveMessage('Saved — see it under "6. Scenarios".')
+      setSaveMessage('Saved — see it under "Scenarios".')
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {
@@ -518,6 +518,7 @@ export default function QuickScreen({
                 onChange={(e) => setScenarioName(e.target.value)}
                 className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
                 placeholder="Scenario name"
+                aria-label="Quick Screen scenario name"
               />
               <button
                 onClick={handleSaveAsScenario}

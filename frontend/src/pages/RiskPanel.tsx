@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  cancelMonteCarlo,
   fetchGoalSeekInputs,
   fetchScenarios,
   pollMonteCarlo,
@@ -8,6 +9,13 @@ import {
   type McDriver,
   type MonteCarloResult,
 } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
+import {
+  MONTE_CARLO_POLL_INTERVAL_MS,
+  pollTimedOut,
+  pollTimeoutMessage,
+} from '../lib/monteCarloPolling'
+import { parseSeed } from '../lib/monteCarloSeed'
 import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
@@ -52,6 +60,10 @@ const fmtX = (v: number) => `${v.toFixed(2)}x`
 const fmtMoney = (v: number) => formatMoney(v)
 
 function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[] }) {
+  // B17: every trial can fail (empty bins) — render an empty state, not a crash.
+  if (bins.length === 0) {
+    return <div className="mt-2 text-xs text-slate-400">No distribution to plot — every trial failed.</div>
+  }
   const max = Math.max(...bins.map((b) => b.count), 1)
   const w = 460
   const h = 120
@@ -76,14 +88,20 @@ function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[]
           </rect>
         )
       })}
-      <text x={0} y={h + 12} className="fill-slate-400 text-[10px]">
+      <text x={0} y={h + 12} className="fill-chart-muted text-[10px]">
         {fmtPct(bins[0].lo)}
       </text>
-      <text x={w} y={h + 12} textAnchor="end" className="fill-slate-400 text-[10px]">
+      <text x={w} y={h + 12} textAnchor="end" className="fill-chart-muted text-[10px]">
         {fmtPct(bins[bins.length - 1].hi)}
       </text>
     </svg>
   )
+}
+
+const PARAM_FIELDS: Record<string, string[]> = {
+  normal: ['mean', 'stdDev'],
+  triangular: ['min', 'mode', 'max'],
+  uniform: ['min', 'max'],
 }
 
 /** J8: Monte Carlo risk panel — seeded, deterministic, saved to scenarios. */
@@ -93,8 +111,16 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   // engine actually reads for this deal.
   const dealType = values.dealType === 'development' ? 'development' : 'acquisition'
   const suggested = SUGGESTED_PATHS_BY_TYPE[dealType]
-  const visibleIds = new Set(visibleFields(schema, values).map((f) => f.id))
-  const applicableInputs = inputList.filter((f) => visibleIds.has(f.id))
+  // Perf (Run 6 wave 2): the visible-field walk reruns only when the schema
+  // or values change, not on every keystroke inside this panel.
+  const visibleIds = useMemo(
+    () => new Set(visibleFields(schema, values).map((f) => f.id)),
+    [schema, values],
+  )
+  const applicableInputs = useMemo(
+    () => inputList.filter((f) => visibleIds.has(f.id)),
+    [inputList, visibleIds],
+  )
   const [drivers, setDrivers] = useState<McDriver[]>([])
   const [n, setN] = useState(500)
   const [seed, setSeed] = useState('')
@@ -102,16 +128,22 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<MonteCarloResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [dealScenarios, setDealScenarios] = useState<Scenario[]>([])
   const [saveTargetId, setSaveTargetId] = useState('')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const pollTimer = useRef<number | null>(null)
+  const jobIdRef = useRef<string | null>(null)
+
+  function stopPolling() {
+    if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
+    pollTimer.current = null
+    jobIdRef.current = null
+  }
 
   useEffect(() => {
     fetchGoalSeekInputs().then(setInputList).catch(() => setInputList([]))
-    return () => {
-      if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-    }
+    return stopPolling
   }, [])
 
   useEffect(() => {
@@ -133,8 +165,12 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     setDrivers(drivers.map((d, idx) => (idx === i ? next : d)))
   }
 
+  // B18: validated seed — junk never silently becomes a random run.
+  const seedParse = parseSeed(seed)
+
   async function handleRun() {
-    const incomplete = drivers.find((d) => paramFields[d.distribution].some((p) => !Number.isFinite(d.params[p])))
+    if (!seedParse.ok) return
+    const incomplete = drivers.find((d) => PARAM_FIELDS[d.distribution].some((p) => !Number.isFinite(d.params[p])))
     if (incomplete) {
       setError(
         `Fill in every parameter for ${inputList.find((f) => f.id === incomplete.inputPath)?.label ?? incomplete.inputPath} — an empty box is not treated as 0.`,
@@ -143,6 +179,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     }
     setRunning(true)
     setError(null)
+    setNotice(null)
     setResult(null)
     setSaveMessage(null)
     setProgress(0)
@@ -151,36 +188,59 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         values,
         drivers,
         n,
-        seed: seed.trim() ? Number(seed) : undefined,
+        seed: seedParse.seed,
       })
+      jobIdRef.current = jobId
+      const startedAt = Date.now()
       pollTimer.current = window.setInterval(() => {
         void (async () => {
+          // Wave 2: a hard ceiling so a stuck job never spins the UI forever.
+          if (pollTimedOut(startedAt, Date.now())) {
+            stopPolling()
+            setRunning(false)
+            setError(pollTimeoutMessage())
+            void cancelMonteCarlo(jobId)
+            return
+          }
           try {
             const status = await pollMonteCarlo(jobId)
+            // A cancel/timeout landed while this poll was in flight — ignore it.
+            if (jobIdRef.current !== jobId) return
             setProgress(status.completed)
             if (status.status !== 'running') {
-              if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-              pollTimer.current = null
+              stopPolling()
               setRunning(false)
               if (status.status === 'done' && status.result) {
                 setResult(status.result)
                 setSeed(String(status.result.seed))
+              } else if (status.status === 'cancelled') {
+                setNotice('Run cancelled.')
               } else {
-                setError(status.error ?? 'The run failed.')
+                setError(friendlyEngineError(status.error ?? '', 'The run failed.'))
               }
             }
           } catch {
-            if (pollTimer.current !== null) window.clearInterval(pollTimer.current)
-            pollTimer.current = null
+            if (jobIdRef.current !== jobId) return
+            stopPolling()
             setRunning(false)
             setError('Lost contact with the run.')
           }
         })()
-      }, 400)
+      }, MONTE_CARLO_POLL_INTERVAL_MS)
     } catch (e) {
       setRunning(false)
-      setError(e instanceof Error ? e.message : 'Could not start the run.')
+      setError(friendlyEngineError(e, 'Could not start the run.'))
     }
+  }
+
+  // Wave 2: stop polling immediately; the server-side cancel is best effort
+  // (cancelMonteCarlo never throws — a finished/unknown job resolves false).
+  async function handleCancel() {
+    const jobId = jobIdRef.current
+    stopPolling()
+    setRunning(false)
+    setNotice('Run cancelled.')
+    if (jobId) await cancelMonteCarlo(jobId)
   }
 
   async function handleSaveToScenario() {
@@ -191,12 +251,6 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
     } catch {
       setSaveMessage('Save failed.')
     }
-  }
-
-  const paramFields: Record<string, string[]> = {
-    normal: ['mean', 'stdDev'],
-    triangular: ['min', 'mode', 'max'],
-    uniform: ['min', 'max'],
   }
 
   return (
@@ -219,6 +273,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
         ))}
         <select
           value=""
+          aria-label="Add another input as a driver"
           onChange={(e) => e.target.value && addDriver(e.target.value)}
           className="rounded border border-slate-300 px-1 py-0.5 text-xs text-slate-500"
         >
@@ -240,6 +295,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           </span>
           <select
             value={driver.distribution}
+            aria-label={`Distribution for ${inputList.find((f) => f.id === driver.inputPath)?.label ?? driver.inputPath}`}
             onChange={(e) => {
               const dist = e.target.value as McDriver['distribution']
               const current = typeof values[driver.inputPath] === 'number'
@@ -258,7 +314,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
             <option value="triangular">triangular</option>
             <option value="uniform">uniform</option>
           </select>
-          {paramFields[driver.distribution].map((p) => {
+          {PARAM_FIELDS[driver.distribution].map((p) => {
             // Percent inputs are entered as whole percents (6.5 = 6.5%), like
             // everywhere else in the app; the engine still receives fractions.
             const isPct = inputList.find((f) => f.id === driver.inputPath)?.type === 'percent'
@@ -287,6 +343,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           })}
           <button
             onClick={() => setDrivers(drivers.filter((_, idx) => idx !== i))}
+            aria-label={`Remove driver ${inputList.find((f) => f.id === driver.inputPath)?.label ?? driver.inputPath}`}
             className="text-slate-400 hover:text-red-500"
           >
             remove
@@ -311,17 +368,36 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
           <input
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
-            className="w-28 rounded border border-slate-300 px-1 py-0.5"
+            aria-invalid={!seedParse.ok}
+            aria-describedby={seedParse.ok ? undefined : 'mc-seed-error'}
+            inputMode="numeric"
+            className={`w-28 rounded border px-1 py-0.5 ${
+              seedParse.ok ? 'border-slate-300' : 'border-red-400'
+            }`}
           />
         </label>
+        {!seedParse.ok && (
+          <span id="mc-seed-error" className="text-red-600">
+            {seedParse.error}
+          </span>
+        )}
         <button
           onClick={() => void handleRun()}
-          disabled={running || drivers.length === 0}
+          disabled={running || drivers.length === 0 || !seedParse.ok}
           className="rounded bg-sky-600 px-3 py-1.5 text-white hover:bg-sky-700 disabled:opacity-40"
         >
           {running ? `Running… ${progress}/${n}` : 'Run simulation'}
         </button>
+        {running && (
+          <button
+            onClick={() => void handleCancel()}
+            className="rounded border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+        )}
         {error && <span className="text-red-600">{error}</span>}
+        {notice && !error && <span className="text-slate-500">{notice}</span>}
       </div>
 
       {result && (
@@ -371,6 +447,7 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
               <span className="font-medium text-slate-500">SAVE RUN TO SCENARIO</span>
               <select
                 value={saveTargetId}
+                aria-label="Scenario to save the run to"
                 onChange={(e) => setSaveTargetId(e.target.value)}
                 className="rounded border border-slate-300 px-1 py-0.5"
               >

@@ -28,12 +28,22 @@ export const PRESET_LABELS = PRESETS_BY_TYPE.acquisition
 
 export const UPCOMING_WINDOW_DAYS = 14
 
+/** A row is only a date once it HAS a date (Run 6 B11): the editor adds rows
+ *  with an empty date while the user picks one — those never reach the
+ *  chips, the pipeline strip, or the deal's stored inputs. */
+export function hasDate(row: Pick<CriticalDate, 'date'>): boolean {
+  return typeof row.date === 'string' && row.date.trim() !== ''
+}
+
 export function readCriticalDates(inputs: Record<string, unknown> | undefined): CriticalDate[] {
   const raw = inputs?.criticalDates
   if (!Array.isArray(raw)) return []
   return raw.filter(
     (r): r is CriticalDate =>
-      Boolean(r) && typeof r === 'object' && typeof (r as CriticalDate).date === 'string',
+      Boolean(r) &&
+      typeof r === 'object' &&
+      typeof (r as CriticalDate).date === 'string' &&
+      hasDate(r as CriticalDate),
   )
 }
 

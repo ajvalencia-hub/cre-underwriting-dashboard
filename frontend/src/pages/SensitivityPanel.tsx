@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   fetchMappingProfile,
   fetchScenarios,
@@ -6,6 +6,7 @@ import {
   saveScenarioSensitivity,
   type SavedSensitivity,
 } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
 import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
 import { boundsReady, defaultRange, divergingColor, linspace } from '../lib/sensitivityMath'
@@ -57,8 +58,11 @@ export default function SensitivityPanel({
   baseValues,
   dealId,
 }: SensitivityPanelProps) {
-  const fields = flattenFields(schema)
-  const fieldById = new Map<string, FlatField>(fields.map((f) => [f.id, f]))
+  // Perf (Run 6 wave 2): the schema walks rerun only when their inputs change.
+  const fieldById = useMemo(
+    () => new Map<string, FlatField>(flattenFields(schema).map((f) => [f.id, f])),
+    [schema],
+  )
   // Only fields VISIBLE for this deal (type-aware): sweeping the other
   // dealflow's inputs would produce a silent flat grid.
   function currentOf(fieldId: string): number | null {
@@ -66,8 +70,9 @@ export default function SensitivityPanel({
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return null
     return fieldById.get(fieldId)?.type === 'percent' ? raw * 100 : raw
   }
-  const driverCandidates = visibleFields(schema, baseValues).filter((f) =>
-    DRIVER_TYPES.has(f.type),
+  const driverCandidates = useMemo(
+    () => visibleFields(schema, baseValues).filter((f) => DRIVER_TYPES.has(f.type)),
+    [schema, baseValues],
   )
 
   const [mode, setMode] = useState<SweepMode>('native')
@@ -163,7 +168,7 @@ export default function SensitivityPanel({
       })
       setPoints(result.points)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sensitivity analysis failed')
+      setError(friendlyEngineError(err, 'Sensitivity analysis failed'))
     } finally {
       setRunning(false)
     }
@@ -223,7 +228,7 @@ export default function SensitivityPanel({
 
       {mode === 'template' && mappingUnsaved && (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          The mapping in "2. Template &amp; Mapping" has unsaved changes. Template runs use the saved
+          The mapping in "Template &amp; Mapping" has unsaved changes. Template runs use the saved
           profile, so save (Update Mapping Profile) before running.
         </div>
       )}
@@ -231,7 +236,7 @@ export default function SensitivityPanel({
       {mode === 'template' && eligibleDrivers.length === 0 && (
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
           No numeric/percent/currency fields are mapped in the active mapping profile yet. Map at
-          least one (e.g. exit cap rate, rent growth) under "2. Template &amp; Mapping" first.
+          least one (e.g. exit cap rate, rent growth) under "Template &amp; Mapping" first.
         </div>
       )}
 
@@ -472,6 +477,7 @@ function DriverRow({
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <select
           value={config.fieldId}
+          aria-label={label}
           onChange={(e) => {
             // Pre-fill a range centred on the deal's current value, 5 steps
             // so the base case sits in the middle of the grid.
@@ -496,6 +502,7 @@ function DriverRow({
             <input
               type="number"
               placeholder="Min"
+              aria-label={`${label} minimum`}
               value={config.min}
               onChange={(e) => onChange({ ...config, min: e.target.value })}
               className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
@@ -505,6 +512,7 @@ function DriverRow({
             <input
               type="number"
               placeholder="Max"
+              aria-label={`${label} maximum`}
               value={config.max}
               onChange={(e) => onChange({ ...config, max: e.target.value })}
               className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
@@ -516,6 +524,7 @@ function DriverRow({
               min={2}
               max={maxSteps}
               value={config.steps}
+              aria-label={`${label} steps`}
               onChange={(e) => onChange({ ...config, steps: e.target.value })}
               className="w-16 rounded border border-slate-300 px-2 py-1 text-sm"
             />
@@ -583,10 +592,10 @@ function SensitivityResults({
             </tr>
           </thead>
           <tbody>
-            {driver1Values.map((v1) => {
+            {driver1Values.map((v1, i) => {
               const point = findPoint(v1)
               return (
-                <tr key={v1} className="border-b border-slate-50">
+                <tr key={`${i}-${v1}`} className="border-b border-slate-50">
                   <td className="py-1.5 pr-4 font-medium">{formatDriverValue(field1, toRawValue(field1, v1))}</td>
                   {outputs.map((m) => (
                     <td key={m.id} className="py-1.5 pr-4">
@@ -635,6 +644,7 @@ function SensitivityResults({
                   onChange={(e) => setHurdles((prev) => ({ ...prev, [m.id]: e.target.value }))}
                   className="w-20 rounded border border-slate-300 px-1 py-0.5 text-xs"
                   placeholder="optional"
+                  aria-label={`Hurdle for ${m.label}`}
                 />
               </label>
               {hurdleRaw !== null && <span>Bold ✓ = meets the hurdle.</span>}
@@ -643,27 +653,28 @@ function SensitivityResults({
               <thead>
                 <tr>
                   <th className="border border-slate-200 px-2 py-1"></th>
-                  {driver2Values.map((v2) => (
-                    <th key={v2} className="border border-slate-200 px-2 py-1 font-medium">
+                  {driver2Values.map((v2, j) => (
+                    <th key={`${j}-${v2}`} className="border border-slate-200 px-2 py-1 font-medium">
                       {formatDriverValue(field2, toRawValue(field2, v2))}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {driver1Values.map((v1) => (
-                  <tr key={v1}>
+                {driver1Values.map((v1, i) => (
+                  <tr key={`${i}-${v1}`}>
                     <td className="border border-slate-200 bg-slate-50 px-2 py-1 font-medium">
                       {formatDriverValue(field1, toRawValue(field1, v1))}
                     </td>
-                    {driver2Values.map((v2) => {
+                    {driver2Values.map((v2, j) => {
                       const point = findPoint(v1, v2)
                       const rawValue = point ? Number(point.outputs[m.id]) : NaN
                       const meets = hurdleRaw !== null && Number.isFinite(rawValue) && rawValue >= hurdleRaw
                       const base = point !== undefined && point === basePoint
                       return (
                         <td
-                          key={v2}
+                          key={`${j}-${v2}`}
+                          data-heat-cell={point ? '' : undefined}
                           className={`border border-slate-200 px-2 py-1 text-center text-slate-900 ${
                             base ? 'outline outline-2 -outline-offset-2 outline-slate-900' : ''
                           } ${meets ? 'font-semibold' : ''}`}

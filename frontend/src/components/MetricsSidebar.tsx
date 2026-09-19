@@ -3,6 +3,7 @@ import { formatOutputValue } from '../lib/formatValue'
 import { SOURCE_TAG } from '../lib/resultFreshness'
 import type { OutputMetric } from '../types/schema'
 import { headlineIds } from '../lib/headlineMetrics'
+import { isOutputVisibleFor } from '../lib/outputVisibility'
 
 export interface MetricView {
   value: unknown
@@ -68,7 +69,16 @@ export default function MetricsSidebar({ metrics, view, dealType, forSale = fals
   const constraint = byId.get('governingConstraint')
   const constraintView = constraint ? view(constraint) : null
   const groups = Array.from(new Set(metrics.map((m) => m.group ?? 'Metrics')))
-  const detail = metrics.filter((m) => !headlineSet.has(m.id) && m.id !== 'governingConstraint')
+  // Run 6 P1: the detail list hides metrics that don't apply to this deal's
+  // type (development spread on an acquisition, …); untyped deals see all.
+  const typeForVisibility =
+    dealType === 'acquisition' || dealType === 'development' ? dealType : null
+  const detail = metrics.filter(
+    (m) =>
+      !headlineSet.has(m.id) &&
+      m.id !== 'governingConstraint' &&
+      isOutputVisibleFor(m.id, typeForVisibility),
+  )
   const emptyCount = detail.filter((m) => !hasValue(view(m))).length
 
   return (

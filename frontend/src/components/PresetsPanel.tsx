@@ -109,6 +109,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
         </span>
         <select
           value={selectedId}
+          aria-label="Assumption preset"
           onChange={(e) => {
             setSelectedId(e.target.value)
             setDiffRows(null)
@@ -144,6 +145,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
           value={saveName}
           onChange={(e) => setSaveName(e.target.value)}
           placeholder="Save current assumptions as…"
+          aria-label="Preset name"
           className="rounded border border-slate-200 px-2 py-1 text-sm"
         />
         <button

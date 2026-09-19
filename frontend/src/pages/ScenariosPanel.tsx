@@ -9,6 +9,7 @@ import {
   updateScenario,
   type TornadoResponse,
 } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue, formatValue } from '../lib/formatValue'
 import { flattenFields } from '../lib/schemaFields'
 import {
@@ -43,6 +44,100 @@ interface ScenariosPanelProps {
 
 const MAX_COMPARE = 4
 
+// Hoisted to module scope (Run 6): declared inside the panel it was a new
+// component type on every render, so the SVG subtree unmounted and
+// remounted each time the parent re-rendered.
+function TornadoChart({
+  tornado,
+  format,
+}: {
+  tornado: TornadoResponse
+  format: (v: number) => string
+}) {
+  const width = 640
+  const rowHeight = 28
+  const labelWidth = 190
+  const chartWidth = width - labelWidth - 70
+  const bars = tornadoGeometry(tornado.bars, tornado.base, format)
+  const height = bars.length * rowHeight + 24
+  return (
+    <div className="mt-3 overflow-x-auto rounded border border-slate-200 bg-white p-3">
+      <div className="mb-1 text-xs text-slate-500">
+        Base {format(tornado.base)} — bar ends show the metric at the down/up perturbation.
+      </div>
+      <svg width={width} height={height} role="img" aria-label="Tornado chart">
+        {/* base line */}
+        <line
+          x1={labelWidth + chartWidth / 2}
+          y1={4}
+          x2={labelWidth + chartWidth / 2}
+          y2={height - 20}
+          className="stroke-chart-grid"
+          strokeDasharray="3 3"
+        />
+        {bars.map((bar, i) => {
+          const y = i * rowHeight + 8
+          const x0 = labelWidth + bar.x0 * chartWidth
+          const x1 = labelWidth + bar.x1 * chartWidth
+          // Run 6: an inert driver can't move this deal shape — mute the bar
+          // and say why instead of showing a silent zero-width bar.
+          const inertReason = bar.reason ?? 'not used by this deal shape'
+          return (
+            <g key={bar.key} opacity={bar.inert ? 0.45 : 1}>
+              {bar.inert && <title>{`${bar.label}: inert — ${inertReason}`}</title>}
+              <text x={0} y={y + 13} fontSize={11} className="fill-chart-label">
+                {bar.label}
+              </text>
+              {bar.inert && (
+                <text x={labelWidth + chartWidth / 2 + 6} y={y + 12} fontSize={9} className="fill-chart-muted">
+                  inert — {inertReason}
+                </text>
+              )}
+              <rect
+                x={Math.min(x0, x1)}
+                y={y}
+                width={Math.max(2, Math.abs(x1 - x0))}
+                height={16}
+                rx={2}
+                fill="#7dd3fc"
+                stroke="#0284c7"
+                strokeWidth={0.5}
+              />
+              {!bar.inert && (() => {
+                const lowPx = labelWidth + bar.lowX * chartWidth
+                const highPx = labelWidth + bar.highX * chartWidth
+                const lowOnLeft = lowPx <= highPx
+                return (
+                  <>
+                    <text
+                      x={lowOnLeft ? Math.min(x0, x1) - 4 : Math.max(x0, x1) + 4}
+                      y={y + 12}
+                      fontSize={9}
+                      className="fill-chart-muted"
+                      textAnchor={lowOnLeft ? 'end' : 'start'}
+                    >
+                      ↓ {bar.lowLabel}
+                    </text>
+                    <text
+                      x={lowOnLeft ? Math.max(x0, x1) + 4 : Math.min(x0, x1) - 4}
+                      y={y + 12}
+                      fontSize={9}
+                      className="fill-chart-muted"
+                      textAnchor={lowOnLeft ? 'start' : 'end'}
+                    >
+                      ↑ {bar.highLabel}
+                    </text>
+                  </>
+                )
+              })()}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export default function ScenariosPanel({
   schema,
   template,
@@ -66,8 +161,11 @@ export default function ScenariosPanel({
   const [quickScreenScenarios, setQuickScreenScenarios] = useState<Scenario[]>([])
   const [quickScreenLoading, setQuickScreenLoading] = useState(false)
 
-  const fields = flattenFields(schema)
-  const fieldById = new Map(fields.map((f) => [f.id, f]))
+  // Perf (Run 6 wave 2): built once per schema, not on every keystroke.
+  const fieldById = useMemo(
+    () => new Map(flattenFields(schema).map((f) => [f.id, f])),
+    [schema],
+  )
 
   // All tabs stay mounted (see App.tsx), so re-fetch whenever this tab becomes
   // active rather than only once on mount — otherwise a scenario saved from the
@@ -185,19 +283,23 @@ export default function ScenariosPanel({
     })
   }
 
-  const compared = scenarios.filter((s) => compareIds.includes(s.id))
+  // Perf (Run 6 wave 2): the derived comparison lists are memoised so typing
+  // in the scenario name or the tornado controls doesn't rebuild them.
+  const compared = useMemo(
+    () => scenarios.filter((s) => compareIds.includes(s.id)),
+    [scenarios, compareIds],
+  )
   // Differences are shown against one chosen scenario (roadmap #16).
   const [baseId, setBaseId] = useState<string | null>(null)
   const base = compared.find((s) => s.id === baseId) ?? compared[0]
   const baseIndex = base ? compared.indexOf(base) : -1
   const [showAllMetrics, setShowAllMetrics] = useState(false)
-  const headline = headlineIds(compared[0]?.inputs.dealType, isForSaleDeal(compared[0]?.inputs))
-  const orderedOutputs = showAllMetrics
-    ? [
-        ...headline.flatMap((id) => schema.outputs.filter((m) => m.id === id)),
-        ...schema.outputs.filter((m) => !headline.includes(m.id)),
-      ]
-    : headline.flatMap((id) => schema.outputs.filter((m) => m.id === id))
+  const firstInputs = compared[0]?.inputs
+  const orderedOutputs = useMemo(() => {
+    const headline = headlineIds(firstInputs?.dealType, isForSaleDeal(firstInputs))
+    const lead = headline.flatMap((id) => schema.outputs.filter((m) => m.id === id))
+    return showAllMetrics ? [...lead, ...schema.outputs.filter((m) => !headline.includes(m.id))] : lead
+  }, [firstInputs, schema.outputs, showAllMetrics])
 
   // The comparison recomputes each scenario from its own inputs, so every
   // column's numbers are guaranteed to belong to the inputs shown above it.
@@ -221,8 +323,7 @@ export default function ScenariosPanel({
   const [showIdentical, setShowIdentical] = useState(false)
   const comparisonRows = useMemo(
     () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [schema, compareIds.join(','), scenarios],
+    [schema, compared],
   )
 
   // ---- tornado ----
@@ -241,92 +342,10 @@ export default function ScenariosPanel({
     try {
       setTornado(await fetchTornado(scenario.inputs, tornadoMetric))
     } catch (err) {
-      setTornadoError(err instanceof Error ? err.message : 'Tornado analysis failed')
+      setTornadoError(friendlyEngineError(err, 'Tornado analysis failed'))
     } finally {
       setTornadoBusy(false)
     }
-  }
-
-  function TornadoChart({
-    tornado,
-    format,
-  }: {
-    tornado: TornadoResponse
-    format: (v: number) => string
-  }) {
-    const width = 640
-    const rowHeight = 28
-    const labelWidth = 190
-    const chartWidth = width - labelWidth - 70
-    const bars = tornadoGeometry(tornado.bars, tornado.base, format)
-    const height = bars.length * rowHeight + 24
-    return (
-      <div className="mt-3 overflow-x-auto rounded border border-slate-200 bg-white p-3">
-        <div className="mb-1 text-xs text-slate-500">
-          Base {format(tornado.base)} — bar ends show the metric at the down/up perturbation.
-        </div>
-        <svg width={width} height={height} role="img" aria-label="Tornado chart">
-          {/* base line */}
-          <line
-            x1={labelWidth + chartWidth / 2}
-            y1={4}
-            x2={labelWidth + chartWidth / 2}
-            y2={height - 20}
-            stroke="#cbd5e1"
-            strokeDasharray="3 3"
-          />
-          {bars.map((bar, i) => {
-            const y = i * rowHeight + 8
-            const x0 = labelWidth + bar.x0 * chartWidth
-            const x1 = labelWidth + bar.x1 * chartWidth
-            return (
-              <g key={bar.key}>
-                <text x={0} y={y + 13} fontSize={11} fill="#475569">
-                  {bar.label}
-                </text>
-                <rect
-                  x={Math.min(x0, x1)}
-                  y={y}
-                  width={Math.max(2, Math.abs(x1 - x0))}
-                  height={16}
-                  rx={2}
-                  fill="#7dd3fc"
-                  stroke="#0284c7"
-                  strokeWidth={0.5}
-                />
-                {(() => {
-                  const lowPx = labelWidth + bar.lowX * chartWidth
-                  const highPx = labelWidth + bar.highX * chartWidth
-                  const lowOnLeft = lowPx <= highPx
-                  return (
-                    <>
-                      <text
-                        x={lowOnLeft ? Math.min(x0, x1) - 4 : Math.max(x0, x1) + 4}
-                        y={y + 12}
-                        fontSize={9}
-                        fill="#94a3b8"
-                        textAnchor={lowOnLeft ? 'end' : 'start'}
-                      >
-                        ↓ {bar.lowLabel}
-                      </text>
-                      <text
-                        x={lowOnLeft ? Math.max(x0, x1) + 4 : Math.min(x0, x1) - 4}
-                        y={y + 12}
-                        fontSize={9}
-                        fill="#94a3b8"
-                        textAnchor={lowOnLeft ? 'start' : 'end'}
-                      >
-                        ↑ {bar.highLabel}
-                      </text>
-                    </>
-                  )
-                })()}
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-    )
   }
 
   return (
@@ -387,6 +406,7 @@ export default function ScenariosPanel({
               onChange={(e) => setScenarioName(e.target.value)}
               className="rounded border border-slate-300 px-2 py-1 text-sm"
               placeholder="Scenario name"
+              aria-label="Scenario name"
             />
             <button
               onClick={handleSave}
@@ -641,6 +661,7 @@ export default function ScenariosPanel({
             <div className="mt-2 flex items-center gap-2 text-sm">
               <select
                 value={tornadoScenarioId}
+                aria-label="Tornado scenario"
                 onChange={(e) => setTornadoScenarioId(e.target.value)}
                 className="rounded border border-slate-300 px-2 py-1 text-sm"
               >
@@ -653,6 +674,7 @@ export default function ScenariosPanel({
               </select>
               <select
                 value={tornadoMetric}
+                aria-label="Tornado metric"
                 onChange={(e) => setTornadoMetric(e.target.value)}
                 className="rounded border border-slate-300 px-2 py-1 text-sm"
               >

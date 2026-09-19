@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
 import LeaseDrilldown from '../components/LeaseDrilldown'
+import { dealTypeOf } from '../lib/dealStages'
+import { friendlyEngineError } from '../lib/engineErrors'
 import {
   cellValue,
   filterComponent,
@@ -86,7 +88,7 @@ function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
       {rows.map((r) => (
         <g key={r.holdYear}>
           {r.leveredIrr != null && <circle cx={xFor(r.holdYear)} cy={yIrr(r.leveredIrr)} r={2.5} fill="#0284c7" />}
-          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} fill="#64748b" textAnchor="middle">
+          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} className="fill-chart-muted" textAnchor="middle">
             Y{r.holdYear}
           </text>
         </g>
@@ -149,6 +151,7 @@ export default function CashFlowTab({
   const [holdSweep, setHoldSweep] = useState<HoldSweepResponse | null>(null)
   const [holdBusy, setHoldBusy] = useState(false)
   const [holdError, setHoldError] = useState<string | null>(null)
+  const isAcquisition = dealTypeOf({ inputs: values }) === 'acquisition'
 
   async function handleRunHoldSweep() {
     setHoldBusy(true)
@@ -156,7 +159,7 @@ export default function CashFlowTab({
     try {
       setHoldSweep(await fetchHoldSweep(values))
     } catch (err) {
-      setHoldError(err instanceof Error ? err.message : 'Hold sweep failed')
+      setHoldError(friendlyEngineError(err, 'Hold sweep failed'))
     } finally {
       setHoldBusy(false)
     }
@@ -173,6 +176,9 @@ export default function CashFlowTab({
     }
     return result
   }, [statement, expandedYears])
+  // Perf (Run 6 wave 2): the row list only depends on the statement — not on
+  // which years are expanded or the hold-sweep state.
+  const rows = useMemo(() => (statement ? statementRows(statement) : []), [statement])
 
   if (!statement) {
     return (
@@ -190,8 +196,6 @@ export default function CashFlowTab({
       </div>
     )
   }
-
-  const rows = statementRows(statement)
 
   function toggleYear(year: number | null) {
     if (year === null) return
@@ -275,6 +279,7 @@ export default function CashFlowTab({
               {columns.map((column, i) => (
                 <th
                   key={`hdr-${i}`}
+                  scope="col"
                   onClick={() => toggleYear(column.year)}
                   className={`whitespace-nowrap border-b border-slate-300 px-2 py-1.5 text-right font-semibold text-slate-600 ${
                     column.year !== null && column.indices.length > 1
@@ -299,7 +304,7 @@ export default function CashFlowTab({
                       className="font-semibold"
                     >
                       {column.label}
-                      <span className="ml-1 text-slate-300">{expandedYears.has(column.year) ? '▾' : '▸'}</span>
+                      <span className="ml-1 text-slate-300" aria-hidden="true">{expandedYears.has(column.year) ? '▾' : '▸'}</span>
                     </button>
                   ) : (
                     column.label
@@ -472,10 +477,10 @@ export default function CashFlowTab({
                         stroke="#0284c7"
                         strokeWidth={0.5}
                       />
-                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} fill="#475569" textAnchor="middle">
+                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} className="fill-chart-label" textAnchor="middle">
                         {Math.round(row.pctOfRent * 100)}%
                       </text>
-                      <text x={i * 56 + 26} y={102} fontSize={10} fill="#64748b" textAnchor="middle">
+                      <text x={i * 56 + 26} y={102} fontSize={10} className="fill-chart-muted" textAnchor="middle">
                         {row.year}
                       </text>
                     </g>
@@ -512,9 +517,13 @@ export default function CashFlowTab({
         <summary className="cursor-pointer select-none text-sm font-semibold text-slate-600">
           Hold-period &amp; refi analysis
         </summary>
+        {/* Run 6 P2: type-aware framing — an acquisition is stabilized at
+            close, so the sweep runs across the hold and the stabilization
+            fork only applies after a lease-up or value-add. */}
         <p className="mt-1 text-xs text-slate-400">
-          Re-evaluates the deal at every whole exit year after stabilization (modeled hold marked),
-          and compares selling at stabilization vs refinancing and holding.
+          {isAcquisition
+            ? 'Re-evaluates the deal at every whole exit year across the hold (modeled hold marked). The refi-vs-sale fork applies only when the asset stabilizes after close (lease-up or value-add).'
+            : 'Re-evaluates the deal at every whole exit year after stabilization (modeled hold marked), and compares selling at stabilization vs refinancing and holding.'}
         </p>
         <button
           onClick={() => void handleRunHoldSweep()}
@@ -571,7 +580,7 @@ export default function CashFlowTab({
             {(holdSweep.refiVsSale.saleAtStabilization || holdSweep.refiVsSale.holdThroughRefi) && (
               <div>
                 <div className="text-xs font-semibold tracking-wide text-slate-500">
-                  REFI VS SALE AT STABILIZATION
+                  {isAcquisition ? 'REFI VS SALE ONCE STABILIZED' : 'REFI VS SALE AT STABILIZATION'}
                 </div>
                 <table className="mt-1 text-xs">
                   <thead>

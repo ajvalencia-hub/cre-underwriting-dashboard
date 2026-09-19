@@ -127,7 +127,8 @@ export default function Documents({
 
       <div className="mt-6 rounded-md border border-dashed border-slate-300 bg-white p-6 text-center">
         <FileChooser
-          accept=".pdf,.xlsx,.xls,.csv"
+          // .xls (legacy BIFF) is refused by the server — convert to .xlsx first.
+          accept=".pdf,.xlsx,.csv"
           multiple
           description="Rent rolls, T-12s, OMs"
           label="Choose documents…"

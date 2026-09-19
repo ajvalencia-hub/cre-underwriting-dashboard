@@ -21,13 +21,7 @@ const BENCHMARK_DEBOUNCE_MS = 1200
 /** Current index rates rendered as context next to the financing rate input.
  *  Display only — never auto-fills anything. Renders nothing when FRED is
  *  unavailable (no key, offline). */
-function RatesHint() {
-  const [rates, setRates] = useState<MarketRates | null>(null)
-  useEffect(() => {
-    fetchMarketRates()
-      .then(setRates)
-      .catch(() => setRates(null))
-  }, [])
+function RatesHint({ rates }: { rates: MarketRates | null }) {
   if (!rates || rates.dataSource !== 'fred') return null
   const parts = (
     [
@@ -50,13 +44,7 @@ function RatesHint() {
 /** J5: one-click seed of the floating index from FRED's latest SOFR print.
  *  Explicit apply only (like the millage lookup) — never auto-fills. Renders
  *  nothing when FRED is unavailable. */
-function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
-  const [rates, setRates] = useState<MarketRates | null>(null)
-  useEffect(() => {
-    fetchMarketRates()
-      .then(setRates)
-      .catch(() => setRates(null))
-  }, [])
+function SofrSeed({ rates, onApply }: { rates: MarketRates | null; onApply: (rate: number) => void }) {
   const sofr = rates?.dataSource === 'fred' ? rates.rates.sofr : null
   if (typeof sofr !== 'number') return null
   const asOf = rates?.asOf?.sofr
@@ -102,6 +90,18 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
   const visibleSections = orderSections(schema.sections.filter((s) => isVisible(s.visibleWhen, values)))
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult | null>(null)
+  // Run 6 wave 2: ONE market-rates fetch per form mount, shared by the rate
+  // hint and the SOFR seed (each used to fetch on its own, unguarded).
+  const [marketRates, setMarketRates] = useState<MarketRates | null>(null)
+  useEffect(() => {
+    let current = true
+    fetchMarketRates()
+      .then((r) => current && setMarketRates(r))
+      .catch(() => current && setMarketRates(null))
+    return () => {
+      current = false
+    }
+  }, [])
   const [benchmarksLoading, setBenchmarksLoading] = useState(false)
 
   const address = typeof values.address === 'string' ? values.address : ''
@@ -221,7 +221,7 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     hideTemplateOnlyNote={allTemplateOnly}
                     provenance={provenance[field.id]}
                   />
-                  {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'interestRate' && <RatesHint rates={marketRates} />}
                   {field.id === 'analysisStartDate' && (
                     <ClosingDateHint
                       closing={closingDateOf(readCriticalDates(values))}
@@ -230,7 +230,7 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     />
                   )}
                   {field.id === 'currentIndexPct' && (
-                    <SofrSeed onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
+                    <SofrSeed rates={marketRates} onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
                   )}
                   {field.id === 'useReassessedTaxes' && (
                     <PropertyTaxLookup

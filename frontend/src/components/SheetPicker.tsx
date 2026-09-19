@@ -200,6 +200,21 @@ export default function SheetPicker({
                           (mappedTo ? ` — mapped: ${mappedTo}` : '')
                         }
                         onClick={() => pickingLabel && onPick(grid.sheet, cell.ref, cell.isFormula)}
+                        // Run 6 a11y: while picking, each cell is a keyboard
+                        // target (Enter/Space picks it) — the "Go to cell" box
+                        // stays the fast path for far-away cells.
+                        role={pickingLabel ? 'button' : undefined}
+                        tabIndex={pickingLabel ? 0 : undefined}
+                        aria-label={
+                          pickingLabel
+                            ? `Map ${pickingLabel} to ${cell.ref}${cell.isFormula ? ' (formula cell)' : ''}`
+                            : undefined
+                        }
+                        onKeyDown={(e) => {
+                          if (!pickingLabel || (e.key !== 'Enter' && e.key !== ' ')) return
+                          e.preventDefault()
+                          onPick(grid.sheet, cell.ref, cell.isFormula)
+                        }}
                         className={`border border-slate-200 px-2 py-1 whitespace-nowrap ${
                           cell.isFormula ? 'bg-amber-50 text-amber-700' : ''
                         } ${mappedTo ? 'font-medium text-indigo-700 outline outline-1 outline-indigo-300' : ''} ${

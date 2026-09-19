@@ -40,7 +40,12 @@ export default function PortfolioPage({ active }: PortfolioPageProps) {
   useEffect(() => {
     if (!active) return
     fetchPortfolio()
-      .then(setData)
+      .then((next) => {
+        // Run 6: a later success clears an earlier failure (the error used
+        // to stick until a reload).
+        setError(null)
+        setData(next)
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not load portfolio.'))
   }, [active])
 

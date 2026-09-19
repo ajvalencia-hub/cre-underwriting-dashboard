@@ -13,6 +13,7 @@ import {
   statusLine,
 } from '../lib/icWorkflow'
 import { diffSnapshots, formatDiffValue } from '../lib/snapshotDiff'
+import { safeStorage } from '../lib/safeStorage'
 import { toastError } from '../lib/toast'
 import type { InputSchema, OutputMetric } from '../types/schema'
 
@@ -20,11 +21,7 @@ const ACTOR_KEY = 'cre.icActor'
 const SHOWN_CHANGES = 15
 
 function rememberedActor(): string {
-  try {
-    return localStorage.getItem(ACTOR_KEY) ?? ''
-  } catch {
-    return ''
-  }
+  return safeStorage.get(ACTOR_KEY) ?? ''
 }
 
 interface Props {
@@ -79,11 +76,8 @@ export default function IcApprovalPage({
         comment,
         ...(kind === 'submit' ? { requiredApprovals } : {}),
       })
-      try {
-        localStorage.setItem(ACTOR_KEY, actor.trim())
-      } catch {
-        // not remembering the name is harmless
-      }
+      // Not remembering the name is harmless (safeStorage never throws).
+      safeStorage.set(ACTOR_KEY, actor.trim())
       setComment('')
       onSummary(next)
     } catch (err) {
