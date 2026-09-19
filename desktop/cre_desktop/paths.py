@@ -12,6 +12,7 @@ at import time).
 
 import glob
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,13 +47,24 @@ WINDOWS_TOOL_DIRS = [
 ]
 
 
+def _expand_windows_vars(entry: str) -> str:
+    """%VAR% -> its value on any host (os.path.expandvars only understands
+    %VAR% on Windows), and, off Windows, the host's separator for the
+    expanded path so globbing and comparison work in tests. Entries without
+    a variable (C:\\Program Files\\...) are left verbatim."""
+    if "%" not in entry:
+        return entry
+    expanded = re.sub(r"%([^%]+)%", lambda m: os.environ.get(m.group(1), m.group(0)), entry)
+    return expanded if os.sep == "\\" else expanded.replace("\\", os.sep)
+
+
 def external_tool_dirs(platform: str | None = None) -> list[str]:
     platform = platform or sys.platform
     if platform != "win32":
         return list(MAC_TOOL_DIRS)
     dirs: list[str] = []
     for entry in WINDOWS_TOOL_DIRS:
-        expanded = os.path.expandvars(entry)
+        expanded = _expand_windows_vars(entry)
         if "*" in expanded:
             dirs += sorted(glob.glob(expanded), reverse=True)  # newest version first
         else:
