@@ -265,6 +265,13 @@ def _compute(inputs: dict) -> dict:
             sum(components["residential"]["noi"][total : total + 12]) / res_exit_cap
             + sum(components["commercial"]["noi"][total : total + 12]) / com_exit_cap
         )
+    elif inputs.get("exitNoiBasis") == "trailing":
+        # [FIN] Roadmap #24: trailing-12 NOI (the last 12 months of the hold)
+        # for buyers/markets that price on in-place income. Forward remains
+        # the default institutional convention (F2).
+        trailing = ops["noi"][max(0, total - 12) : total]
+        trailing_noi = sum(trailing) * (12 / len(trailing)) if trailing else 0.0
+        terminal_value = trailing_noi / exit_cap
     else:
         terminal_value = forward_noi_12 / exit_cap
     gross_sale_net_of_costs = terminal_value * (1 - cost_of_sale)
@@ -766,7 +773,11 @@ def _compute(inputs: dict) -> dict:
                 )
 
     unlevered[total] += gross_sale_net_of_costs
-    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
+    # [FIN] Roadmap #24: prepayment cost at sale (step-down, or a flat
+    # approximation of defeasance / yield maintenance) as % of the balance
+    # repaid — a financing cost, so levered only.
+    prepayment_cost = exit_debt_balance * _num(inputs, "prepaymentPenaltyPct")
+    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance - prepayment_cost
     levered[total] += net_sale_proceeds
     if net_sale_proceeds < 0:
         warnings.append(
@@ -968,6 +979,8 @@ def _compute(inputs: dict) -> dict:
 
     put("terminalValue", terminal_value)
     put("netSaleProceeds", net_sale_proceeds)
+    if prepayment_cost > 0:
+        put("prepaymentCost", prepayment_cost)
     put("totalProfit", sum(levered))
 
     # [FIN] Value-add: the basis carries the full renovation budget, so the

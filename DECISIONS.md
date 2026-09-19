@@ -178,6 +178,16 @@ stated reason.
   `growDuringConstruction` (development only) trends them from close,
   implemented as an offset on the single growth-clock helper, set per
   compute like the analysis calendar. Baseline: key-only additions.
+- **[FIN] Exit mechanics** (roadmap #24). `exitNoiBasis = trailing` caps
+  the last 12 months of the hold instead of the forward 12 (forward stays
+  the default, F2). `prepaymentPenaltyPct` charges that share of the loan
+  balance repaid at sale — a step-down, or a flat approximation of
+  defeasance / yield maintenance — as a financing cost (levered only;
+  reported as `prepaymentCost`). Rejected: a full yield-maintenance
+  calculator (needs a Treasury curve the app doesn't have). Exit on NOI
+  after reserves already exists (reservesConvention =
+  above_noi_underwritten). The Excel export refuses trailing exits,
+  prepayment costs and growth during construction. Baseline unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

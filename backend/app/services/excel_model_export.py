@@ -133,6 +133,12 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("per-unit / PSF replacement reserves (convention-dependent placement)")
     if _num(inputs, "monthsOfTaxesAndInsurance") > 0:
         features.append("tax & insurance escrows (close/exit cash timing)")
+    if inputs.get("exitNoiBasis") == "trailing":
+        features.append("exit value on trailing NOI (the workbook caps forward NOI)")
+    if _num(inputs, "prepaymentPenaltyPct") > 0:
+        features.append("prepayment cost at sale")
+    if inputs.get("dealType") == "development" and inputs.get("growDuringConstruction"):
+        features.append("growth during construction (the workbook grows from delivery)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(
