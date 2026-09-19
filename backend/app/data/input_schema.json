@@ -405,7 +405,8 @@
             { "id": "escalationMonths", "label": "Esc. Interval (mo)", "type": "number" },
             { "id": "recoveryType", "label": "Recovery", "type": "select", "options": ["gross", "NNN", "base_year_stop", "fixed_psf"] },
             { "id": "recoveryValue", "label": "Fixed Recovery PSF/yr", "type": "currency" },
-            { "id": "freeRentMonths", "label": "Free Rent (mo)", "type": "number" }
+            { "id": "freeRentMonths", "label": "Free Rent (mo)", "type": "number" },
+            { "id": "leasingProfile", "label": "Leasing Profile (blank = deal assumptions)", "type": "text" }
           ] },
         { "id": "renewalProbability", "label": "Renewal Probability", "type": "percent", "min": 0, "max": 1, "default": 0.7 },
         { "id": "downtimeMonths", "label": "Re-let Downtime (mo)", "type": "number", "min": 0, "max": 36, "default": 6 },
@@ -423,6 +424,22 @@
         { "id": "grossUpToPct", "label": "Gross Up Base-Year Opex To (% occupancy, blank = off; needs opex detail)", "type": "percent", "min": 0.5, "max": 1,
           "visibleWhen": { "all": [{ "field": "opexLineItems", "notEmpty": true }] } },
         { "id": "reletCapitalAtCommencement", "label": "Charge Re-let TI/LC at Commencement (vs expiry+1)", "type": "boolean", "default": false },
+        { "id": "marketLeasingProfiles", "label": "Market Leasing Profiles (per space type; blank cells use the deal assumptions above)", "type": "table",
+          "columns": [
+            { "id": "profileName", "label": "Profile", "type": "text" },
+            { "id": "marketRentPsf", "label": "Market Rent PSF/yr", "type": "currency" },
+            { "id": "marketRentGrowthPct", "label": "Market Rent Growth", "type": "percent" },
+            { "id": "renewalProbability", "label": "Renewal Prob.", "type": "percent" },
+            { "id": "downtimeMonths", "label": "Downtime (mo)", "type": "number" },
+            { "id": "newTermYears", "label": "New Term (yrs)", "type": "number" },
+            { "id": "freeRentMonthsNew", "label": "Free Rent New (mo)", "type": "number" },
+            { "id": "freeRentMonthsRenewal", "label": "Free Rent Renewal (mo)", "type": "number" },
+            { "id": "tiNewPsf", "label": "TI New PSF", "type": "currency" },
+            { "id": "tiRenewalPsf", "label": "TI Renewal PSF", "type": "currency" },
+            { "id": "lcNewPct", "label": "LC New", "type": "percent" },
+            { "id": "lcRenewalPct", "label": "LC Renewal", "type": "percent" },
+            { "id": "renewalRentPsfDiscountPct", "label": "Renewal Rent (x market)", "type": "percent" }
+          ] },
         { "id": "adminFeePct", "label": "CAM Admin Fee (markup on NNN / base-year recoveries)", "type": "percent", "min": 0, "max": 0.25, "default": 0 },
         { "id": "mgmtFeeRecoverable", "label": "Management Fee Recoverable", "type": "boolean", "default": false },
         { "id": "mgmtRecoveryCapPct", "label": "Mgmt Recovery Cap (% of EGI, blank = uncapped)", "type": "percent", "min": 0, "max": 0.1,

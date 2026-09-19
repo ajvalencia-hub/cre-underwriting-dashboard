@@ -136,7 +136,8 @@ export const FIELD_HELP: Record<string, string> = {
   otherFeeIncome: 'Annual fee income (pets, applications, late fees…), year 1 dollars.',
 
   // Commercial rent roll
-  commercialLeases: 'Lease-by-lease rent roll: area, dates, rent per SF per year, escalations, recoveries and free rent.',
+  commercialLeases: 'Lease-by-lease rent roll: area, dates, rent per SF per year, escalations, recoveries and free rent. Name a leasing profile to roll a lease over on that profile instead of the deal assumptions.',
+  marketLeasingProfiles: 'Rollover assumptions per space type (anchor, inline, office floor…). A lease uses the profile named in its Leasing Profile column; blank cells here keep the deal assumptions.',
   renewalProbability: 'Chance a tenant renews at expiry. Rollover income blends renewal and re-let outcomes by this probability.',
   downtimeMonths: 'Months a space sits empty before a new tenant (re-let path only).',
   freeRentMonthsNew: 'Free rent for a new tenant after downtime, in months (base rent only).',

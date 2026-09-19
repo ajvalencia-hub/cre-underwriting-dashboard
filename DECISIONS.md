@@ -260,6 +260,21 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **[FIN] Market leasing profiles** (roadmap #27). ARGUS-style market
+  leasing assumptions per space type: a `marketLeasingProfiles` table whose
+  rows may override any deal-level rollover input (market rent and growth,
+  renewal probability, downtime, new term, free rent, TI, LC, renewal
+  spread); a blank cell keeps the deal's value, so a profile can differ in
+  one assumption only. A lease opts in through its Leasing Profile column
+  (matched case- and space-insensitively; an unknown name warns and uses
+  the deal assumptions). Everything downstream of the rollover — the
+  probability-weighted timeline, leasing capital, and the gross-up
+  occupancy projection — reads the lease's own assumptions. Deals without
+  profiles are byte-identical (regression baseline; the per-lease drill-down
+  gains a `leasingProfile` key only when one is set). The Excel export
+  already refuses lease-level deals. Rejected: a select column of profile
+  names (schema options are static) and per-profile general vacancy (it's
+  a property-level haircut, as in ARGUS).
 - **Investment-committee sign-off** (roadmap #28; owner chose local
   sign-off over accounts and logins). An append-only IcEvent log per deal
   (submit, approve, reject, return, reopen, comment: who, when, why); the

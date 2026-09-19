@@ -82,7 +82,37 @@ ROLLOVER_DEFAULTS = {
 }
 
 
-def _rollover_assumptions(inputs: dict) -> dict:
+# Roadmap #27: a market leasing profile row may override any of these
+# deal-level rollover inputs (ARGUS "market leasing assumptions"); a blank
+# cell keeps the deal's value.
+PROFILE_FIELDS = (
+    "marketRentPsf", "marketRentGrowthPct", "renewalProbability", "downtimeMonths",
+    "newTermYears", "tiNewPsf", "tiRenewalPsf", "lcNewPct", "lcRenewalPct",
+    "freeRentMonthsNew", "freeRentMonthsRenewal", "renewalRentPsfDiscountPct",
+)
+
+
+def _profile_key(name) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def leasing_profiles(inputs: dict) -> dict[str, dict]:
+    """Named market leasing profiles, keyed case- and space-insensitively;
+    the first row wins a repeated name."""
+    profiles: dict[str, dict] = {}
+    for row in inputs.get("marketLeasingProfiles") or []:
+        if isinstance(row, dict) and _profile_key(row.get("profileName")):
+            profiles.setdefault(_profile_key(row.get("profileName")), row)
+    return profiles
+
+
+def _rollover_assumptions(inputs: dict, profile: dict | None = None) -> dict:
+    if profile:
+        inputs = {
+            **inputs,
+            **{f: profile[f] for f in PROFILE_FIELDS if isinstance(profile.get(f), (int, float))
+               and not isinstance(profile.get(f), bool)},
+        }
     # Renewal rent spread (I2): renewal-path rent = discount x market. A
     # missing/zero value means 1.0 (no spread) — 0 would silently zero the
     # renewal rent.
@@ -153,7 +183,7 @@ def _annual_recoverable_by_calendar_year(
 
 
 def _occupancy_projection(
-    lease_rows: list[dict], rollover: dict, months: int, total_sf: float
+    lease_rows: list[dict], rollover: dict, months: int, total_sf: float, rollover_of=None
 ) -> list[float]:
     """Occupancy vector from lease terms only (contract months full,
     downtime months at renewal probability, speculative terms full) — the
@@ -161,10 +191,12 @@ def _occupancy_projection(
     (I3), which needs occupancy BEFORE recoveries exist. A drift-guard test
     asserts this matches build_lease_income()['occupancy'] exactly."""
     occupied = [0.0] * months
-    p = rollover["renewalProbability"]
-    downtime = rollover["downtimeMonths"]
-    term_months = rollover["newTermYears"] * 12
     for lease in lease_rows:
+        # Per-lease assumptions when leases carry profiles (roadmap #27).
+        lease_rollover = rollover_of(lease) if rollover_of else rollover
+        p = lease_rollover["renewalProbability"]
+        downtime = lease_rollover["downtimeMonths"]
+        term_months = lease_rollover["newTermYears"] * 12
         sf = _num(lease, "sf")
         start_date = _parse_date(lease.get("startDate"))
         end_date = _parse_date(lease.get("endDate"))
@@ -237,7 +269,21 @@ def build_lease_income(
         l for l in (inputs.get("commercialLeases") or [])
         if isinstance(l, dict) and _num(l, "sf") > 0 and _num(l, "baseRentPsfAnnual") > 0
     ]
-    rollover = _rollover_assumptions(inputs)
+    deal_rollover = _rollover_assumptions(inputs)
+    profiles = leasing_profiles(inputs)
+    profile_rollovers = {key: _rollover_assumptions(inputs, row) for key, row in profiles.items()}
+    unknown_profiles: set[str] = set()
+
+    def rollover_of(lease: dict) -> dict:
+        """The lease's market leasing profile, or the deal's assumptions."""
+        name = lease.get("leasingProfile")
+        if not _profile_key(name):
+            return deal_rollover
+        found = profile_rollovers.get(_profile_key(name))
+        if found is None:
+            unknown_profiles.add(str(name).strip())
+            return deal_rollover
+        return found
 
     scheduled = [0.0] * months
     collected = [0.0] * months
@@ -256,7 +302,7 @@ def build_lease_income(
     # the raw pool (actual expenses are what they are).
     annual_recoverable_stop = annual_recoverable
     if gross_up_to is not None and gross_up_to > 0 and variable_recoverable_monthly:
-        projected_occupancy = _occupancy_projection(leases, rollover, months, total_sf)
+        projected_occupancy = _occupancy_projection(leases, deal_rollover, months, total_sf, rollover_of)
         adjusted_pool = _grossed_up_pool(
             recoverable_opex_monthly, variable_recoverable_monthly,
             projected_occupancy, gross_up_to,
@@ -290,16 +336,16 @@ def build_lease_income(
             return _num(lease, "recoveryValue") * _num(lease, "sf") / 12
         return 0.0  # gross
 
-    p = rollover["renewalProbability"]
-    downtime = rollover["downtimeMonths"]
-    new_term_months = rollover["newTermYears"] * 12
-
     total_annual_in_place = 0.0
     expiration_by_year: dict[int, dict] = {}
     walt_weighted = 0.0
     per_lease: list[dict] = []  # I8: drill-down slices, one per rent-roll row
 
     for lease_index, lease in enumerate(leases):
+        rollover = rollover_of(lease)
+        p = rollover["renewalProbability"]
+        downtime = rollover["downtimeMonths"]
+        new_term_months = rollover["newTermYears"] * 12
         sf = _num(lease, "sf")
         share = sf / total_sf if total_sf > 0 else 0.0
         slice_scheduled = [0.0] * months
@@ -357,6 +403,9 @@ def build_lease_income(
                 "sf": sf,
                 "recoveryType": lease.get("recoveryType") or "gross",
                 "endDate": str(lease.get("endDate") or ""),
+                # Only when set, so deals without profiles are unchanged.
+                **({"leasingProfile": str(lease["leasingProfile"]).strip()}
+                   if _profile_key(lease.get("leasingProfile")) else {}),
                 "scheduledRent": slice_scheduled,
                 "freeRent": slice_free,
                 "downtimeLoss": slice_downtime,
@@ -469,6 +518,12 @@ def build_lease_income(
             generation_start = gen_end + 1
 
         _finish_lease(rollover_events)
+
+    for name in sorted(unknown_profiles):
+        warnings.append(
+            f"No market leasing profile is named '{name}' — its leases roll over on the deal's "
+            "own leasing assumptions."
+        )
 
     walt = walt_weighted / total_sf if total_sf > 0 else 0.0
     occupancy = [
