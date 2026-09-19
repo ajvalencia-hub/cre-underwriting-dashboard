@@ -190,6 +190,7 @@ def compute(inputs: dict) -> dict:
     noi = ops["noi"][:total]
     forward_noi_12 = sum(ops["noi"][total : total + 12])
     stabilized_noi = operations.stabilized_annual_noi(inputs)
+    in_place_stabilized_noi = stabilized_noi  # before the reserves adjustment
 
     # J6: replacement reserves — ONE dollar vector; the convention changes
     # only where the line sits. above_noi_underwritten folds it into opex
@@ -858,7 +859,17 @@ def compute(inputs: dict) -> dict:
     put("netSaleProceeds", net_sale_proceeds)
     put("totalProfit", sum(levered))
 
-    yield_on_cost = stabilized_noi / total_cost_basis if total_cost_basis > 0 else None
+    # [FIN] Value-add: the basis carries the full renovation budget, so the
+    # numerator is the untrended NOI once the program is complete (it used to
+    # be in-place NOI, so a renovation LOWERED yield on cost). Same reserves
+    # deduction as stabilized_noi. Debt sizing stays in-place (J1).
+    yoc_noi = stabilized_noi
+    post_reno_noi, post_reno_warning = operations.post_renovation_stabilized_noi(inputs)
+    if post_reno_warning:
+        warnings.append(post_reno_warning)
+    if post_reno_noi is not None:
+        yoc_noi = post_reno_noi - (in_place_stabilized_noi - stabilized_noi)
+    yield_on_cost = yoc_noi / total_cost_basis if total_cost_basis > 0 else None
     put("yieldOnCost", yield_on_cost)
     # Per-component yield on cost (H2): basis allocated pro-rata to component
     # value at the component caps (blended cap when unset). See DECISIONS.md.

@@ -77,9 +77,11 @@ def test_hand_computed_rent_and_capex_vectors():
 
 def test_budget_joins_basis_and_yoc_denominator():
     base = engine.compute(reno_deal())
-    # yieldOnCost = stabilized in-place NOI / (price + 200k budget).
-    stab_noi = 20 * 1_000 * 12 - 60_000  # 180,000 (vacancy 0)
-    assert base["outputs"]["yieldOnCost"] == pytest.approx(stab_noi / 2_600_000)
+    # yieldOnCost = post-renovation untrended NOI / (price + 200k budget).
+    # (It was in-place NOI 180,000 before the engine-audit fix, so the
+    # program lowered yield on cost.)
+    post_reno_noi = 20 * (1_000 + 150) * 12 - 60_000  # 216,000 (vacancy 0)
+    assert base["outputs"]["yieldOnCost"] == pytest.approx(post_reno_noi / 2_600_000)
 
 
 def test_equity_at_close_vs_operating_cash_timing():

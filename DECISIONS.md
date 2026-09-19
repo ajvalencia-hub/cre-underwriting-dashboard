@@ -47,6 +47,17 @@ stated reason.
   input used to set both the construction LTC and the perm LTV, so a 60%
   LTC build couldn't refi into a 70% LTV perm. Acquisitions (one loan)
   ignore it. Baseline unchanged (blank everywhere).
+- **[FIN] Value-add yield on cost uses post-renovation, untrended NOI.**
+  The basis already carried the full renovation budget (J1) but the
+  numerator was in-place NOI, so a program that raises rents LOWERED yield
+  on cost (hand case: 12.00% -> 11.43% with a $100 premium; now 12.57%).
+  The numerator is the 12 months after the program completes, with every
+  growth rate zeroed (today's rents + delivered premiums), less the same
+  reserves deduction as the in-place figure. Debt sizing stays in-place
+  (J1: lenders size on in-place). Deals without a program are unchanged;
+  a program that doesn't finish within 20 years falls back to in-place
+  with a warning. Baseline unchanged (no baseline case has a program);
+  test_renovation's hand expectation updated from 180,000 to 216,000 NOI.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

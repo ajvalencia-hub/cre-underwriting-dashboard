@@ -1116,6 +1116,40 @@ def reserves_vector(
     return vec, annual, warnings
 
 
+_UNTRENDED = {
+    "rentGrowthMode": "flat", "rentGrowthPct": 0.0,
+    "expenseGrowthMode": "flat", "expenseGrowthPct": 0.0,
+    "marketRentGrowthPct": 0.0, "nonAdValoremGrowthPct": 0.0, "reassessedTaxGrowthPct": 0.0,
+}
+_RENO_SEARCH_MONTHS = 240
+
+
+def post_renovation_stabilized_noi(inputs: dict) -> tuple[float | None, str | None]:
+    """Untrended NOI for the 12 months after a value-add renovation program
+    completes (today's rents plus the delivered premiums, no growth) — the
+    yield-on-cost numerator for a value-add deal, whose denominator already
+    carries the full renovation budget. Returns (None, None) without a
+    program, and (None, warning) when it doesn't finish within 20 years."""
+    if not has_renovation_program(inputs):
+        return None, None
+    untrended = {**inputs, **_UNTRENDED}
+    ops = build_noi_vector(untrended, Timeline(_RENO_SEARCH_MONTHS, 0, 0, 1))
+    reno = ops.get("renovation")
+    if reno is None:
+        return None, None
+    active = [
+        m for m in range(_RENO_SEARCH_MONTHS)
+        if reno["unitsInProgress"][m] > 0 or reno["unitsRemaining"][m] > 0
+    ]
+    done = (active[-1] + 1) if active else 0
+    if done + 12 > _RENO_SEARCH_MONTHS:
+        return None, (
+            "The renovation program doesn't finish within 20 years — yield on "
+            "cost uses in-place NOI."
+        )
+    return sum(ops["noi"][done : done + 12]), None
+
+
 def stabilized_annual_noi(inputs: dict) -> float:
     """Stabilized-year NOI at today's rents (no growth): the sizing/exit basis
     when the deal's own vectors haven't stabilized. Mirrors one stabilized
