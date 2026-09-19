@@ -303,7 +303,17 @@ function App() {
   // inactive deal merges server-side directly.
   async function handleSetDealType(dealId: string, type: DealType) {
     if (dealId === activeDealId) {
+      // The schema defaults dealType to 'acquisition', so an untyped deal's
+      // hydrated form may already hold the chosen value and the autosave
+      // would see no diff and never persist it. Force this explicit choice
+      // through.
+      lastPersistedJsonRef.current = ''
       handleFieldChange('dealType', type)
+      // The autosave persists it but never touches `deals`, which the
+      // pipeline boards read — mirror it locally so the deal moves boards now.
+      setDeals((prev) =>
+        prev.map((d) => (d.id === dealId ? { ...d, inputs: { ...d.inputs, dealType: type } } : d)),
+      )
       return
     }
     const deal = deals.find((d) => d.id === dealId)
@@ -805,11 +815,17 @@ function App() {
             void switchDeal(dealId).then(() => setTab('dashboard'))
           }}
           onStatusChange={(dealId, status) => {
-            void updateDeal(dealId, { status }).then((updated) =>
-              setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
-            )
+            // Flush first: the response replaces the local deal, so a pending
+            // autosave (e.g. a dealType just assigned) would otherwise be
+            // clobbered by the stale server copy.
+            void autosaverRef.current!.flush()
+              .then(() => updateDeal(dealId, { status }))
+              .then((updated) =>
+                setDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d))),
+              )
           }}
           onBulkStatus={async (dealIds, status) => {
+            await autosaverRef.current!.flush()
             const { updated } = await bulkUpdateDealStatus(dealIds, status)
             const byId = new Map(updated.map((d) => [d.id, d]))
             setDeals((prev) => prev.map((d) => byId.get(d.id) ?? d))
