@@ -66,6 +66,7 @@ import { MULTI_DEAL_TABS, loadLastTab, rememberTab, type Tab } from './app/navig
 import ModuleNav from './components/ModuleNav'
 import DealHeaderBar from './components/DealHeaderBar'
 import DealImportNotices from './components/DealImportNotices'
+import { buildPaletteCommands } from './app/paletteCommands'
 
 type LoadState =
   | { status: 'loading' }
@@ -767,6 +768,27 @@ function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
+        commands={
+          // Built only while open: every field of the schema, on every render.
+          paletteOpen
+            ? buildPaletteCommands(
+                schema,
+                formValues,
+                setTab,
+                (fieldId) => {
+                  setTab('dashboard')
+                  requestAnimationFrame(() => goToField(fieldId))
+                },
+                {
+                  compute: computeNow,
+                  newDeal: (type) => void handleNewDeal(type),
+                  newDealFromDocuments: () => setOmWizardOpen(true),
+                  exportDeal: () => void handleExportDeal(),
+                  openDates: () => setDatesEditorOpen(true),
+                },
+              )
+            : []
+        }
         onNavigate={(item, kind) => {
           // Deals/tenants/notes deep-link to their deal's dashboard; comps
           // (global, no dealId) open the Comps tab.

@@ -73,7 +73,7 @@ DECISIONS.md under "Engine audit fixes".
 | 27 | **Market leasing profiles per tenant or space type** | ARGUS-style market leasing assumptions; today there is one global rollover profile | M–L |
 | 28 | **Investment committee workflow** | Approvals, sign-off, change log with reasons, several users (Dealpath and Rockport VAL audit trail) | L |
 | 29 | **Market data feeds for comps** | CoStar, CompStak or MSCI integrations; licensing-dependent | L |
-| 30 | **⌘K for fields, tabs and actions** | Linear-style: Compute, Generate, or jump to any field | M |
+| 30 | ~~**⌘K for fields, tabs and actions**~~ **Done** | Linear-style: Compute, Generate, or jump to any field | M |
 | 31 | **Signing, notarization and auto-update for the desktop app** | Previously out of scope; needed before wider distribution (Developer ID with hardened runtime, then Sparkle) | L |
 | 32 | ~~**Engineering hygiene**~~ **Done** (f4ae14b, d515893, ad3d73b, ef4b8e7, e088d0b, and the CI job) | Split `App.tsx` (1,226 lines), add ruff and mypy, share test cases between the TypeScript Quick Screen math and the engine, add property-based input tests, SQLite WAL and `busy_timeout`, and build the `.app` plus its self-test in CI | M |
 

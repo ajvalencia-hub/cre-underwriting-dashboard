@@ -122,3 +122,23 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.getByText('ASSUMPTION PRESETS')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Input history' })).toBeVisible()
 })
+
+test('command palette jumps to a field and runs Compute', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('select').first()).toBeVisible()
+
+  // Roadmap #30: ⌘K → a Deal Inputs field by name → focused on its tab.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('textbox', { name: 'Command or search' }).fill('exit cap')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Deal Inputs', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('#field-exitCapRatePct input').first()).toBeFocused()
+
+  // ⌘K → "compute" runs the pro forma: the summary reports a current result
+  // or, for a deal still missing inputs, the failed compute naming them.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('textbox', { name: 'Command or search' }).fill('compute')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeHidden()
+  await expect(page.getByText(/^(Current|Last compute failed\.)$/).first()).toBeVisible({ timeout: 20_000 })
+})
