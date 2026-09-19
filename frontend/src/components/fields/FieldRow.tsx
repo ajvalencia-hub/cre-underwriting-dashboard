@@ -6,6 +6,7 @@ import KeyValueField from './KeyValueField'
 import ScalarInput from './ScalarInput'
 import TableField from './TableField'
 import { describeProvenance, type FieldProvenance } from '../../lib/provenance'
+import { FIELD_HELP } from '../../lib/fieldHelp'
 
 export interface FieldIndicator {
   verdict: 'caution' | 'warning'
@@ -36,10 +37,14 @@ export default function FieldRow({ field, value, onChange, indicator, hideTempla
   const isWide = field.type === 'table' || field.type === 'keyvalue' || field.type === 'multiselect'
   const isScalar = !isWide
   const inputId = `input-${field.id}`
+  const help = FIELD_HELP[field.id]
+  const [helpOpen, setHelpOpen] = useState(false)
+  const helpId = `help-${field.id}`
 
   return (
     <div id={fieldDomId(field.id)} className="rounded py-2 transition-colors" onBlur={() => setTouched(true)}>
-      <label className="block text-xs font-medium text-slate-600" htmlFor={isScalar ? inputId : undefined}>
+      <div className="flex items-center">
+      <label className="text-xs font-medium text-slate-600" htmlFor={isScalar ? inputId : undefined}>
         {field.label}
         {field.required && <span className="text-red-400"> *</span>}
         {provenance && (
@@ -63,6 +68,25 @@ export default function FieldRow({ field, value, onChange, indicator, hideTempla
           </span>
         )}
       </label>
+      {(help || indicator) && (
+        <button
+          type="button"
+          aria-expanded={helpOpen}
+          aria-controls={helpId}
+          aria-label={`About ${field.label}`}
+          onClick={() => setHelpOpen((v) => !v)}
+          className="ml-1 align-middle text-[11px] text-slate-500 hover:text-slate-700"
+        >
+          ⓘ
+        </button>
+      )}
+      </div>
+      {helpOpen && (
+        <div id={helpId} className="mt-0.5 max-w-md text-xs text-slate-600">
+          {help}
+          {indicator && <div className="mt-0.5 text-amber-700">⚠ {indicator.explanation}</div>}
+        </div>
+      )}
       <div className={`mt-1 ${isWide ? '' : 'max-w-xs'}`}>
         {field.type === 'table' && (
           <TableField
