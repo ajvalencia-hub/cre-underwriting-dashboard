@@ -100,6 +100,23 @@ self-test on the signed app, then notarizes and staples. `SIGN_IDENTITY=-`
 makes a local ad-hoc signature to test the hardened runtime without an
 account (not distributable).
 
+### Publishing an update
+
+The app checks GitHub Releases for this repository at launch (at most once
+a day; Settings → Updates turns it off or checks now) and offers a newer
+version's download. It sends nothing but its version in the User-Agent and
+never installs anything itself. To publish one:
+
+1. Bump `VERSION` in `desktop/cre_desktop/version.py` (e.g. `1.1.0`).
+2. Build (signed, ideally) with `desktop/build_mac.sh`.
+3. Publish a release tagged with the same version and the zip attached:
+
+```bash
+gh release create v1.1.0 desktop/dist/CRE-Underwriting-mac.zip --title "CRE Underwriting 1.1.0" --notes "What changed"
+```
+
+Earlier versions then show a banner with Download, What's new and Not now.
+
 To run the desktop shell from source without building, first run
 `npm run build` in `frontend/`, then run
 `desktop/.venv/bin/python desktop/launcher.py`.

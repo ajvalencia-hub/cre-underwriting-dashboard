@@ -271,9 +271,19 @@ stated reason.
   and talks to the backend under the hardened runtime (ad-hoc needs
   disable-library-validation too, since it has no Team ID; a Developer ID
   build doesn't). Not verifiable here: notarization itself (needs the
-  owner's Apple account). Auto-update is not started — Sparkle is a new
-  native dependency and needs a hosted appcast; an update check against
-  GitHub Releases is the lighter alternative (owner to choose).
+  owner's Apple account).
+- **Update check** (roadmap #31, part 2; owner chose it over Sparkle). The
+  desktop shell asks api.github.com for this repo's latest release
+  (User-Agent with the version, nothing else) at launch at most once a day,
+  caches the answer in desktop-settings.json, and the UI shows a
+  dismissible banner (per release tag) with Download (the zip asset, else
+  the release page) and What's new, opened in the browser. Settings →
+  Updates shows the version, a "Check now" and an off switch (off = no
+  request at all). Tags compare as vMAJOR.MINOR.PATCH against
+  cre_desktop/version.py, which the build also writes into Info.plist.
+  Network errors are reported in Settings, never in the way at launch.
+  Rejected: Sparkle (native framework, appcast hosting, update signing
+  keys) and in-app installation.
 - **[FIN] Build-to-sell homes** (roadmap #26): its own cash flow
   (services/proforma/for_sale.py) for single-family / townhouse
   developments with "Model as For-Sale" on and a sale price entered —

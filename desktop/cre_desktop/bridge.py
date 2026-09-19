@@ -17,7 +17,7 @@ from pathlib import Path
 
 import webview
 
-from . import keys
+from . import keys, updates
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +185,23 @@ class DesktopBridge:
         self._write_settings(settings)
         self._restart_needed = True
         return self.get_settings()
+
+    # --- updates (roadmap #31) ---------------------------------------------
+
+    def check_for_updates(self, force: bool = False) -> dict:
+        """Is a newer release on GitHub? At launch at most once a day and
+        only when enabled; `force` is Settings' "Check now"."""
+        if not self._from_app():
+            return {"error": "Not available on this page."}
+        result, settings = updates.check(self._read_settings(), force=bool(force))
+        self._write_settings(settings)
+        return result
+
+    def set_update_checks(self, enabled: bool) -> dict:
+        if not self._from_app():
+            return {"error": "Not available on this page."}
+        self._write_settings({**self._read_settings(), "checkForUpdates": bool(enabled)})
+        return {"enabled": bool(enabled), "currentVersion": updates.VERSION}
 
     def restart(self) -> None:
         """Quit and relaunch so Keychain keys / tool folder take effect."""

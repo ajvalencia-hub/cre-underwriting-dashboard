@@ -68,6 +68,7 @@ import { MULTI_DEAL_TABS, loadLastTab, rememberTab, type Tab } from './app/navig
 import ModuleNav from './components/ModuleNav'
 import DealHeaderBar from './components/DealHeaderBar'
 import DealImportNotices from './components/DealImportNotices'
+import UpdateBanner from './components/UpdateBanner'
 import { buildPaletteCommands } from './app/paletteCommands'
 import { isLockedField } from './lib/icWorkflow'
 import { isForSaleDeal } from './lib/headlineMetrics'
@@ -746,6 +747,7 @@ function App() {
           the bar; z-30 sits above the statement's sticky cells (z-10) and
           below modals (z-50). */}
       <div data-app-header className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
+        {isDesktop() && <UpdateBanner />}
         <DealHeaderBar
           deals={deals}
           activeDealId={activeDealId}

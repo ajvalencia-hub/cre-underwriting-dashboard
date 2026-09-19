@@ -18,6 +18,17 @@ export interface DesktopSettings {
   dataFolder: string
 }
 
+/** Roadmap #31: result of the GitHub Releases check (desktop/cre_desktop/updates.py). */
+export interface UpdateCheckResult {
+  status: 'available' | 'current' | 'noReleases' | 'unknown' | 'off' | 'error'
+  currentVersion: string
+  enabled: boolean
+  releasesPage: string
+  checkedAt?: number
+  error?: string
+  latest?: { tag: string; url: string; zipUrl: string | null; publishedAt: string | null }
+}
+
 export interface DesktopApi {
   pick_files(options: { accept: string[]; multiple: boolean; description: string }): Promise<DesktopPickResult>
   save_file(options: { suggestedName: string; base64: string }): Promise<DesktopSaveResult>
@@ -30,6 +41,9 @@ export interface DesktopApi {
   restart(): Promise<void>
   open_external(url: string): Promise<void>
   set_unsaved(unsaved: boolean): Promise<void>
+  /** Absent in builds before the update check. */
+  check_for_updates?(force: boolean): Promise<UpdateCheckResult | { error: string }>
+  set_update_checks?(enabled: boolean): Promise<{ enabled: boolean; currentVersion: string } | { error: string }>
 }
 
 declare global {

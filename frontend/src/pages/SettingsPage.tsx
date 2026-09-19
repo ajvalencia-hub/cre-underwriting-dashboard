@@ -13,7 +13,8 @@ import {
   type ExternalToolsStatus,
   type IntegrationStatus,
 } from '../lib/api'
-import { isDesktop } from '../lib/platform'
+import { isDesktop, openExternal, type UpdateCheckResult } from '../lib/platform'
+import { checkForUpdates, describeUpdateCheck, setUpdateChecks } from '../lib/updateCheck'
 import { useDesktopSettings } from '../lib/useDesktopSettings'
 import { loadThemePref, setThemePref, type ThemePref } from '../lib/uiPrefs'
 
@@ -114,6 +115,64 @@ function AutomaticBackupLine({ status }: { status: AutomaticBackupStatus }) {
       Last automatic backup check: {when} —{' '}
       {status.result?.startsWith('skipped') ? 'a recent daily snapshot already existed' : `saved ${status.result}`}.
     </div>
+  )
+}
+
+/** Roadmap #31: the desktop update check — version, on/off, check now. */
+function UpdatesSection() {
+  const [result, setResult] = useState<UpdateCheckResult | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  useEffect(() => {
+    // The cached answer (no request unless a day has passed and it's on).
+    checkForUpdates(false).then(setResult).catch(() => setResult(null))
+  }, [])
+
+  async function checkNow() {
+    setChecking(true)
+    try {
+      setResult(await checkForUpdates(true))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function toggle(enabled: boolean) {
+    if (await setUpdateChecks(enabled)) setResult((r) => (r ? { ...r, enabled } : r))
+  }
+
+  if (!result) return null
+  return (
+    <Section title="UPDATES">
+      <p className="text-xs text-slate-600">
+        {describeUpdateCheck(result)}
+        {result.status === 'available' && result.latest && (
+          <button
+            onClick={() => openExternal(result.latest?.zipUrl ?? result.latest?.url ?? result.releasesPage)}
+            className="ml-2 underline"
+          >
+            Download
+          </button>
+        )}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs text-slate-700">
+          <input type="checkbox" checked={result.enabled} onChange={(e) => void toggle(e.target.checked)} />
+          Check for updates when the app starts (once a day)
+        </label>
+        <button
+          onClick={() => void checkNow()}
+          disabled={checking}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {checking ? 'Checking…' : 'Check now'}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Asks GitHub for the latest release; nothing about you or your deals is sent, and the app never installs
+        anything itself.
+      </p>
+    </Section>
   )
 }
 
@@ -312,6 +371,8 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           </p>
         )}
       </Section>
+
+      {desktop && <UpdatesSection />}
 
       {desktopSettings && (
         <Section title="DATA">

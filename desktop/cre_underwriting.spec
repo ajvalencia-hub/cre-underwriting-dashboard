@@ -4,11 +4,14 @@
 # onedir (not onefile): onefile unpacks to a temp dir on every launch, which
 # costs seconds of startup and re-extracts ~200 MB each time.
 
+import re
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 DESKTOP = Path(SPECPATH)
+# One version, bumped in cre_desktop/version.py (the update check reads it).
+VERSION = re.search(r'^VERSION = "([^"]+)"', (DESKTOP / "cre_desktop" / "version.py").read_text(), re.M).group(1)
 REPO = DESKTOP.parent
 BACKEND = REPO / "backend"
 FRONTEND_DIST = REPO / "frontend" / "dist"
@@ -82,7 +85,7 @@ app = BUNDLE(
     bundle_identifier="com.cre-underwriting.desktop",
     info_plist={
         "CFBundleDisplayName": "CRE Underwriting",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleShortVersionString": VERSION,
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "12.0",
         # The app talks only to its own 127.0.0.1 server plus the public-data
