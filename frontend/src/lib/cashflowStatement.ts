@@ -61,6 +61,9 @@ export interface Statement {
   replacementReserves?: number[]
   /** J6: present only with tax & insurance escrows (−E at close, +E at exit). */
   escrowFlows?: number[]
+  /** Run 6: present only when loanMaturityBehavior is balloon/refinance and
+   *  the loan matures inside the hold (the old balance repaid at maturity). */
+  loanPayoff?: number[]
   /** J9: per-calendar-year operating break-evens (analytic, on these vectors). */
   breakEvens?: {
     years: { year: number; occupancy: number | null; rentFactor: number | null; notes: string[] }[]
@@ -173,6 +176,15 @@ export function statementRows(statement: Statement): StatementRow[] {
       label: 'Tax & insurance escrows',
       kind: 'flow',
       series: (s) => s.escrowFlows ?? [],
+    })
+  }
+  if (statement.loanPayoff) {
+    // Run 6: loan maturity inside the hold (balloon or refinance payoff).
+    rows.push({
+      key: 'loanPayoff',
+      label: 'Loan payoff at maturity',
+      kind: 'flow',
+      series: (s) => s.loanPayoff ?? [],
     })
   }
   rows.push(

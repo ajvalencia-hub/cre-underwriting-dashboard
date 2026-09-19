@@ -74,10 +74,16 @@ function TornadoChart({
           const x0 = labelWidth + bar.x0 * chartWidth
           const x1 = labelWidth + bar.x1 * chartWidth
           return (
-            <g key={bar.key}>
+            <g key={bar.key} opacity={bar.inert ? 0.45 : 1}>
               <text x={0} y={y + 13} fontSize={11} className="fill-chart-label">
                 {bar.label}
+                {bar.inert && <title>{bar.reason ?? 'This driver cannot move this deal shape.'}</title>}
               </text>
+              {bar.inert && (
+                <text x={labelWidth + chartWidth / 2 + 6} y={y + 12} fontSize={9} className="fill-chart-muted">
+                  inert — {bar.reason ?? 'not used by this deal shape'}
+                </text>
+              )}
               <rect
                 x={Math.min(x0, x1)}
                 y={y}

@@ -223,3 +223,74 @@ from its pre-settings snapshot (f8a272d) and adapted to this line:
 Final gate state after the port: **674 backend tests**, **170 vitest**,
 **4 Playwright journeys**, parity clean, 7-case baseline green, ruff clean,
 mypy clean, `tsc` + `oxlint` + `vite build` clean.
+
+---
+
+## Wave 2 — the next tier of the audit backlog
+
+After the audit fixes landed, the items ranked just below them were run as
+a second wave on disjoint file sets.
+
+### Engine [FIN]
+
+- **Loan maturity** — `loanTermYears` was never read. `loanMaturityBehavior`
+  [`ignore` (default, byte-identical) | `balloon` | `refinance`]:
+  - balloon: `levered(M) −= balance(M)` at maturity month `M = term×12`
+    (conditional `loanPayoff` statement row), debt service stops, `debt.balloon`
+    block + warning;
+  - refinance: new loan at `M` sized on trailing-12 NOI / `exitCapRatePct`
+    with the deal's LTV / DSCR / debt-yield constraints, rate
+    `interestRate + refiRateSpreadPct`, costs `refiCostsPct`, fresh
+    amortization; `levered(M) += newLoan − oldBalance − costs`;
+    `debt.refinance` block only when it fires. Development perm loans measure
+    the term from takeout. Excel export refuses both non-ignore modes.
+- **Building RSF** — `buildingRsf`: NNN pro-rata share = `sf / buildingRsf`
+  when set (unlisted vacant suites are no longer recovered from listed
+  tenants); occupancy and gross-up use the same denominator; below the listed
+  SF it is ignored with a warning.
+- **IRR root diagnostics** — with > 1 sign change and > 1 root in −99%..300%
+  the reported IRR is the economic root (levered: nearest the unlevered IRR;
+  unlevered: nearest 0%) and `irrDiagnostics` lists the others; single-root
+  series untouched.
+- **Statement identity** documented in full and asserted month by month on
+  the feature-on fixture; a genuine double display (equity-at-close
+  renovation in both `costs[0]` and `renovationCapex[0]`) fixed — the only
+  baseline value that moved is `feature_on_value_add.statement.costs[0]`,
+  on the fixture created this run.
+- Junior tranche on a development that never takes out: skipped with a
+  warning, no fee. Tornado bars carry `inert` + `reason` when a driver
+  cannot move the deal shape.
+
+### API
+
+- **Optimistic concurrency**: `ETag` on every single-deal response; `PUT`
+  honours `If-Match` and answers 412 with the current deal when stale.
+- **Tags**: column + migration, normalized on write, `?tag=` filter,
+  `bulk-tags`, `tag:` search facet composable with `acq:`/`dev:`, tags in
+  export bundles, clone copies them.
+- **Rate limiting** on the external-API-backed routes
+  (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, 429 + `Retry-After`).
+- `?fields=summary` slim deal list; `DELETE /api/compute/monte-carlo/{id}`
+  cancels a running simulation.
+
+### Frontend
+
+Safe concurrent editing (Reload / Overwrite banner on 412), tag chips +
+pipeline tag filter + bulk tag actions, the **Compare** tab (2–4 deals side
+by side, direction-aware best value, CSV), sortable pipeline columns with
+stage / staleness / tag filters captured by saved views, Monte Carlo cancel
++ 5-minute budget, per-tab error boundaries, the accessibility leftovers
+(bound labels, tablist with arrow keys, real buttons for clickable cells,
+focusable indicators), memoized panels, one market-rates fetch; the new
+`loanPayoff` statement row and inert tornado bars render.
+
+### Tests
+
+49 HTTP tests over every previously untested route (which surfaced and
+fixed comp text-field padding), 38 engine tests, 20 API tests, 32 vitest
+tests, 3 more Playwright journeys.
+
+**Final gate state after wave 2:** see the commit log — the last full run
+recorded 784+ backend tests, parity clean, 7-case baseline, ruff + mypy
+clean, 202 vitest, 7 Playwright journeys, `tsc` + `oxlint` + `vite build`
+clean.

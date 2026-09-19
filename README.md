@@ -74,6 +74,11 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
   importer. Comps feed the benchmark flags once ≥3 exist in a market.
 - **Portfolio** — equity-weighted blended returns across active deals,
   exposure by market / asset class, concentration, CSV export.
+- **Compare** — pick 2–4 deals; each is run through the native engine from
+  its saved inputs and the outputs are laid side by side (only the metrics
+  that apply to each dealflow), best value per metric highlighted where the
+  direction is unambiguous, CSV export, selection remembered per browser.
+  Untyped or non-computable deals are flagged rather than erroring.
 - **Agent** — a per-deal chat assistant that answers only through the
   dashboard's own tools (compute, goal-seek, tornado, sensitivity, comps,
   market context), proposes input changes as reviewable cards instead of
@@ -85,8 +90,32 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map.
   restore, **download** the SQLite file) and **Integrations** (which optional
   API keys are configured — flags only, never values).
 
+**Safe concurrent editing.** Every deal response carries an `ETag`; the
+autosave sends it back as `If-Match`. If the deal was changed in another
+tab or session the save pauses and a banner offers **Reload** (take the
+server copy, like a history restore) or **Overwrite** (keep this tab's
+edits).
+
+**Tags.** A chip row under the deal name (Enter adds, × removes, up to 20 per
+deal). The Deals pipeline shows tags per row, filters by any combination of
+tags (all must match) and bulk-adds / bulk-removes a tag across a selection;
+the command palette shows tags on deal results and understands `tag:name`;
+tags travel with export/import bundles and the pipeline CSV.
+
+**Pipeline sorting and filters.** Click any column header (deal, market,
+stage, last touched, staleness) to sort; filter by stage, staleness (fresh /
+stale / critical) and tags. Saved views capture the full sort + filter state
+(older saved views still load).
+
+**Resilience and accessibility.** Each workflow tab has its own error
+boundary (a crash shows a retry card in place while everything else keeps
+working); Monte Carlo runs can be cancelled and give up after five minutes;
+labels are bound to their inputs, the workflow steps are a keyboard-navigable
+tablist, clickable table cells are real buttons, and the sidebar goal-seek /
+benchmark indicators are focusable with screen-reader text.
+
 Global: **Cmd/Ctrl+K** search over deals / tenants / comps / notes,
-Cmd/Ctrl+1..9 tab switching, an error boundary that posts to
+Cmd/Ctrl+1..9 tab switching, per-tab error boundaries that post to
 `/api/client-errors`, and `X-Request-ID` on every response.
 
 **Engine conventions are explicit inputs**: waterfall style (`european`
@@ -213,23 +242,23 @@ header) or the session cookie.
 | Area | Endpoints |
 |---|---|
 | Auth | `GET /api/auth/status`, `POST /api/auth/login` (sets the HttpOnly session cookie), `POST /api/auth/logout` |
-| Deals | `GET /api/deals[?includeArchived=true]`, `POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (`PUT` accepts `name`, `inputs`, `status`, template/mapping ids), `POST .../{id}/archive`, `POST .../{id}/unarchive`, `POST .../{id}/clone`, `POST /api/deals/from-extraction` (wizard finalize), `POST /api/deals/bulk-status`, `POST /api/deals/batch-deck` |
+| Deals | `GET /api/deals[?includeArchived=true&tag=name&fields=summary]`, `POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (`PUT` accepts `name`, `inputs`, `status`, `tags`, template/mapping ids; honours `If-Match` → **412** with the current deal when stale), `POST .../{id}/archive`, `POST .../{id}/unarchive`, `POST .../{id}/clone`, `POST /api/deals/from-extraction` (wizard finalize), `POST /api/deals/bulk-status`, `POST /api/deals/bulk-tags`, `POST /api/deals/batch-deck`. Every single-deal response carries an `ETag` header. |
 | Deal exports | `GET .../{id}/export` + `POST /api/deals/import` (versioned JSON bundle), `GET .../{id}/share.html`, `GET .../{id}/deck.pptx` (one page), `GET .../{id}/ic-deck.pptx` (8 slides) |
 | Deal history | `GET .../{id}/history`, `GET .../{id}/history/{snapshotId}`, `POST .../{id}/history/{snapshotId}/restore` |
 | File cabinet and notes | `GET/POST .../{id}/attachments`, `GET .../attachments/{docId}/download`, `GET .../attachments/{docId}/preview`, `DELETE .../attachments/{docId}`; `GET/POST .../{id}/notes`, `PUT/DELETE .../notes/{noteId}` |
-| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado`, `POST /api/compute/goal-seek` + `GET /api/compute/goal-seek/inputs`, `POST /api/compute/monte-carlo` then `GET /api/compute/monte-carlo/{jobId}` (background job, poll) |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado`, `POST /api/compute/goal-seek` + `GET /api/compute/goal-seek/inputs`, `POST /api/compute/monte-carlo` then `GET /api/compute/monte-carlo/{jobId}` (background job, poll) and `DELETE /api/compute/monte-carlo/{jobId}` (cancel) |
 | Templates | `GET /api/templates`, `POST /api/templates/upload`, `GET /api/templates/{id}`, `GET /api/templates/{id}/sheets/{sheet}/grid`, `DELETE /api/templates/{id}` |
 | Mappings | `GET/POST /api/mappings`, `GET /api/mappings/auto-match/{templateId}`, `GET/PUT/DELETE /api/mappings/{id}` |
 | Generate | `POST /api/generate` (populated template xlsx, `X-Generation-*` headers), `POST /api/generate/model` (formula-live native Excel model; refuses unsupported shapes with a blocker list) |
 | Sensitivity | `POST /api/sensitivity` (mode: `native` or `template`) |
 | Documents and extraction | `GET /api/documents`, `POST /api/documents/upload`, `PUT /api/documents/{id}/type`, `DELETE /api/documents/{id}`; `POST /api/extraction`, `GET /api/extraction/{id}`, `POST /api/extraction/{id}/confirm` |
 | Scenarios | `GET/POST /api/scenarios`, `GET/PUT/DELETE /api/scenarios/{id}`, `PUT .../{id}/sensitivity`, `PUT .../{id}/monte-carlo`, `POST .../{id}/memo[?format=pdf]` |
-| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` |
+| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` — all rate-limited per route (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60; over budget → 429 + `Retry-After`), as is the comps map |
 | Comps | `GET/POST /api/comps/{sale or rent}`, `PUT/DELETE /api/comps/{kind}/{id}`, `GET /api/comps/{kind}/map`, `POST /api/comps/import` (preview without mapping; insert with), `POST /api/comps/import/file` |
 | Property tax | `GET /api/property-tax/counties`, `POST /api/property-tax/lookup` |
 | Presets | `GET /api/presets/fields`, `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}` |
 | Portfolio | `GET /api/portfolio`, `GET /api/portfolio/export.csv` |
-| Search | `GET /api/search?q=` (deals / tenants / comps / notes; prefix ranks above substring) |
+| Search | `GET /api/search?q=` (deals / tenants / comps / notes; prefix ranks above substring; facets `acq:` / `dev:` / `tag:name` composable in any order) |
 | Underwriting Agent | `GET /api/agent/threads/{dealId}`, `POST /api/agent/threads/{dealId}/messages` (one full turn; `content` or `playId`), `PUT /api/agent/threads/{dealId}/provider`, `GET /api/agent/plays`, `GET /api/agent/providers`, `POST /api/agent/proposals/{id}/approve`, `POST /api/agent/proposals/{id}/reject` |
 | Admin | `GET /api/admin/integrations` (configured-key flags), `GET /api/admin/backups`, `POST /api/admin/backups/run`, `POST /api/admin/backups/restore`, `GET /api/admin/backups/{kind}/{name}/download` |
 | Ops / schema | `GET /api/health`, `POST /api/client-errors` (error-boundary sink), `GET /api/schema` |

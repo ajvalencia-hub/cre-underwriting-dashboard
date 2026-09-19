@@ -3,6 +3,328 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Run 6 — frontend wave 2: compare, tags, pipeline sort/filter, concurrency, a11y
+
+Scope: `frontend/` only (src + e2e). No git. All gates green at hand-off:
+`tsc -b` 0 errors · `oxlint src` 0 · `vitest run` 31 files / 200 tests · `vite build` ok ·
+`playwright test` 7/7 (3 spec files).
+
+### 1. Optimistic concurrency (ETag / If-Match)
+- **Where the ETag lives.** `api.ts` records the `ETag` header of EVERY single-deal response
+  (GET / PUT / create / archive / unarchive / clone / restore / import / from-extraction) into one
+  module singleton, `dealConcurrency = createSaveConcurrency<Deal>()`. App never touches headers;
+  it only asks `ifMatchFor(dealId)` before the autosave PUT. A response without an ETag header
+  *clears* the stored one, so a backend build without ETags never sends `If-Match` (= today's
+  last-writer-wins behaviour, exactly as the contract says).
+- **Decision logic is pure** (`lib/dealPersistence.ts::createSaveConcurrency`, 6 unit tests):
+  `markConflict` blocks saves for that deal only; `chooseOverwrite` clears the block AND the stored
+  ETag so the retried PUT is unconditional until a fresh ETag lands (`recordEtag` lifts the
+  overwrite flag); `chooseReload` returns the server copy and adopts the 412's ETag (App refetches
+  when the 412 carried none). `forget` on delete / when switching away from a conflicted deal.
+- **How the autosaver is "stopped".** The existing `createAutosaver` is untouched: while a conflict
+  is pending the save callback throws locally *before* any network call, which leaves the autosaver
+  in `error` holding the value for the retry. Overwrite = `chooseOverwrite()` + `flush()`;
+  Reload = `cancel()` + `applyDealState(current)` (same path as a history restore) + deal-list patch.
+- **UI.** A persistent `role="alert"` amber banner under the header (never auto-dismisses — the
+  toast store auto-dismisses after 6 s, so it was not used), with Reload / Overwrite. The header's
+  autosave label reads "Not saved — resolve the conflict below" while pending.
+- **412 parsing.** `ConflictError { current, etag }` is thrown only when the 412 body carries
+  `current`; otherwise a plain Error (the autosaver's normal retry path). `ConflictError` uses
+  explicit field assignments — `erasableSyntaxOnly` forbids parameter properties.
+- **Tags PUT races.** `handleTagsChange` flushes the autosave first so the tag write (which
+  refreshes the ETag) can never 412 an in-flight input save.
+
+### 2. Tags
+- Normalisation lives client-side in `lib/tags.ts` (trim, collapse spaces, lower-case, 40 chars,
+  max 20). The backend keeps the *first* spelling and dedupes case-insensitively, so
+  `hasAllTags` / `removeTag` compare case-insensitively too.
+- Header chip row = `components/TagEditor.tsx` (Enter adds, × removes, inline validation).
+  Pipeline: chips per row, tag filter chips (AND), bulk "Add tag" / "Remove tag" (one input +
+  two buttons, with a `<datalist>` of known tags) via `POST /api/deals/bulk-tags`.
+- Command palette: deal items render `item.tags`; `tag:name` is passed straight through to
+  `/api/search` (no client parsing), documented in the "?" shortcut list.
+- `fetchDeals({ tag })` and `fetchDealSummaries()` (`?fields=summary`, typed `DealSummaryRow`)
+  exist in api.ts but App still loads full deals: `dealTypeOf`, market, critical dates and the
+  Compare selection all read `inputs`, so the summary shape would need a second fetch per feature.
+  Left for a later wave once a consumer actually benefits.
+
+### 3. Compare page
+- `METRIC_DIRECTION` + `bestValueIndex` moved from `scenarioComparison.ts` to the new
+  `lib/compareMath.ts`; `scenarioComparison.ts` re-exports them so ScenariosPanel and its tests are
+  unchanged. `compareMath` also owns the row builder (union of metrics visible for ANY selected
+  deal's type, per-cell `applicable` flag → "n/a"), CSV export, selection persistence
+  (`cre.compareDealIds`) and `dealFormValues` (strips the three quick-screen persistence keys so
+  the compute endpoint sees the same shape App's form values have). 8 unit tests.
+- The page fetches each deal (fresh inputs, refreshes its ETag as a side effect) and calls the
+  existing `computeNative`. Untyped deals are never sent to the engine ("not computable" —
+  untyped set-type first); engine errors also render "not computable" with the friendly message
+  in the header badge's title. Latest-wins: one token per "generation"; Recompute advances it so
+  stale results are dropped instead of landing on the cleared cache. (Bug found by the e2e and
+  fixed: `useRef(guard.next())` advances the counter on every render — the initializer expression
+  still runs — so the token is now created lazily.)
+- Tab order: … Portfolio, **Compare**, Agent, Settings. Ctrl/Cmd+1..9 still map to the first nine.
+
+### 4. Pipeline sort + filter
+- `pipelineViews.ts`: `PipelineViewState` = market text, sortKey (stage/updated/name/staleness/
+  market), sortDir, showTerminal, stageFilter[], stalenessFilter[] (fresh/stale/critical),
+  tagFilter[]. `normalizeView` upgrades pre-wave-2 saved views (missing keys → defaults, junk
+  values dropped) so existing localStorage keeps working. `applyView` (old 3-knob signature) is
+  kept as a wrapper. Ties always fall back to most-recently-touched, regardless of direction.
+- Staleness sort rank = level × 100 000 + days (terminal stages rank fresh). Column headers are
+  `<th aria-sort>` wrapping a real `<button>`; the toolbar keeps the Sort `<select>` plus a
+  direction toggle for parity. Staleness became its own column (was appended to "Last touched").
+- The whole view state is one object so a saved view is `{ name, ...view }` — nothing to forget.
+
+### 5. Monte Carlo cancel + timeout
+- `cancelMonteCarlo` hits `DELETE /api/compute/monte-carlo/{jobId}` and resolves `false` (never
+  throws) on 404/405/network failure — the panel stops polling either way. `jobIdRef` guards
+  against a poll that resolves after Cancel. 5-minute budget in `lib/monteCarloPolling.ts`
+  (`pollTimedOut`, `pollTimeoutMessage`; 2 tests); on timeout the panel also fires a best-effort
+  cancel. "Run cancelled." is a neutral notice, not an error.
+
+### 6. Per-tab error boundaries
+- `reportClientError` extracted to `lib/clientErrors.ts` (a component file exporting a helper
+  trips oxlint's only-export-components). `components/PanelBoundary.tsx` renders a `role="alert"`
+  retry card; Retry bumps a key so the subtree remounts clean. App wraps every tab in
+  `TabPanel` = `role="tabpanel"` + `PanelBoundary`. Panels now hide with the `hidden` attribute
+  (Tailwind preflight `[hidden]{display:none!important}`) instead of an inline style.
+
+### 7. Accessibility
+- `ScalarInput` gained an `id` prop; `FieldRow` binds `label[htmlFor]` via
+  `fieldInputId('field', field.id)`; composite editors (table / key-value / multiselect) get
+  `role="group" aria-labelledby` instead. Quick Screen (`qs-*`) and Acquisition Quick Screen
+  (`aqs-*`) ids likewise. The ⚠ benchmark flag is a `<button aria-describedby>` with an `sr-only`
+  `role="tooltip"` span — moved *outside* the `<label>` (a button inside a label is invalid); the
+  visual stays a ⚠ glyph with the same title tooltip.
+- Workflow nav: `<nav aria-label="Workflow steps">` (kept for the e2e selector) > `role="tablist"`
+  with roving tabindex, ←/→/Home/End (automatic activation), `aria-selected`, `aria-controls`.
+  **e2e selectors changed from `getByRole('button')` to `getByRole('tab')`.**
+- CashFlowTab year toggles are `<button aria-expanded>` inside the `<th>`; the napkin sensitivity
+  grid cells are `<button aria-label>`s; TemplateUpload grid cells get `role="button" tabIndex=0`
+  + Enter/Space only while a field is being picked (no tab-stop spam otherwise).
+- Goal-seek ◎: `group-focus-within:inline focus:inline` + aria-label. Placeholder-only inputs in
+  Comps / Pipeline / Presets / TemplateUpload / QuickScreen got aria-labels; several icon/select
+  controls too. No index.css changes were needed (no new colour utilities; `sr-only` and
+  `group-focus-within:` are structural).
+
+### 8. Perf
+- Memoised: SensitivityPanel (fieldById, driverCandidates, eligibleDrivers/Outputs), RiskPanel
+  (visibleIds, applicableInputs), ScenariosPanel (fieldById, compared, comparisonRows without the
+  `join(',')` hack, outputRows), CashFlowTab (`statementRows` hoisted above the early return),
+  PipelinePage `visibleSelected` (was a fresh array every render, defeating the `bulkOptions`
+  memo).
+- `React.memo`: TemplateUpload (now takes `schema` from App — no second `/schema` fetch — and
+  `onTemplateReady` is a `useCallback([activeDealId])`), CompsPage (`dealMarket` string),
+  PortfolioPage / SettingsPage (`active` boolean), QuickScreenSensitivityGrid (QuickScreen's
+  `applySensitivityCell` is a `useCallback`). DealInputForm: one `/market/rates` fetch shared by
+  RatesHint and SofrSeed (was two).
+- **Verification (no render-counter test).** vitest runs in the node environment with no jsdom or
+  testing-library installed, so a DOM render-counter test is not practical without adding deps.
+  Verified by props analysis instead: after a Deal Inputs keystroke App re-renders; TemplateUpload's
+  props are `schema` (the same object from boot state) and `handleTemplateReady` (identity stable
+  while `activeDealId` is unchanged), so `React.memo`'s shallow compare short-circuits and the
+  sheet grid subtree is not reconciled. The wrapping `PanelBoundary` re-renders (its `children`
+  element is new each time) but that is a single cheap div. The same reasoning covers Comps /
+  Portfolio / Settings.
+
+### 9. e2e
+- `e2e/features.spec.ts` (3 tests): Settings theme toggle (`html.dark` on/off), Portfolio table
+  (`TOTALS BY DEAL TYPE` + acquisition row), Risk (Run button, `abc` seed → inline error +
+  `aria-invalid` + disabled Run), Compare (two deals, both columns computed, one best cell on the
+  Levered IRR row, CSV download name, selection survives reload), tag round-trip (header add →
+  API shows `['core plus']` → pipeline chip → tag filter hides the untagged deal → header remove →
+  API shows `[]`). Each test creates its deals via the API from the analytic acquisition fixture
+  and deletes them in `afterEach`, so the smoke's exact "Default Deal" assertion still holds.
+- Existing smoke/agent specs updated only for the tab role change.
+
+### Skipped / deferred
+- `?fields=summary` consumer (see §2). A dev render-counter test (see §8).
+- `useRef(createLatestGuard())` elsewhere in the codebase still constructs a throwaway guard per
+  render (harmless); only the Compare page's token needed the lazy pattern.
+
+## Run 6 — Financial engine, wave 2: loan maturity, building RSF, IRR roots, statement identity
+
+- **[FIN] Loan maturity inside the hold — new financing input
+  `loanMaturityBehavior` ["ignore" | "balloon" | "refinance"], default
+  ignore.** `loanTermYears` (schema default 10) had never been read; ignore
+  keeps that exactly (byte-identical payloads, tested), so every existing
+  deal with term < hold is unchanged until its owner opts in. The loan is
+  an acquisition's senior loan from month 1 OR a development's perm loan
+  measured from its takeout month (the perm schedule already exists at
+  that point, so the same helper serves both; a development sold before
+  takeout has no perm loan to mature). Maturity = start + term − 1; nothing
+  fires when that month is at/after the exit month (all three modes are
+  identical when term >= hold, tested). **balloon**: the remaining balance
+  is repaid from equity in the maturity month on a new conditional
+  statement row `loanPayoff` (the juniorPayoff convention — a positive
+  amount subtracted in the levered identity; the exit payoff stays netted
+  inside saleProceedsNet as before), debt service stops, levered ==
+  unlevered thereafter, DSCR statistics cover only months with debt, a
+  `debt.balloon {month, balance}` block and a warning report it.
+  **refinance**: the old balance is repaid the same way and a NEW loan
+  funds the same month as a GROSS debtDraw (rejected: the development
+  takeout's net-delta presentation — with a payoff row available, gross
+  draw + payoff shows both legs), sized with the deal's own LTV / DSCR /
+  debt-yield constraints on the **trailing-12-month NOI ending at maturity**
+  valued at **that NOI / exitCapRatePct**. Basis rationale: a refinance
+  lender underwrites demonstrated in-place NOI; the exit deliberately
+  stays on forward-12 (buyer's view). Rate = interestRate +
+  refiRateSpreadPct (floating: the in-force curve rate for the first new
+  month + spread, and it keeps floating); for a development the perm rate
+  already includes that spread, so it is applied once, never twice. Costs =
+  refiCostsPct x new loan (loanFees row); fresh amortYears schedule, IO
+  months 0; cash-out (+) / paydown (−, warned) flows through levered in the
+  maturity month; `debt.refinance {month, oldBalance, newLoan, costs,
+  cashOut, netToEquity, governingConstraint, candidates, sizingNoi,
+  sizingNoiBasis: trailing_12, value, ratePct, amortYears}` ONLY when it
+  fires. No constraint sizing a loan (non-positive NOI) degrades to a
+  balloon with a warning. The schema shows refiRateSpreadPct / refiCostsPct
+  on acquisitions once refinance is selected (they were development-only).
+  **Cash-on-cash**: the maturity-month capital flows (payoff, new loan,
+  costs) are stripped from the operating numerator like the exit events
+  (B3); the balloon payoff still joins total equity in (the denominator) —
+  it IS a capital call, the same contribution definition equityMultiple
+  uses. The insurance-stress helper strips the same month. **Excel export
+  REFUSES both non-ignore modes** ("loan maturity inside the hold
+  (loanMaturityBehavior=balloon|refinance: the workbook runs one debt
+  schedule to exit — set ignore to export)"): mirroring the balloon needed
+  the balloon kept out of the DSCR column, and the refinance a second
+  sized loan and schedule; a workbook whose debt path silently differs
+  from the engine's is worse than no workbook. ignore exports as before.
+- **[FIN] Building RSF for lease deals — new commercial-rent-roll input
+  `buildingRsf` (number, blank = today).** NNN and base-year-stop pro-rata
+  shares are sf / buildingRsf when it is set and >= the listed lease SF:
+  unlisted vacant suites' share of recoverable opex is the owner's vacancy
+  cost, not billed to tenants. Occupancy (statement row, occupancyYear1 /
+  Stabilized, and the I3 gross-up projection) uses the same denominator —
+  the building's physical occupancy is what the base-year gross-up must
+  see. `leaseDetail.totalSf` stays the listed SF; `leaseDetail.buildingRsf`
+  is a conditional key. A value BELOW the listed SF is a data error:
+  ignored with a warning (never a silent share > 1). fixed_psf recoveries
+  are stated contract amounts and never involve the denominator. Excel:
+  lease deals were already refused — no change.
+- **[FIN] Multiple-IRR diagnostics.** `returns.sign_changes` counts flips
+  between non-zero flows; when a series has MORE than one, the −99%..300%
+  annual band is scanned (600-step grid + bisection per crossing) for every
+  root. Rule for the reported IRR: **the root nearest the unlevered IRR for
+  the levered series** (leverage shifts the return away from the asset's
+  own; the root closest to it is the one the capital structure produced);
+  **nearest 0% for the unlevered series** (the conventional root a
+  small-guess Newton lands on). Rejected: the smallest root (a −96%
+  artifact would win) and the root nearest the discount rate (an IRR that
+  depends on an input it should be independent of). Series with exactly
+  one sign change are never rerouted (the solver is unchanged), and a
+  multi-sign-change series with <= 1 root in the band keeps its Newton
+  answer — commercial_rollover (3 sign changes, one root) is the baseline
+  proof. Reported as a conditional top-level `irrDiagnostics
+  {irrMultipleRoots: true, levered|unlevered: {signChanges, roots,
+  selected, otherRoots}}` plus a warning naming the other root(s) and
+  pointing at NPV / equity multiple. Both IRR conventions covered (xirr
+  scans the annual band on dated flows).
+- **Statement identity with every feature row** — documented in engine.py
+  and asserted month by month at 1e-6 on the feature-on fixture:
+  `levered = noi − debtService + debtDraws − costs − loanFees −
+  leasingCapital + saleProceedsNet − renovationCapex − juniorInterest −
+  juniorPayoff − assetMgmtFee − replacementReserves (below_noi row only) +
+  escrowFlows − loanPayoff`; prepaymentPenalty is a DISPLAY row already
+  netted inside saleProceedsNet (adding it breaks the tie — tested);
+  juniorBalance / loanBalance are balances. **Genuine double display
+  fixed**: a renovation funded `equity_at_close` wrote its budget to BOTH
+  `costs[0]` and `renovationCapex[0]`, breaking the tie at close by the
+  budget. It now shows once, on `renovationCapex` (the row that exists for
+  renovation cash; `renovation.spendSchedule` keeps the timing);
+  `equityFunded[0]` and sources & uses are unchanged. Baseline effect:
+  exactly ONE value in the unpublished Run-6 `feature_on_value_add`
+  baseline — `statement.costs[0]` 19,020,000 → 18,660,000 (the $360,000
+  budget); the file was deleted and regenerated under the guard, the other
+  six baselines are byte-identical (git diff --stat shows only that file,
+  one line).
+- **[FIN] Junior tranche on a development that never takes out.** The
+  tranche funds at the perm takeout; when no takeout precedes exit (sold
+  before or IN the stabilization month) it would fund and repay in the
+  exit month — a loan that never exists whose only cash effect is its
+  origination fee. It is now skipped entirely with an explicit warning: no
+  funding, no interest, NO fee (the alternative — charging the fee — was
+  rejected as a phantom cost that is pure noise in the levered IRR). No
+  juniorTranche block / rows appear; a deal with a real takeout is
+  unchanged (tested).
+- **Tornado inert drivers.** A bar whose perturbed field the engine does
+  not read for the deal's shape is reported `inert: true` with a `reason`
+  (`inert: false` otherwise): opex in expense-detail mode (opexLineItems),
+  rent and vacancy on a lease-driven deal without a unit mix (the rent roll
+  and rollover downtime are the sources; H1), rate in floating mode
+  (interestRate unread), and exit cap on a mixed-use acquisition with both
+  component caps set (the blended cap does not price the exit). The rule
+  mirrors the engine's own precedence — never a heuristic on the metric —
+  and the bar is STILL computed so the zero impact corroborates it and the
+  per-deal compute count stays 2 x drivers + 1 (pinned by the P1 test).
+  Rejected: skipping inert computes (would silently change the pinned
+  count and lose the corroboration).
+
+## Run 6 — API wave 2: optimistic concurrency, tags, external-route rate limit, slim list
+
+- **Deal ETags are derived from `updated_at`, not a content hash.** Every
+  single-deal response (GET/PUT/archive/unarchive/clone/from-extraction/
+  restore/create) carries `ETag: "<updated_at.isoformat()>"`, quoted and
+  opaque to the client; `PUT` honours an optional `If-Match`. Stale →
+  **412** with `{"detail": "Deal was modified elsewhere", "current":
+  <DealOut>}` and nothing written, so the client can merge without a
+  second round-trip; absent header → last-writer-wins exactly as before;
+  `*` and `W/`-prefixed values are tolerated. The tag is normalized to a
+  naive UTC stamp because SQLite hands back naive datetimes while a
+  just-assigned default is tz-aware — the same row must yield the same tag
+  whichever path built it. Rejected: a version counter column (a
+  migration + a second write path for every place that touches a deal,
+  for no extra precision at this write rate); hashing the inputs blob
+  (misses name/status/tag edits and costs a JSON dump per read); making
+  `If-Match` mandatory (would break every existing client, and the
+  autosave's inputs-only PUT is the one that most needs the guard, so it
+  opts in first).
+- **Tags are a JSON list on the deal row, normalized on write, filtered in
+  Python.** `normalize_tags` (schemas.py) strips, drops empties, dedupes
+  case-insensitively keeping the FIRST spelling, caps 20 tags × 40 chars,
+  and is shared by the PUT validator, `bulk-tags` and the import path so
+  there is one rule. `GET /api/deals?tag=` and the search `tag:` facet
+  compare case-folded. Rejected: a `deal_tags` join table (a local tool
+  with a few hundred deals gains nothing from an index it would need a
+  second migration and a cascade for) and a global tag registry (tags are
+  free-form labels; the first use IS the definition). `bulk-tags` computes
+  every deal's merged list BEFORE writing any so a cap violation on one
+  deal is a 422 with nothing changed, matching bulk-status' "reject before
+  write" posture.
+- **Search facets parse in a loop** so `acq:tag:core foo` and `tag:core
+  dev:foo` both work; the tag token runs to the first space. Comps drop
+  out under `tag:` for the same reason they do under `acq:`/`dev:` — a
+  faceted query is explicitly a deal search. Deal items gain `tags: []`.
+- **Export bundles carry `deal.tags`** (additive, same schemaVersion —
+  older bundles import as `[]` with no warning; junk entries drop the
+  whole list WITH a warning rather than failing the import). Clone copies
+  tags: they describe the deal, not its history.
+- **External-API routes sit behind a per-ROUTE token bucket**
+  (services/rate_limit.py; `CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60,
+  0 = off): market rates, benchmarks, demographics, market context, comps
+  map. Keyed by route rather than client because the quota being
+  protected is the UPSTREAM's (FRED/Census/Nominatim), which is shared by
+  every client of the install; a per-IP bucket would let two tabs burn it
+  just as fast. Over budget → 429 + `Retry-After` (whole seconds, ≥1).
+  The limit is read from `app.config` at request time and a bucket
+  rebuilds when the configured limit changes, so tests monkeypatch it
+  down without touching conftest and no stale capacity survives the
+  monkeypatch. Rejected: a middleware over all of `/api` (the local
+  SQLite routes have no upstream to protect and the autosave would trip
+  it first); a third-party limiter (Redis/ASGI middleware dependency for
+  five routes in a single-process app).
+- **`GET /api/deals?fields=summary` is opt-in slimming, not a new
+  endpoint.** DealOut minus `inputs`, with `dealType`/`dealName`/
+  `address`/`market` lifted into `summary` — the four keys the pipeline
+  board reads. The default response is byte-for-byte unchanged and the
+  list endpoint never carries an ETag (there is no single row to guard).
+  Rejected: always returning the slim shape and adding `?include=inputs`
+  (breaks every existing consumer for a payload win only the pipeline
+  needs).
+- **`ETag` and `Retry-After` joined CORS `expose_headers`** — a
+  cross-origin dev client would otherwise read both as null.
+
 ## Run 6 — Underwriting Agent (ported from agent-underwriting-line @ f8a272d)
 
 - **Write tools take no `db` parameter — by construction, not convention.**

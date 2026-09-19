@@ -118,3 +118,16 @@ describe('tornadoGeometry', () => {
     expect(geometry[0].lowLabel).toBe('—')
   })
 })
+
+describe('tornado inert drivers (Run 6)', () => {
+  it('passes the inert flag and reason through the geometry', () => {
+    const bars = [
+      { key: 'rent', label: 'Rent', low: 0.1, high: 0.14, impact: 0.04 },
+      { key: 'opex', label: 'Opex', low: 0.12, high: 0.12, impact: 0, inert: true, reason: 'opex detail mode' },
+    ]
+    const geometry = tornadoGeometry(bars, 0.12, (v) => v.toFixed(2))
+    expect(geometry.map((g) => g.inert)).toEqual([false, true])
+    expect(geometry[1].reason).toBe('opex detail mode')
+    expect(geometry[0].reason).toBeUndefined()
+  })
+})

@@ -69,11 +69,17 @@ export interface TornadoBar {
   low: number | null
   high: number | null
   impact: number
+  inert?: boolean
+  reason?: string
 }
 
 export interface TornadoGeometry {
   key: string
   label: string
+  /** Run 6: true when the engine reports the driver cannot move this deal
+   *  shape — rendered as a muted bar with the reason, not a silent zero. */
+  inert: boolean
+  reason?: string
   /** bar extents as fractions of chart width, 0.5 = the base value */
   x0: number
   x1: number
@@ -105,6 +111,8 @@ export function tornadoGeometry(
     return {
       key: b.key,
       label: b.label,
+      inert: b.inert === true,
+      reason: b.reason,
       x0: toX(Math.min(lo, hi)),
       x1: toX(Math.max(lo, hi)),
       lowX: toX(lo),

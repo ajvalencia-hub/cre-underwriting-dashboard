@@ -1193,7 +1193,17 @@ export function fetchHoldSweep(values: Record<string, unknown>) {
 export interface TornadoResponse {
   metric: string
   base: number
-  bars: { key: string; label: string; low: number | null; high: number | null; impact: number }[]
+  bars: {
+    key: string
+    label: string
+    low: number | null
+    high: number | null
+    impact: number
+    /** Run 6: the driver cannot move this deal shape (e.g. opex driver in
+     *  detail mode); `reason` says why. */
+    inert?: boolean
+    reason?: string
+  }[]
 }
 
 export function fetchTornado(values: Record<string, unknown>, metric: string) {

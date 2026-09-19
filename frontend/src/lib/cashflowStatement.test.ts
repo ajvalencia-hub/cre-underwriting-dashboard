@@ -113,3 +113,16 @@ describe('statementToCsv', () => {
     expect(header.split(',').length).toBe(1 + 1 + 25 + 1) // label + close + 25 months + total
   })
 })
+
+describe('loan maturity payoff row (Run 6)', () => {
+  it('is present only when the engine emits loanPayoff', () => {
+    const base = makeStatement()
+    expect(statementRows(base).some((r) => r.key === 'loanPayoff')).toBe(false)
+    const payoff = new Array<number>(base.months.length).fill(0)
+    payoff[12] = -500000
+    const rows = statementRows({ ...base, loanPayoff: payoff })
+    const row = rows.find((r) => r.key === 'loanPayoff')
+    expect(row?.label).toBe('Loan payoff at maturity')
+    expect(row && rowTotal(row, { ...base, loanPayoff: payoff })).toBe(-500000)
+  })
+})
