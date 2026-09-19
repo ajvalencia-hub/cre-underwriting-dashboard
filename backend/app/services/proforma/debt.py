@@ -255,18 +255,62 @@ class ConstructionFinancing:
     balances: list[float]  # end-of-month balance per month
 
 
+def size_construction_loan(
+    cost_schedule: list[float],
+    budget_ex_financing: float,
+    ltc: float,
+    annual_rate: float,
+    origination_fee_pct: float = 0.0,
+    rate_vector: list[float] | None = None,
+) -> tuple[ConstructionFinancing, float, float]:
+    """LTC on TOTAL cost, financing included (lender convention: the interest
+    reserve and loan fees sit inside the cost the LTC is measured on).
+
+    Circular — interest depends on the loan, the loan on total cost — so
+    solve by fixed-point iteration: equity = (1 - LTC) x total cost, loan
+    commitment = LTC x total cost. It contracts (each pass changes financing
+    cost by ~LTC x rate x time of the previous change) and converges in a
+    handful of passes. Returns (financing, equity, commitment); the ending
+    construction balance equals the commitment.
+    """
+    total = budget_ex_financing
+    financing = None
+    for _ in range(200):
+        commitment = ltc * total
+        equity = total - commitment
+        financing = construction_financing(
+            cost_schedule, equity, annual_rate, origination_fee_pct,
+            rate_vector=rate_vector, commitment=commitment,
+        )
+        new_total = budget_ex_financing + financing.interest_capitalized + financing.fee_capitalized
+        if abs(new_total - total) < 1e-7:
+            total = new_total
+            break
+        total = new_total
+    commitment = ltc * total
+    equity = total - commitment
+    financing = construction_financing(
+        cost_schedule, equity, annual_rate, origination_fee_pct,
+        rate_vector=rate_vector, commitment=commitment,
+    )
+    return financing, equity, commitment
+
+
 def construction_financing(
     cost_schedule: list[float],
     total_equity: float,
     annual_rate: float,
     origination_fee_pct: float = 0.0,
     rate_vector: list[float] | None = None,
+    commitment: float | None = None,
 ) -> ConstructionFinancing:
     """Equity-first funding of a monthly cost schedule; loan interest accrues
     on the drawn balance and is capitalized (added to the balance). The
-    origination fee is drawn at the first loan draw. J5: when rate_vector is
-    given (annual rate per deal month 1..n), construction interest accrues at
-    that month's floating rate instead of the fixed annual_rate."""
+    origination fee is charged on the loan commitment and capitalized at the
+    first loan draw (without a commitment — direct callers only — on that
+    draw). J5: when rate_vector is given (annual rate per deal month 1..n),
+    construction interest accrues at that month's floating rate instead of
+    the fixed annual_rate."""
     r = annual_rate / 12
     equity_remaining = total_equity
     balance = 0.0
@@ -283,10 +327,10 @@ def construction_financing(
         draw = cost - equity_used
 
         if draw > 0 and fee_total == 0.0 and origination_fee_pct > 0:
-            # Fee is computed on the eventual commitment; charging it on the
-            # first draw against the drawn balance is the simplification here
-            # (F2); it capitalizes like interest.
-            fee_total = draw * origination_fee_pct
+            # Lenders charge the fee on the whole commitment at closing of the
+            # loan; it capitalizes like interest. (It used to be charged on
+            # the first draw only — about a tenth of the real fee.)
+            fee_total = (commitment if commitment is not None else draw) * origination_fee_pct
             balance += fee_total
 
         balance += draw

@@ -265,6 +265,7 @@ def compute(inputs: dict) -> dict:
     interest_rate_for_perm = interest_rate
 
     sources_and_uses: dict = {"uses": [], "sources": []}
+    construction_loan: dict | None = None  # development: the solved LTC sizing
     gp_developer_fee = 0.0  # J3: captured in the development branch
 
     # Statement vectors (index 0 = close), assembled alongside the cash-flow
@@ -374,12 +375,11 @@ def compute(inputs: dict) -> dict:
             budget, timeline.construction_months
         )
         gp_developer_fee = budget.developer_fee  # J3: a GP fee stream
-        # LTC applies to the hard basis (ex financing); interest and fees are
-        # loan-funded on top (interest-reserve convention). See DECISIONS.md.
-        equity_target = budget.total_ex_financing * (1 - ltc_or_ltv)
-        financing = debt.construction_financing(
-            cost_schedule, equity_target, interest_rate, origination_fee_pct,
-            rate_vector=rate_vec,
+        # LTC applies to total cost INCLUDING capitalized interest and loan
+        # fees (lender convention); solved iteratively. See DECISIONS.md.
+        financing, equity_target, construction_commitment = debt.size_construction_loan(
+            cost_schedule, budget.total_ex_financing, ltc_or_ltv, interest_rate,
+            origination_fee_pct, rate_vector=rate_vec,
         )
         total_cost_basis = (
             budget.total_ex_financing
@@ -387,6 +387,12 @@ def compute(inputs: dict) -> dict:
             + financing.fee_capitalized
         )
         initial_equity = equity_target
+        construction_loan = {
+            "commitment": construction_commitment,
+            "equity": equity_target,
+            "totalCost": total_cost_basis,
+            "ltc": construction_commitment / total_cost_basis if total_cost_basis > 0 else None,
+        }
 
         for m, cost in enumerate(cost_schedule):
             if m <= total:
@@ -1221,6 +1227,7 @@ def compute(inputs: dict) -> dict:
         "gprSource": gpr_source,
         "debt": debt_block,
         "sourcesAndUses": sources_and_uses,
+        "constructionLoan": construction_loan,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
         "gpEconomics": gp_economics,

@@ -166,6 +166,9 @@ def _load_cases() -> list[tuple[str, dict]]:
         ("export_amortizing_growth", AMORTIZING_GROWTH_INPUTS),
         ("export_opex_detail", OPEX_DETAIL_INPUTS),
         ("export_development_scurve", DEVELOPMENT_SCURVE_INPUTS),
+        # No construction period: the whole budget lands at close (the export
+        # used to carry land only there and drop every other cost).
+        ("export_development_no_build_period", {**DEVELOPMENT_SCURVE_INPUTS, "constructionMonths": 0}),
     ]
 
 

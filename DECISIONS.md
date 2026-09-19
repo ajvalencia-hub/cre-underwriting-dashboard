@@ -25,6 +25,27 @@ stated reason.
   root and warns with all of them, pointing to NPV and equity multiple.
   One sign change (the usual deal) skips the scan (Descartes' rule), so
   compute and Monte Carlo cost is unchanged. Baseline unchanged.
+- **[FIN] Construction LTC is measured on total cost including capitalized
+  interest and loan fees; the origination fee is charged on the loan
+  commitment** (supersedes the F2 "LTC ex-financing, financing loan-funded
+  on top" rule and the first-draw fee simplification). Lenders size LTC on
+  a budget that includes the interest reserve and fees; the old rule let a
+  stated 60% LTC carry ~61.4% of total cost as debt, understating equity
+  and overstating levered IRR, and the fee came to ~1% of one draw.
+  Circular, so the engine iterates to a fixed point (equity = (1 - LTC) x
+  total cost, commitment = LTC x total cost); the construction balance
+  ends at the commitment. The Excel export writes the solved equity and
+  commitment as values (a spreadsheet would need iterative calculation)
+  and adds an "Implied LTC" check cell computed from its formulas. New
+  result block `constructionLoan` {commitment, equity, totalCost, ltc}.
+  **Baseline moved: analytic_development only** (LTC 0.6, 1% fee): levered
+  IRR 27.36% -> 26.88%, equity multiple 3.58 -> 3.48, yield on cost 8.77%
+  -> 8.73%, loan fee ~$2.7k -> $107k; 89 values in that case. The other
+  five cases have no construction loan and are unchanged.
+- **Export: a development with no construction period** carried only land
+  at month 0 on the Draws sheet (the engine spends the whole budget at
+  close), so its exported IRR was nonsense. Fixed, with a new parity case
+  `export_development_no_build_period`.
 
 ## Settings v1 — scaffold, dark mode, backups panel, integrations (post-Run 5)
 
@@ -1368,6 +1389,7 @@ stated reason.
   equity is exhausted. Interest accrues monthly on the drawn balance and is
   capitalized (interest-reserve convention), as is the origination fee. LTC
   applies to the budget ex-financing; financing costs are loan-funded on top.
+  *(Superseded — see "Engine audit fixes": LTC now includes financing.)*
   Rejected pro-rata equity/debt funding per draw — lenders require equity in
   first.
 - **[FIN] Between construction end and permanent takeout, NOI is swept
