@@ -61,7 +61,21 @@ def _resolve_sizing_noi(inputs: dict, stabilized_noi: float, year1_noi: float) -
     return explicit if explicit > 0 else stabilized_noi
 
 
-def _operating_break_evens(statement: dict, total: int) -> dict:
+def _merge_egi_opex(
+    fixed_by_category: dict[str, list[float]], egi_by_category: dict[str, list[float]]
+) -> dict[str, list[float]]:
+    """Statement category rows: dollar lines plus any other-category
+    pct_of_egi lines (EGI x pct) under the same category key."""
+    merged = dict(fixed_by_category)
+    for key, vec in egi_by_category.items():
+        base = merged.get(key)
+        merged[key] = list(vec) if base is None else [a + b for a, b in zip(base, vec)]
+    return merged
+
+
+def _operating_break_evens(
+    statement: dict, total: int, egi_based_opex: list[float] | None = None
+) -> dict:
     """J9: per CALENDAR YEAR, the economic occupancy at which levered
     operating cash flow is zero holding rents, and the rent level (fraction
     of scheduled) at which it is zero holding occupancy — solved
@@ -95,10 +109,10 @@ def _operating_break_evens(statement: dict, total: int) -> dict:
         credit = _yr(statement["creditLoss"], year)
         other = _yr(statement["otherIncome"], year)
         egi = _yr(statement["egi"], year)
-        # The management fee scales with revenue; so do a hotel's
-        # departmental, undistributed, franchise and FF&E costs (#25).
-        hotel_variable = (statement.get("hotel") or {}).get("revenueLinkedOpex", zeros)
-        mgmt = _yr(statement["managementFee"], year) + _yr(hotel_variable, year)
+        # ALL EGI-based opex (mgmt fee + other-category pct_of_egi lines,
+        # which the statement reports under their own categories) scales
+        # with EGI; index 0 = close, matching the statement.
+        mgmt = _yr(egi_based_opex or statement["managementFee"], year)
         fixed = _yr(statement["opexTotal"], year) - mgmt
         below = (
             _yr(statement["debtService"], year)
@@ -1316,9 +1330,14 @@ def _compute(inputs: dict) -> dict:
         "creditLoss": _padded("creditLoss"),
         "otherIncome": _padded("otherIncome"),
         "egi": _padded("egi"),
+        # Other-category pct_of_egi lines report under their own category
+        # (merged here, not in ops, so escrow sizing and the mixed-use
+        # allocation keep reading dollar lines only).
         "fixedOpexByCategory": {
             category: [0.0] + vec[:total]
-            for category, vec in ops["fixedOpexByCategory"].items()
+            for category, vec in _merge_egi_opex(
+                ops["fixedOpexByCategory"], ops.get("egiOpexByCategory") or {}
+            ).items()
         },
         "managementFee": _padded("managementFee"),
         "opexTotal": _padded("opex"),
@@ -1384,7 +1403,9 @@ def _compute(inputs: dict) -> dict:
         statement["juniorPayoff"] = junior_block["payoffVector"]
     # J9: per-calendar-year operating break-evens on the statement's own
     # vectors (analytic; no recomputes). Year-1 values join the sidebar.
-    statement["breakEvens"] = _operating_break_evens(statement, total)
+    statement["breakEvens"] = _operating_break_evens(
+        statement, total, egi_based_opex=_padded("egiBasedOpex")
+    )
     if statement["breakEvens"]["years"]:
         year1_be = statement["breakEvens"]["years"][0]
         put("breakEvenOccupancyYear1", year1_be["occupancy"])

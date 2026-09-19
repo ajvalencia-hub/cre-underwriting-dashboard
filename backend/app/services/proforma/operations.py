@@ -184,6 +184,39 @@ def has_opex_detail(inputs: dict) -> bool:
     )
 
 
+def _egi_pct_split(inputs: dict) -> tuple[float, dict[str, float]]:
+    """Split detail-mode pct_of_egi lines by category for REPORTING:
+    (management-fee pct, {statement category key: pct}) — only
+    management_fee rows are the management fee; every other category's
+    EGI-based line reports under its own fixedOpexByCategory key. The
+    builders still charge the combined egiPctTotal in opex/NOI, so the
+    split never moves a number (see DECISIONS.md)."""
+    mgmt_pct = 0.0
+    by_key: dict[str, float] = {}
+    for raw in inputs.get("opexLineItems") or []:
+        if not (isinstance(raw, dict) and _num(raw, "amount") > 0):
+            continue
+        if (raw.get("basis") or "annual_total") != "pct_of_egi":
+            continue
+        category = raw.get("category") or "other"
+        if category == "management_fee":
+            mgmt_pct += _num(raw, "amount")
+        else:
+            key = _DETAIL_CATEGORY_KEYS.get(category, "otherOpex")
+            by_key[key] = by_key.get(key, 0.0) + _num(raw, "amount")
+    return mgmt_pct, by_key
+
+
+def _split_egi_opex(
+    egi_vec: list[float], mgmt_pct: float, pct_by_key: dict[str, float]
+) -> tuple[list[float], dict[str, list[float]]]:
+    """Reporting vectors for EGI-based opex: (managementFee, {key: vec})."""
+    return (
+        [egi * mgmt_pct for egi in egi_vec],
+        {key: [egi * pct for egi in egi_vec] for key, pct in pct_by_key.items()},
+    )
+
+
 def _detail_line_annual(inputs: dict, line: dict) -> tuple[float, str | None]:
     """Resolve a detail line's annual dollar base per its basis. Returns
     (annual, warning-or-None). pct_of_egi lines return 0 here — they're
@@ -258,7 +291,8 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
     (annual_total | per_unit | psf), per-line growth (falling back to the
     deal's expense growth), explicit recoverable flags, and pct_of_egi lines
     aggregated into egiPctTotal (EGI-based lines are never recoverable —
-    see DECISIONS.md)."""
+    see DECISIONS.md). egiPctSplit = (management-fee pct, {category key:
+    pct}) splits that total for statement reporting only."""
     expense_growth = (
         _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
     )
@@ -358,6 +392,7 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
             "recoverableVariable": recoverable_variable,
             "expenseGrowth": expense_growth,
             "egiPctTotal": egi_pct_total,
+            "egiPctSplit": _egi_pct_split(inputs),
             "detailMode": True,
             "warnings": warnings,
         }
@@ -395,6 +430,7 @@ def _fixed_expense_vectors(inputs: dict, timeline: Timeline) -> dict:
         "recoverable": recoverable,
         "expenseGrowth": expense_growth,
         "egiPctTotal": _num(inputs, "managementFeePct"),
+        "egiPctSplit": (_num(inputs, "managementFeePct"), {}),
         "detailMode": False,
         "warnings": warnings,
     }
@@ -538,6 +574,9 @@ def _build_lease_noi_vector(
         occupancy_vec.append(income["occupancy"][i])
         leasing_capital[i] = income["leasingCapital"][i]
 
+    # mgmt_vec is ALL EGI-based opex (it drives opex/NOI); only the
+    # management_fee share is reported as the management fee.
+    mgmt_report, egi_opex_by_category = _split_egi_opex(egi_vec, *expenses["egiPctSplit"])
     return {
         "noi": noi_vec,
         "egi": egi_vec,
@@ -547,7 +586,9 @@ def _build_lease_noi_vector(
         "vacancyLoss": vacancy_vec,
         "creditLoss": credit_vec,
         "otherIncome": other_vec,
-        "managementFee": mgmt_vec,
+        "managementFee": mgmt_report,
+        "egiBasedOpex": mgmt_vec,
+        "egiOpexByCategory": egi_opex_by_category,
         "fixedOpexByCategory": expenses["byCategory"],
         "recoveries": income["recoveries"],
         "leasingCapital": leasing_capital,
@@ -677,12 +718,30 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     total = timeline.total_months
     blended = {key: [residential[key][m] + commercial[key][m] for m in range(total)]
                for key in _INCOME_KEYS}
-    mgmt = [residential["managementFee"][m] + commercial["managementFee"][m] for m in range(total)]
+    # All EGI-based opex (mgmt fee + other pct_of_egi lines) drives opex/NOI;
+    # the residential run carries it as one legacy pct, so its reporting
+    # split re-applies the detail-line split to residential EGI.
+    egi_opex = [
+        residential["egiBasedOpex"][m] + commercial["egiBasedOpex"][m] for m in range(total)
+    ]
+    if has_opex_detail(inputs):
+        res_mgmt, res_by_category = _split_egi_opex(residential["egi"], *_egi_pct_split(inputs))
+    else:
+        res_mgmt, res_by_category = residential["managementFee"], {}
+    mgmt_report = [res_mgmt[m] + commercial["managementFee"][m] for m in range(total)]
+    egi_opex_by_category = {
+        key: [
+            res_by_category.get(key, [0.0] * total)[m]
+            + commercial["egiOpexByCategory"].get(key, [0.0] * total)[m]
+            for m in range(total)
+        ]
+        for key in {**res_by_category, **commercial["egiOpexByCategory"]}
+    }
     fixed_by_category = commercial["fixedOpexByCategory"]
     fixed_total = [
         sum(vec[m] for vec in fixed_by_category.values()) for m in range(total)
     ]
-    opex = [fixed_total[m] + mgmt[m] for m in range(total)]
+    opex = [fixed_total[m] + egi_opex[m] for m in range(total)]
     noi = [blended["egi"][m] - opex[m] for m in range(total)]
 
     # EGI-weighted blended occupancy; component fixed-opex allocation for
@@ -708,8 +767,8 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         for key in _INCOME_KEYS:
             components["residential"][key].append(residential[key][m])
             components["commercial"][key].append(commercial[key][m])
-        opex_r = fixed_total[m] * share_r + residential["managementFee"][m]
-        opex_c = fixed_total[m] * (1 - share_r) + commercial["managementFee"][m]
+        opex_r = fixed_total[m] * share_r + residential["egiBasedOpex"][m]
+        opex_c = fixed_total[m] * (1 - share_r) + commercial["egiBasedOpex"][m]
         components["residential"]["opex"].append(opex_r)
         components["commercial"]["opex"].append(opex_c)
         components["residential"]["noi"].append(egi_r - opex_r)
@@ -724,7 +783,9 @@ def _build_mixed_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "vacancyLoss": blended["vacancyLoss"],
         "creditLoss": blended["creditLoss"],
         "otherIncome": blended["otherIncome"],
-        "managementFee": mgmt,
+        "managementFee": mgmt_report,
+        "egiBasedOpex": egi_opex,
+        "egiOpexByCategory": egi_opex_by_category,
         "fixedOpexByCategory": fixed_by_category,
         "recoveries": commercial["recoveries"],
         "leasingCapital": commercial["leasingCapital"],
@@ -1083,6 +1144,10 @@ def _build_hotel_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "creditLoss": [0.0] * total,
         "otherIncome": vectors["otherIncome"],
         "managementFee": vectors["managementFee"],
+        # Every revenue-scaled cost (break-evens treat these as variable).
+        "egiBasedOpex": [
+            vectors["managementFee"][i] + vectors["revenueLinkedOpex"][i] for i in range(total)
+        ],
         "fixedOpexByCategory": {**by_category, **fixed_by_category},
         "gprSource": "hotel",
         "warnings": warnings,
@@ -1206,6 +1271,9 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         other_vec.append(other_income_month)
         mgmt_fee_vec.append(management_fee_month)
 
+    # mgmt_fee_vec is ALL EGI-based opex (it drives opex/NOI); only the
+    # management_fee share is reported as the management fee.
+    mgmt_report, egi_opex_by_category = _split_egi_opex(egi_vec, *expenses["egiPctSplit"])
     result = {
         "noi": noi_vec,
         "egi": egi_vec,
@@ -1215,7 +1283,9 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         "vacancyLoss": vacancy_vec,
         "creditLoss": credit_vec,
         "otherIncome": other_vec,
-        "managementFee": mgmt_fee_vec,
+        "managementFee": mgmt_report,
+        "egiBasedOpex": mgmt_fee_vec,
+        "egiOpexByCategory": egi_opex_by_category,
         "fixedOpexByCategory": fixed_by_category,
         "gprSource": source,
         "warnings": warnings,

@@ -116,3 +116,10 @@ def test_the_excel_export_refuses_hotels():
 def test_a_hotel_component_of_a_mixed_use_deal_warns_that_it_is_ignored():
     deal = dict(HOTEL, propertyType="mixed_use", mixedUseComponents=["retail", "hotel"], grossPotentialRent=1_000_000)
     assert any("hotel component" in w for w in compute(deal)["warnings"])
+
+
+def test_yearly_break_evens_treat_revenue_linked_costs_as_variable():
+    # Year 1 matches the hand break-even above: every revenue-scaled cost
+    # (departmental, undistributed, franchise, FF&E, management) is variable.
+    years = compute(dict(HOTEL))["statement"]["breakEvens"]["years"]
+    assert years[0]["occupancy"] == pytest.approx(1_000_000 / (2_262_750 / 0.75), rel=1e-6)

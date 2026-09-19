@@ -376,6 +376,45 @@ stated reason.
   close), so its exported IRR was nonsense. Fixed, with a new parity case
   `export_development_no_build_period`.
 
+## Opex Detail — pct_of_egi lines report under their own category (post-Run 5)
+
+- **[FIN] Only `management_fee` pct_of_egi rows (plus legacy
+  `managementFeePct`) are the statement's `managementFee`.** A pct_of_egi
+  row of any other category reports under that category's
+  `fixedOpexByCategory` key (`_DETAIL_CATEGORY_KEYS`; unknown → `otherOpex`),
+  computed monthly as EGI × pct and summed with any dollar lines of the same
+  category. Previously every pct_of_egi row was summed into `egiPctTotal` and
+  shown as management fee, so e.g. "other at 2% of EGI" was mislabeled.
+- **Reporting-only; no number moves.** The builders still charge the
+  combined `egiPctTotal` × EGI in opex/NOI (so NOI is bit-identical), and
+  expose that total internally as `ops["egiBasedOpex"]`. Consequences kept
+  deliberately unchanged:
+  - Break-evens (J9) scale ALL EGI-based opex with EGI — they now read
+    `egiBasedOpex` instead of the statement's `managementFee` row.
+  - The EGI-based lines merge into `fixedOpexByCategory` only when the
+    statement is packaged (`engine._merge_egi_opex`), not in `ops`: T&I
+    escrow sizing and the mixed-use component allocation keep reading
+    dollar lines only, so a "taxes at % of EGI" row does not start funding
+    escrow.
+  - Mixed-use: the residential run still carries the combined pct as one
+    legacy `managementFeePct` (and component opex uses the full EGI-based
+    amount); only its reporting is split by re-applying the line split to
+    residential EGI.
+  - Open question, NOT changed: with `mgmtFeeRecoverable` on, the recovery
+    pool contribution still uses the combined pct (all pct_of_egi lines),
+    as before. Restricting it to management_fee rows is arguably more
+    correct but would change recoveries/NOI, so it needs its own decision.
+- **Excel model export keeps parity rather than refusing.** "Mgmt fee % of
+  EGI" now holds only management_fee rows; each other category gets its own
+  "<label> % of EGI" input (written only when present, so existing exports
+  are byte-identical in layout), folded into the Model opex column (header
+  becomes "Opex ex mgmt fee (fixed + other % of EGI)") and the Outputs
+  stabilized-NOI helper. New parity case `export_opex_detail_egi_pct`.
+- Rejected: moving the pct lines into the byCategory vectors inside
+  `_fixed_expense_vectors` — every consumer of that dict (escrow, mixed-use
+  fixed_total, gross-up pools) would silently start treating EGI-based
+  dollars as fixed.
+
 ## Settings v1 — scaffold, dark mode, backups panel, integrations (post-Run 5)
 
 - **Two-tier settings architecture**: per-browser UI preferences live in

@@ -27,6 +27,8 @@ test('underwriting happy path', async ({ page }) => {
   // Quick Screen renders a feasibility verdict and the sidebar shows
   // Quick Screen estimates marked "est.".
   await expect(page.getByText(/Strong —|Marginal —|Weak —/).first()).toBeVisible()
+  // exact: the (hidden, always-mounted) Settings page has prose ending in
+  // "…manifest." that a substring match would pick up first.
   await expect(page.getByText('est.', { exact: true }).first()).toBeVisible()
 
   // Nudge the rent input and confirm the verdict block is still live.
