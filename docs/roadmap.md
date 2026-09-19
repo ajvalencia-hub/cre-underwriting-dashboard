@@ -34,8 +34,8 @@ DECISIONS.md under "Engine audit fixes".
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 1 | **Deleting a document can break another deal's attachment** ✓ | `documents.py` deletes a file that other records share (same content hash), and a re-upload can then fail with a 500 | S |
-| 2 | **Backup rotation and restore safety** ✓ | A backup runs on every launch and only 7 dailies are kept, so 7 relaunches wipe older backups. Failures are swallowed silently. Restore doesn't snapshot first, and `kind` isn't validated | S–M |
+| 1 | ~~**Deleting a document can break another deal's attachment**~~ **Done** (4f4a778) | `documents.py` deletes a file that other records share (same content hash), and a re-upload can then fail with a 500 | S |
+| 2 | ~~**Backup rotation and restore safety**~~ **Done** (5cd7d8e, 137af9e) | A backup runs on every launch and only 7 dailies are kept, so 7 relaunches wipe older backups. Failures are swallowed silently. Restore doesn't snapshot first, and `kind` isn't validated | S–M |
 | 3 | **Docker mode is open to the local network** ✓ | Binds to `0.0.0.0` with no login; publish on `127.0.0.1`, add `nosniff` and CSP headers, serve SVGs as downloads | S |
 | 4 | **Loading a scenario silently replaces every input** ✓ | Add a confirm (reuse the preset diff) and a "Working from: <scenario>" chip | S |
 | 5 | **Numbers people read are hard to read** ✓ | 182 uses of `text-slate-400` (about 2.6:1, below WCAG AA). Negative money shows as `$-2,116,364` | S |
