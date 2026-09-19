@@ -8,6 +8,9 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# fieldHelp.test.ts checks the help text against the backend's input schema,
+# and tsc -b type-checks tests too, so the file must sit at its repo path.
+COPY backend/app/data/input_schema.json /app/backend/app/data/input_schema.json
 RUN npm run build
 
 # --- Stage 2: backend runtime ---
