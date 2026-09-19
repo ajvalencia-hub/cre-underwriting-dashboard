@@ -82,6 +82,15 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
             return gpr + res_gpr, other + res_other - _num(inputs, "otherIncome"), "mixed", warnings
         return gpr, other, "commercialLeases", warnings
 
+    if (
+        inputs.get("propertyType") in ("single_family", "townhouse")
+        and inputs.get("isForSale") is False
+        and _num(inputs, "homeCount") > 0
+        and _num(inputs, "rentPerHome") > 0
+    ):
+        # Roadmap #26: single-family / townhouse rentals — homes x monthly rent.
+        return _num(inputs, "homeCount") * _num(inputs, "rentPerHome") * 12, _num(inputs, "otherIncome"), "homes", warnings
+
     if has_hotel_operations(inputs):
         # Rooms revenue at 100% occupancy (the hotel's "GPR"); F&B and other
         # revenue ride in other income, as in the hotel NOI builder.

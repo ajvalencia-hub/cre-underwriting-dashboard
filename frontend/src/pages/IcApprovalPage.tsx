@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { addIcStep, type IcStepKind, type IcSummary } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
-import { headlineIds } from '../lib/headlineMetrics'
+import { headlineIds, isForSaleDeal } from '../lib/headlineMetrics'
 import {
   IC_STATE_LABELS,
   IC_STATE_STYLES,
@@ -96,7 +96,7 @@ export default function IcApprovalPage({
   const steps = allowedSteps(summary.state)
   const nameMissing = actor.trim() === ''
   // The go/no-go read first (as in the summary panel); the rest on request.
-  const headline = headlineIds(submission?.inputs.dealType)
+  const headline = headlineIds(submission?.inputs.dealType, isForSaleDeal(submission?.inputs))
   const withValue = schema.outputs.filter((m) => submission && submission.outputs[m.id] !== undefined)
   const headlineMetrics = headline.flatMap((id) => withValue.filter((m) => m.id === id))
   const otherMetrics = withValue.filter((m) => !headline.includes(m.id))

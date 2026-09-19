@@ -6,7 +6,7 @@ different exit assumption; nothing here re-implements a formula.
 
 import math
 
-from app.services.proforma import engine
+from app.services.proforma import engine, for_sale
 from app.services.proforma.timeline import build_timeline
 
 
@@ -23,6 +23,11 @@ def hold_sweep(inputs: dict) -> dict:
     Returns {"rows": [{holdYear, unleveredIrr, leveredIrr, equityMultiple,
     netProceeds}], "modeledHoldYears", "warnings"}."""
     warnings: list[str] = []
+    if for_sale.applies(inputs):
+        # Roadmap #26: homes are sold as they're built — there is no hold.
+        return {"rows": [], "modeledHoldYears": 0, "warnings": [
+            "A build-to-sell deal has no hold period to vary — it sells out at the absorption pace."
+        ]}
     modeled_hold = _num(inputs, "holdPeriodYears")
     if modeled_hold <= 0:
         return {"rows": [], "modeledHoldYears": 0, "warnings": ["No hold period set."]}

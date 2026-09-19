@@ -5,7 +5,15 @@ outside this package reimplements any of them.
 """
 
 from app.services.money_format import money
-from app.services.proforma import debt, development, equity, input_validation, operations, returns
+from app.services.proforma import (
+    debt,
+    development,
+    equity,
+    for_sale,
+    input_validation,
+    operations,
+    returns,
+)
 from app.services.proforma.timeline import (
     ANALYSIS_EPOCH,
     Timeline,
@@ -178,6 +186,14 @@ def compute(inputs: dict) -> dict:
 
 
 def _compute(inputs: dict) -> dict:
+    # Roadmap #26: build-to-sell homes have their own cash flow (no NOI,
+    # hold or exit cap).
+    if for_sale.applies(inputs):
+        missing_for_sale = for_sale.missing_inputs(inputs)
+        if missing_for_sale:
+            raise InsufficientInputsError(missing_for_sale)
+        return for_sale.compute(inputs)
+
     warnings: list[str] = []
 
     deal_type = inputs.get("dealType")

@@ -39,6 +39,9 @@
     { "id": "terminalValue", "label": "Terminal / Reversion Value", "type": "currency", "group": "Yield & Value" },
     { "id": "netSaleProceeds", "label": "Net Sale Proceeds", "type": "currency", "group": "Yield & Value" },
     { "id": "totalProfit", "label": "Total Profit", "type": "currency", "group": "Yield & Value" },
+    { "id": "grossMarginPct", "label": "Gross Margin (for-sale)", "type": "percent", "group": "Yield & Value" },
+    { "id": "peakEquity", "label": "Peak Equity", "type": "currency", "group": "Returns" },
+    { "id": "selloutYears", "label": "Sellout Period", "type": "years", "group": "Returns" },
     { "id": "npv", "label": "Net Present Value", "type": "currency", "group": "Yield & Value" },
     { "id": "profitabilityIndex", "label": "Profitability Index", "type": "multiple", "group": "Yield & Value" },
 
@@ -347,14 +350,18 @@
         { "field": "mixedUseComponents", "contains": "townhouse" }
       ] },
       "fields": [
-        { "id": "homeCount", "templateOnly": true, "label": "# Homes / Lots", "type": "number", "min": 0 },
-        { "id": "buildCostPerHome", "templateOnly": true, "label": "Build Cost per Home", "type": "currency", "min": 0 },
-        { "id": "absorptionPerMonth", "templateOnly": true, "label": "Sales / Lease-Up Pace (per mo)", "type": "number", "min": 0 },
-        { "id": "isForSale", "templateOnly": true, "label": "Model as For-Sale (vs. Rental)", "type": "boolean", "default": true },
-        { "id": "salePricePerHome", "templateOnly": true, "label": "Sale Price per Home", "type": "currency", "min": 0,
+        { "id": "homeCount", "label": "# Homes / Lots", "type": "number", "min": 0 },
+        { "id": "buildCostPerHome", "label": "Build Cost per Home", "type": "currency", "min": 0 },
+        { "id": "absorptionPerMonth", "label": "Sales / Lease-Up Pace (per mo)", "type": "number", "min": 0 },
+        { "id": "isForSale", "label": "Model as For-Sale (vs. Rental)", "type": "boolean", "default": true },
+        { "id": "salePricePerHome", "label": "Sale Price per Home", "type": "currency", "min": 0,
           "visibleWhen": { "all": [{ "field": "isForSale", "equals": true }] } },
-        { "id": "rentPerHome", "templateOnly": true, "label": "Rent per Home", "type": "currency", "min": 0,
-          "visibleWhen": { "all": [{ "field": "isForSale", "equals": false }] } }
+        { "id": "rentPerHome", "label": "Rent per Home (per month)", "type": "currency", "min": 0,
+          "visibleWhen": { "all": [{ "field": "isForSale", "equals": false }] } },
+        { "id": "homeBuildMonths", "label": "Months to Build a Home", "type": "number", "min": 1, "max": 36, "default": 6,
+          "visibleWhen": { "all": [{ "field": "isForSale", "equals": true }] } },
+        { "id": "homePriceGrowthPct", "label": "Home Price Growth (annual)", "type": "percent", "min": -0.1, "max": 0.15, "default": 0,
+          "visibleWhen": { "all": [{ "field": "isForSale", "equals": true }] } }
       ]
     },
     {

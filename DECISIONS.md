@@ -260,6 +260,30 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **[FIN] Build-to-sell homes** (roadmap #26): its own cash flow
+  (services/proforma/for_sale.py) for single-family / townhouse
+  developments with "Model as For-Sale" on and a sale price entered —
+  without a price the deal keeps computing as a rental, so no existing deal
+  changes silently. Land at close; site work (hard on the S-curve, soft
+  straight-line, contingency) over the construction months; homes close at
+  the absorption pace from month S + homeBuildMonths, each home's
+  construction (plus contingency) spent evenly over the build months ending
+  at its closing; prices grow annually from the first closing; selling
+  costs = cost of sale %. Developer fee = % of each month's non-land spend.
+  Financing: LTC on total cost including interest and the origination fee
+  (fixed point, as for the development loan); equity first up to its
+  share, then a revolving loan; a month's closings pay that month's costs,
+  then repay the loan, then go to equity (lenders sweep proceeds; builders
+  fund starts from closings). Outputs: IRRs, multiples, profit, gross
+  margin (profit before financing / net revenue), peak equity (the deepest
+  cumulative equity position) and sellout period; no NOI, exit cap or hold,
+  so the hold sweep and Excel export decline these deals. The statement
+  identity (levered = noi − debt service + draws − costs − fees + sale
+  proceeds) still holds, with debt service = interest + loan repaid from
+  closings. Single-family / townhouse rentals (for-sale off) now compute
+  GPR from homes × monthly rent when both are entered. Rejected:
+  presale deposits and release-price schedules (inputs don't exist yet),
+  and a separate horizontal-development loan.
 - **[FIN] Hotel operations** (roadmap #25), USALI summary level, for
   deals whose property type is Hotel (a lease rent roll, if entered, still
   takes precedence; a hotel component of a mixed-use deal warns that it's

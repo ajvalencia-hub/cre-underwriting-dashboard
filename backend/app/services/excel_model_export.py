@@ -29,7 +29,7 @@ from io import BytesIO
 
 import openpyxl
 
-from app.services.proforma import debt, development, engine, leases, operations
+from app.services.proforma import debt, development, engine, for_sale, leases, operations
 from app.services.proforma.operations import (
     EXPENSE_DOLLAR_FIELDS,
     RECOVERABLE_EXPENSE_FIELDS,
@@ -109,6 +109,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("missing deal type (set Deal Basics → Deal Type first)")
     if leases.has_leases(inputs):
         features.append("commercial lease-level rent rolls (escalations/recoveries/rollover)")
+    if for_sale.applies(inputs):
+        features.append("build-to-sell homes (sales absorption cash flow)")
     if operations.has_hotel_operations(inputs):
         features.append("hotel operations (rooms revenue, departmental and undistributed costs)")
     if inputs.get("waterfallTiers"):

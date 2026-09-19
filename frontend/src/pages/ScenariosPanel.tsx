@@ -21,7 +21,7 @@ import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { TemplateSummary } from '../types/template'
 import { saveOutput } from '../lib/saveOutput'
-import { headlineIds } from '../lib/headlineMetrics'
+import { headlineIds, isForSaleDeal } from '../lib/headlineMetrics'
 import { formatDelta } from '../lib/metricDelta'
 
 interface ScenariosPanelProps {
@@ -191,7 +191,7 @@ export default function ScenariosPanel({
   const base = compared.find((s) => s.id === baseId) ?? compared[0]
   const baseIndex = base ? compared.indexOf(base) : -1
   const [showAllMetrics, setShowAllMetrics] = useState(false)
-  const headline = headlineIds(compared[0]?.inputs.dealType)
+  const headline = headlineIds(compared[0]?.inputs.dealType, isForSaleDeal(compared[0]?.inputs))
   const orderedOutputs = showAllMetrics
     ? [
         ...headline.flatMap((id) => schema.outputs.filter((m) => m.id === id)),

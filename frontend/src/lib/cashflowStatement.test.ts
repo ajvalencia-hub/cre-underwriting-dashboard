@@ -132,3 +132,23 @@ describe('hotel statement rows (roadmap #25)', () => {
     expect(labels).not.toContain('Less: credit loss')
   })
 })
+
+describe('build-to-sell statement rows (roadmap #26)', () => {
+  it('shows sales and the build budget instead of operations', () => {
+    const base = makeStatement()
+    const zeros = base.gpr.map(() => 0)
+    const statement: Statement = {
+      ...base,
+      forSale: {
+        homes: 10, closings: zeros, grossSales: zeros, sellingCosts: zeros, netSales: zeros,
+        land: zeros, siteWork: zeros, vertical: zeros, developerFee: zeros, loanRepayments: zeros,
+      },
+    }
+    const labels = statementRows(statement).map((r) => r.label)
+    expect(labels).toContain('Gross home sales')
+    expect(labels).toContain('Home construction')
+    expect(labels).toContain('Loan repaid from closings')
+    expect(labels).not.toContain('Net operating income')
+    expect(labels).not.toContain('Gross potential rent')
+  })
+})

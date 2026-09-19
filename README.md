@@ -210,7 +210,10 @@ value-add multifamily fixture):
 - **Workflow.** An **OM-to-deal wizard** (upload → confirm types → extract →
   the existing review gate → a new deal with provenance rows; resumable
   draft), **critical dates** (deadline strip + header chips + share),
-  a **hotel operating model** (keys × ADR × occupancy, F&B and other
+  a **build-to-sell model** for single-family and townhome developments
+  (site work, per-home construction, closings at the absorption pace, a
+  revolving loan repaid from closings; margin, peak equity, sellout), a
+  **hotel operating model** (keys × ADR × occupancy, F&B and other
   revenue, departmental / undistributed / franchise / management / FF&E
   costs, GOP and NOI after FF&E), an **investment-committee sign-off** (submit with the computed version,
   approvals by name, reasons to reject / return / reopen, locked inputs while

@@ -70,6 +70,7 @@ import DealHeaderBar from './components/DealHeaderBar'
 import DealImportNotices from './components/DealImportNotices'
 import { buildPaletteCommands } from './app/paletteCommands'
 import { isLockedField } from './lib/icWorkflow'
+import { isForSaleDeal } from './lib/headlineMetrics'
 import IcApprovalPage from './pages/IcApprovalPage'
 
 type LoadState =
@@ -708,6 +709,7 @@ function App() {
               }
             }}
             dealType={tab === 'quickscreen' ? quickScreens.mode : formValues.dealType}
+            forSale={tab !== 'quickscreen' && isForSaleDeal(formValues)}
             irrConvention={nativeResponse?.irrConvention ?? null}
             onGoalSeek={setGoalSeekMetric}
           />

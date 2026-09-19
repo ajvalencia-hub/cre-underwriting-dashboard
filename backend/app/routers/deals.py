@@ -161,7 +161,8 @@ def deal_metrics(db: Session = Depends(get_db)):
         out[deal.id] = {
             "status": "ok",
             "totalCost": sum(amount for _, amount in uses) if uses else None,
-            "equity": max(0.0, -levered[0]) if levered else None,
+            # A build-to-sell deal funds equity over time: report its peak.
+            "equity": outputs.get("peakEquity") or (max(0.0, -levered[0]) if levered else None),
             "leveredIrr": outputs.get("leveredIrr"),
             "equityMultiple": outputs.get("equityMultiple"),
             "yieldOnCost": outputs.get("yieldOnCost"),

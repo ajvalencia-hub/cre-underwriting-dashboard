@@ -16,6 +16,8 @@ interface MetricsSidebarProps {
   metrics: OutputMetric[]
   view: (metric: OutputMetric) => MetricView
   dealType: unknown
+  /** A build-to-sell deal leads with margin, peak equity and sellout. */
+  forSale?: boolean
   irrConvention: 'periodic_monthly' | 'xirr' | null
   onGoalSeek: (metric: OutputMetric) => void
 }
@@ -56,10 +58,10 @@ function SourceTag({ v }: { v: MetricView }) {
   return null
 }
 
-export default function MetricsSidebar({ metrics, view, dealType, irrConvention, onGoalSeek }: MetricsSidebarProps) {
+export default function MetricsSidebar({ metrics, view, dealType, forSale = false, irrConvention, onGoalSeek }: MetricsSidebarProps) {
   const [showEmpty, setShowEmpty] = useState(false)
   const byId = new Map(metrics.map((m) => [m.id, m]))
-  const headline = headlineIds(dealType)
+  const headline = headlineIds(dealType, forSale)
     .map((id) => byId.get(id))
     .filter((m): m is OutputMetric => m !== undefined)
   const headlineSet = new Set(headline.map((m) => m.id))
