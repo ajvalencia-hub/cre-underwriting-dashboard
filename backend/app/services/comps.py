@@ -10,6 +10,7 @@ mapping. Unparseable rows are skipped with a warning, never guessed.
 import csv
 import io
 import re
+from datetime import date
 from statistics import median
 
 from sqlalchemy import select
@@ -172,8 +173,9 @@ def normalize_address(address: str | None) -> str:
     return " ".join(words)
 
 
-def _iso_date(value) -> "date | None":
-    from datetime import date as _date, datetime as _datetime
+def _iso_date(value) -> date | None:
+    from datetime import date as _date
+    from datetime import datetime as _datetime
 
     if isinstance(value, str) and value:
         try:
@@ -194,7 +196,7 @@ def find_duplicates(
     """Import-time dedupe (I11): a candidate matches an existing comp when
     the normalized addresses are equal AND the sale/as-of dates fall within
     ±window_days. Returns [{rowIndex, existingId, existingName, daysApart}]."""
-    model = SaleComp if kind == "sale" else RentComp
+    model: type[SaleComp] | type[RentComp] = SaleComp if kind == "sale" else RentComp
     date_attr = "sale_date" if kind == "sale" else "as_of"
     existing = [
         (c, normalize_address(c.address), _iso_date(getattr(c, date_attr)))
@@ -224,7 +226,8 @@ def find_duplicates(
 
 def stale_count(comp_rows: list, date_attr: str, now=None) -> int:
     """How many comps carry a date older than COMP_STALE_MONTHS."""
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     today = now or _date.today()
     cutoff = today - timedelta(days=COMP_STALE_MONTHS * 30)

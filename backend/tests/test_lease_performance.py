@@ -13,8 +13,6 @@ optimized in DECISIONS.md).
 
 import time
 
-import pytest
-
 from app.services.proforma import engine, leases
 
 WALL_CLOCK_BUDGET_SECONDS = 2.0  # hard cap per the spec

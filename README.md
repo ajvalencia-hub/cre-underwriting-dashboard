@@ -343,6 +343,10 @@ cd backend
 UPDATE_GOLDEN=1 pytest tests/test_extraction_golden.py   # regenerate goldens (prints diff otherwise)
 UPDATE_BASELINE=1 pytest tests/regression        # Run-3 payload baseline (EXPANSION only, never to absorb behavior changes)
 
+# Lint and type checks (dev tools: pip install -r requirements-dev.txt)
+.venv/Scripts/ruff check app tests                # config in backend/pyproject.toml
+.venv/Scripts/mypy                                # modules on the ratchet list are skipped until cleaned
+
 cd frontend
 npm test && npm run build && npm run lint
 npm run e2e     # Playwright smoke: boots a scratch-DB backend + Vite, one happy path

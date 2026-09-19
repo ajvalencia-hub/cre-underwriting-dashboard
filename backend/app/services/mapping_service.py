@@ -17,7 +17,7 @@ def _normalize(name: str) -> str:
 
 
 def load_flat_fields(include_outputs: bool = False) -> list[dict]:
-    with open(INPUT_SCHEMA_PATH, "r", encoding="utf-8") as f:
+    with open(INPUT_SCHEMA_PATH, encoding="utf-8") as f:
         schema = json.load(f)
     fields = []
     for section in schema["sections"]:
@@ -28,7 +28,7 @@ def load_flat_fields(include_outputs: bool = False) -> list[dict]:
 
 
 def load_output_fields() -> list[dict]:
-    with open(INPUT_SCHEMA_PATH, "r", encoding="utf-8") as f:
+    with open(INPUT_SCHEMA_PATH, encoding="utf-8") as f:
         schema = json.load(f)
     return schema.get("outputs", [])
 
@@ -40,15 +40,15 @@ def _match_by_named_range(fields: list[dict], named_ranges: list[dict]) -> dict:
 
     mappings: dict[str, dict] = {}
     for field in fields:
-        nr = nr_by_norm.get(_normalize(field["id"]))
-        if nr is None:
+        named = nr_by_norm.get(_normalize(field["id"]))
+        if named is None:
             continue
 
         if field["type"] == "table":
             mappings[field["id"]] = {
                 "target": "table",
-                "anchor": nr["ref"],
-                "sheet": nr["sheet"],
+                "anchor": named["ref"],
+                "sheet": named["sheet"],
                 "columnOrder": [c["id"] for c in field.get("columns", [])],
                 "source": "auto",
             }
@@ -57,7 +57,7 @@ def _match_by_named_range(fields: list[dict], named_ranges: list[dict]) -> dict:
         else:
             mappings[field["id"]] = {
                 "target": "namedRange",
-                "ref": nr["name"],
+                "ref": named["name"],
                 "sheet": None,
                 "source": "auto",
             }

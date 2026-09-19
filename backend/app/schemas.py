@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 
 class SheetMeta(BaseModel):
@@ -119,6 +119,7 @@ class DealIn(BaseModel):
 # never has an invalid status; each board's UI constrains to its own set.
 def _load_deal_stages() -> dict[str, list[str]]:
     import json
+
     from app.config import INPUT_SCHEMA_PATH
 
     return json.loads(INPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["dealStages"]
@@ -335,7 +336,8 @@ class CommercialLeaseProposal(ApiModel):
 def _enum(default: str, values: list[str]):
     """A string documented as one of `values` in the API schema but not
     enforced on output (stored rows predate some values)."""
-    return Field(default, json_schema_extra={"enum": values})
+    enum: list[JsonValue] = [*values]
+    return Field(default, json_schema_extra={"enum": enum})
 
 
 class SourceRefOut(ApiModel):

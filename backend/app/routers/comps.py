@@ -7,17 +7,17 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api_models import CompMapOut, CompOut, CompsImportOut
 from app.database import get_db
 from app.models import RentComp, SaleComp
 from app.services import comps as comps_service
-from app.api_models import CompMapOut, CompOut, CompsImportOut
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
 MAX_CSV_BYTES = 5 * 1024 * 1024
 PREVIEW_ROWS = 8
 
-_KIND_MODELS = {"sale": SaleComp, "rent": RentComp}
+_KIND_MODELS: dict[str, type[SaleComp] | type[RentComp]] = {"sale": SaleComp, "rent": RentComp}
 
 # JSON field <-> column attribute per kind (shared by create/update/serialize)
 _SALE_ATTRS = {

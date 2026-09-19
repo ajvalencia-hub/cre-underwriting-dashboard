@@ -1,18 +1,17 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.api_models import RecalcAgreementOut
 from app.config import TEMPLATES_DIR
 from app.database import get_db
 from app.models import MappingProfile, Scenario, Template
 from app.routers.upload_limit import read_upload_limited
-from pydantic import BaseModel
-
 from app.schemas import MappingEntry, SheetGrid, TemplateSummary
 from app.services import recalc_agreement, recalc_service, template_service
-from app.api_models import RecalcAgreementOut
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -103,7 +102,7 @@ def get_sheet_grid(
             start_row=start_row,
         )
     except KeyError:
-        raise HTTPException(404, f"Sheet '{sheet_name}' not found in template")
+        raise HTTPException(404, f"Sheet '{sheet_name}' not found in template") from None
 
 
 @router.delete("/{template_id}")
@@ -117,10 +116,10 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     ).scalars().all()
     if profile_ids:
         db.execute(
-            Scenario.__table__.delete().where(Scenario.mapping_profile_id.in_(profile_ids))
+            delete(Scenario).where(Scenario.mapping_profile_id.in_(profile_ids))
         )
-    db.execute(MappingProfile.__table__.delete().where(MappingProfile.template_id == template_id))
-    db.execute(Scenario.__table__.delete().where(Scenario.template_id == template_id))
+    db.execute(delete(MappingProfile).where(MappingProfile.template_id == template_id))
+    db.execute(delete(Scenario).where(Scenario.template_id == template_id))
 
     Path(template.stored_path).unlink(missing_ok=True)
     db.delete(template)

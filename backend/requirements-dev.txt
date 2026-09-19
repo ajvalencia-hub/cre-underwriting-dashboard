@@ -1,0 +1,6 @@
+# Development-only tools (roadmap #32). Not installed in the Docker image or
+# the desktop app. Install alongside requirements.txt:
+#   backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+ruff==0.16.8        # lint + import order (config in backend/pyproject.toml)
+mypy==2.3.1         # static type checking
+hypothesis==6.168.0 # property-based engine input tests

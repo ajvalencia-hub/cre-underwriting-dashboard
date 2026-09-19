@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api_models import MarketRatesOut
 from app.database import get_db
 from app.services import benchmarks, comps
 from app.services.data_sources import fred
-from app.api_models import MarketRatesOut
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 

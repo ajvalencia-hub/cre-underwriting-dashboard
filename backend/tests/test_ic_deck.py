@@ -6,7 +6,6 @@ import json
 from io import BytesIO
 from pathlib import Path
 
-import pytest
 from pptx import Presentation
 
 from app.services import deck_service

@@ -85,7 +85,7 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
         period_type = "annual"
 
     annualized = annualize_factor != 1
-    line_items = []
+    line_items: list[dict] = []
     labeled_rows = 0
 
     label_col = 0  # first column is conventionally the line-item label
@@ -107,8 +107,8 @@ def parse_t12(headers: list[str], data_rows: list[list], source_doc: str, sheet:
         # monthly values would be dropped outright (FINDINGS.md C3).
         if amount is None and month_cols:
             monthly_values = [parse_numeric(row[c]) for c in month_cols if c < len(row)]
-            monthly_values = [v for v in monthly_values if v is not None]
-            amount = sum(monthly_values) * annualize_factor if monthly_values else None
+            parsed_values = [v for v in monthly_values if v is not None]
+            amount = sum(parsed_values) * annualize_factor if parsed_values else None
 
         if amount is None:
             continue

@@ -1,14 +1,12 @@
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.orm import Session
-
-from typing import Any
-
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.config import GENERATED_DIR
 from app.database import get_db

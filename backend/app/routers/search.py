@@ -14,16 +14,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api_models import SearchOut
 from app.database import get_db
 from app.models import Deal, DealNote, SaleComp
-from app.api_models import SearchOut
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
 GROUP_LIMIT = 8
 
 
-def _rank_key(text: str, q: str) -> tuple[int, str]:
+def _rank_key(text: str | None, q: str) -> tuple[int, str]:
     lowered = (text or "").lower()
     return (0 if lowered.startswith(q) else 1, lowered)
 

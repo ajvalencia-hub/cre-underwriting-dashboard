@@ -19,6 +19,7 @@ Conventions (see DECISIONS.md):
 
 import contextvars
 from contextlib import contextmanager
+
 from app.services.proforma import leases
 from app.services.proforma.timeline import Timeline, analysis_epoch
 

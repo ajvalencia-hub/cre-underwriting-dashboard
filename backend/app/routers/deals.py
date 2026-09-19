@@ -4,18 +4,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from fastapi.responses import HTMLResponse, Response
-
+from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
 from app.services import deal_history, deck_service, document_storage, share_html
 from app.services.proforma import engine
-from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
@@ -190,9 +189,10 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
     # template selection (activeTemplateId only) and vice versa.
     provided = payload.model_fields_set
     if "name" in provided:
-        if not (payload.name or "").strip():
+        name = (payload.name or "").strip()
+        if not name:
             raise HTTPException(400, "Deal name cannot be empty")
-        deal.name = payload.name.strip()
+        deal.name = name
     if "inputs" in provided and payload.inputs is not None:
         deal_history.record_snapshot(db, deal, payload.inputs)
         deal.inputs = payload.inputs
@@ -224,7 +224,7 @@ def bulk_status(payload: BulkStatusRequest, db: Session = Depends(get_db)):
         raise HTTPException(422, f"Unknown status '{payload.status}'.")
     if not payload.dealIds:
         raise HTTPException(400, "dealIds is empty.")
-    updated: list[DealOut] = []
+    updated: list[Deal] = []
     missing: list[str] = []
     for deal_id in payload.dealIds:
         deal = db.get(Deal, deal_id)
@@ -662,9 +662,9 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     # document row shares the hash — uploads dedupe by content).
     from app.models import DealNote, Document
 
-    db.execute(Scenario.__table__.delete().where(Scenario.deal_id == deal_id))
-    db.execute(DealSnapshot.__table__.delete().where(DealSnapshot.deal_id == deal_id))
-    db.execute(DealNote.__table__.delete().where(DealNote.deal_id == deal_id))
+    db.execute(delete(Scenario).where(Scenario.deal_id == deal_id))
+    db.execute(delete(DealSnapshot).where(DealSnapshot.deal_id == deal_id))
+    db.execute(delete(DealNote).where(DealNote.deal_id == deal_id))
     attachments = db.execute(
         select(Document).where(Document.deal_id == deal_id)
     ).scalars().all()

@@ -1,10 +1,9 @@
 """Database schema versioning (roadmap #21)."""
 
 import pytest
-
-import app.models  # noqa: F401  (registers the tables on Base.metadata)
 from sqlalchemy import create_engine, text
 
+import app.models  # noqa: F401  (registers the tables on Base.metadata)
 from app.database import (
     SCHEMA_VERSION,
     Base,

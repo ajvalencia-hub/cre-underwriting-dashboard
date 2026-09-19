@@ -108,8 +108,8 @@ def record_snapshot(db: Session, deal: Deal, new_inputs: dict, kind: str = "auto
 
 
 def list_snapshots(db: Session, deal_id: str) -> list[DealSnapshot]:
-    return db.execute(
+    return list(db.execute(
         select(DealSnapshot)
         .where(DealSnapshot.deal_id == deal_id)
         .order_by(*_NEWEST_FIRST)
-    ).scalars().all()
+    ).scalars().all())

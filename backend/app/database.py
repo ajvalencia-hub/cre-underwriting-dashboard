@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -255,7 +257,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
     deal-scoped scenario list still shows them. Only creates the Default Deal
     when orphans actually exist."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     inspector = inspect(eng)
     tables = inspector.get_table_names()

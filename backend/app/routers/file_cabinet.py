@@ -18,12 +18,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api_models import AttachmentOut, NoteOut
 from app.config import DOCUMENTS_DIR
 from app.database import get_db
 from app.models import Deal, DealNote, Document
 from app.routers.upload_limit import read_upload_limited
 from app.services.template_service import compute_file_hash
-from app.api_models import AttachmentOut, NoteOut
 
 router = APIRouter(prefix="/api/deals", tags=["file-cabinet"])
 

@@ -1,7 +1,6 @@
 """Exit mechanics (roadmap #24): trailing vs forward NOI for the exit value,
 and a prepayment cost on the loan repaid at sale."""
 
-import json
 from pathlib import Path
 
 import pytest

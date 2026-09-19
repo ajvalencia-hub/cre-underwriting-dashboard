@@ -8,10 +8,10 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api_models import PortfolioOut
 from app.database import get_db
 from app.models import Deal
 from app.services import portfolio
-from app.api_models import PortfolioOut
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 

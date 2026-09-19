@@ -10,9 +10,9 @@ is pure, so repeated goal-seeks over the same deal re-use prior points.
 """
 
 import json
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
 
 from app.services import compute_cache
 from app.services.proforma import engine

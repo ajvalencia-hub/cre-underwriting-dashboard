@@ -389,7 +389,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
 
 
 def run_extraction(documents: list[Document]) -> dict:
-    merged = {"scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": []}
+    merged: dict[str, list] = {"scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": []}
 
     for doc in documents:
         grid, text, doc_warnings = _load_grid_and_text(doc)

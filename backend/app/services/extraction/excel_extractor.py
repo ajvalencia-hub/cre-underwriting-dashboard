@@ -52,7 +52,7 @@ def list_sheets(path: Path, ext: str) -> list[str]:
 
 
 def _grid_from_csv(path: Path) -> list[list]:
-    with open(path, "r", encoding="utf-8", errors="replace") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         return [row for row in csv.reader(f)]
 
 
