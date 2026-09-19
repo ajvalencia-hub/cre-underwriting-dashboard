@@ -62,7 +62,7 @@ function RateSparkline({ rates }: { rates: number[] }) {
       <title>
         All-in rate {(min * 100).toFixed(2)}%–{(max * 100).toFixed(2)}% over the hold
       </title>
-      <polyline points={points} fill="none" stroke="#0284c7" strokeWidth="1.5" />
+      <polyline points={points} fill="none" strokeWidth="1.5" style={{ stroke: 'var(--viz-series-1)' }} />
     </svg>
   )
 }

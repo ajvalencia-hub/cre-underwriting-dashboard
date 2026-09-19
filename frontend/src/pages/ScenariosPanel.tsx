@@ -24,6 +24,9 @@ import type { TemplateSummary } from '../types/template'
 import { saveOutput } from '../lib/saveOutput'
 import { headlineIds, isForSaleDeal } from '../lib/headlineMetrics'
 import { formatDelta } from '../lib/metricDelta'
+import { nextFreeSlot, scenarioCell } from '../lib/analysisChartData'
+import { ScenarioMetricCharts, type ComparedScenario } from '../components/analysisCharts/ScenarioMetricCharts'
+import type { SeriesSlot } from '../components/charts'
 
 interface ScenariosPanelProps {
   schema: InputSchema
@@ -98,10 +101,8 @@ function TornadoChart({
                 y={y}
                 width={Math.max(2, Math.abs(x1 - x0))}
                 height={16}
-                rx={2}
-                fill="#7dd3fc"
-                stroke="#0284c7"
-                strokeWidth={0.5}
+                rx={4}
+                style={{ fill: bar.inert ? 'var(--viz-deemphasis)' : 'var(--viz-series-1)' }}
               />
               {!bar.inert && (() => {
                 const lowPx = labelWidth + bar.lowX * chartWidth
@@ -157,6 +158,8 @@ export default function ScenariosPanel({
   const [scenarioName, setScenarioName] = useState('Base Case')
   const [saving, setSaving] = useState(false)
   const [compareIds, setCompareIds] = useState<string[]>([])
+  // Chart color per compared scenario, kept while it stays selected.
+  const [compareSlots, setCompareSlots] = useState<Record<string, SeriesSlot>>({})
 
   const [quickScreenScenarios, setQuickScreenScenarios] = useState<Scenario[]>([])
   const [quickScreenLoading, setQuickScreenLoading] = useState(false)
@@ -276,11 +279,14 @@ export default function ScenariosPanel({
   }
 
   function toggleCompare(id: string) {
-    setCompareIds((prev) => {
-      if (prev.includes(id)) return prev.filter((cid) => cid !== id)
-      if (prev.length >= MAX_COMPARE) return prev
-      return [...prev, id]
-    })
+    if (compareIds.includes(id)) {
+      setCompareIds(compareIds.filter((cid) => cid !== id))
+      return
+    }
+    if (compareIds.length >= MAX_COMPARE) return
+    const taken = compareIds.map((cid) => compareSlots[cid]).filter((v) => v !== undefined)
+    setCompareSlots({ ...compareSlots, [id]: nextFreeSlot(taken) as SeriesSlot })
+    setCompareIds([...compareIds, id])
   }
 
   // Perf (Run 6 wave 2): the derived comparison lists are memoised so typing
@@ -321,6 +327,30 @@ export default function ScenariosPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comparedKey])
   const [showIdentical, setShowIdentical] = useState(false)
+  // Charts: headline metrics only (the table's "show all" can list dozens).
+  const headlineOutputs = useMemo(() => {
+    const headline = headlineIds(firstInputs?.dealType, isForSaleDeal(firstInputs))
+    return headline.flatMap((id) => schema.outputs.filter((m) => m.id === id))
+  }, [firstInputs, schema.outputs])
+  const chartScenarios = useMemo<ComparedScenario[]>(
+    () =>
+      compared.map((s, i) => ({
+        id: s.id,
+        name: s.scenarioName,
+        slot: compareSlots[s.id] ?? ((i + 1) as SeriesSlot),
+        values: Object.fromEntries(
+          headlineOutputs.map((m) => [
+            m.id,
+            scenarioCell(
+              (s.outputs as { metrics?: Record<string, unknown> })?.metrics,
+              recomputed[`${s.id}:${s.updatedAt}`],
+              m.id,
+            ).value,
+          ]),
+        ),
+      })),
+    [compared, compareSlots, headlineOutputs, recomputed],
+  )
   const comparisonRows = useMemo(
     () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
     [schema, compared],
@@ -592,22 +622,13 @@ export default function ScenariosPanel({
                   </thead>
                   <tbody>
                     {orderedOutputs.map((metric) => {
-                      const cells = compared.map((s) => {
-                        const saved = (s.outputs as { metrics?: Record<string, unknown> })?.metrics?.[metric.id]
-                        const savedNum = typeof saved === 'number' ? saved : null
-                        const fresh = recomputed[`${s.id}:${s.updatedAt}`]
-                        const freshNum =
-                          fresh && fresh !== 'failed' && typeof fresh[metric.id] === 'number'
-                            ? (fresh[metric.id] as number)
-                            : null
-                        const usingSaved = fresh === 'failed' || fresh === undefined
-                        const value = freshNum ?? (usingSaved ? savedNum : null)
-                        const disagrees =
-                          freshNum !== null &&
-                          savedNum !== null &&
-                          Math.abs(freshNum - savedNum) > Math.max(1e-9, Math.abs(freshNum) * 0.005)
-                        return { value, savedNum, usingSaved: usingSaved && savedNum !== null, disagrees }
-                      })
+                      const cells = compared.map((s) =>
+                        scenarioCell(
+                          (s.outputs as { metrics?: Record<string, unknown> })?.metrics,
+                          recomputed[`${s.id}:${s.updatedAt}`],
+                          metric.id,
+                        ),
+                      )
                       const values = cells.map((c) => c.value)
                       if (values.every((v) => v === null)) return null
                       const best = bestValueIndex(metric.id, values)
@@ -649,6 +670,7 @@ export default function ScenariosPanel({
                 number saved with a scenario differs, it's shown beneath in amber; “saved” marks a value
                 that couldn't be recomputed (e.g. incomplete inputs).
               </p>
+              <ScenarioMetricCharts scenarios={chartScenarios} metrics={headlineOutputs} />
             </section>
           )}
 

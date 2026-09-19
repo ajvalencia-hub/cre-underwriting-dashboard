@@ -9,7 +9,9 @@ import {
 import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
 import { flattenFields, visibleFields, type FlatField } from '../lib/schemaFields'
-import { boundsReady, defaultRange, divergingColor, linspace } from '../lib/sensitivityMath'
+import { boundsReady, defaultRange, linspace } from '../lib/sensitivityMath'
+import { heatTint } from '../lib/analysisChartData'
+import { SensitivitySweepCharts } from '../components/analysisCharts/SensitivitySweepCharts'
 import type { OutputMetric, InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { SensitivityPoint } from '../types/sensitivity'
@@ -607,6 +609,15 @@ function SensitivityResults({
             })}
           </tbody>
         </table>
+        <SensitivitySweepCharts
+          points={points}
+          driverId={driver1.fieldId}
+          driverLabel={field1?.label ?? driver1.fieldId}
+          rawDriverValues={driver1Values.map((v) => toRawValue(field1, v))}
+          formatDriver={(raw) => formatDriverValue(field1, raw)}
+          outputs={outputs}
+          basePoint={basePoint}
+        />
       </div>
     )
   }
@@ -633,7 +644,7 @@ function SensitivityResults({
             <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
               <span>
                 {basePoint
-                  ? 'Outlined cell = the deal as it stands. Blue: above it, orange: below.'
+                  ? 'Outlined cell = the deal as it stands. Blue: above it, red: below — deeper = further away.'
                   : "The deal's current values aren't on this grid — colours are relative to the grid's median."}
               </span>
               <label className="flex items-center gap-1">
@@ -671,17 +682,36 @@ function SensitivityResults({
                       const rawValue = point ? Number(point.outputs[m.id]) : NaN
                       const meets = hurdleRaw !== null && Number.isFinite(rawValue) && rawValue >= hurdleRaw
                       const base = point !== undefined && point === basePoint
+                      const tint = heatTint(rawValue, baseValue, maxAbsDelta)
                       return (
                         <td
                           key={`${j}-${v2}`}
                           data-heat-cell={point ? '' : undefined}
-                          className={`border border-slate-200 px-2 py-1 text-center text-slate-900 ${
+                          className={`relative border border-slate-200 px-2 py-1 text-center ${
                             base ? 'outline outline-2 -outline-offset-2 outline-slate-900' : ''
                           } ${meets ? 'font-semibold' : ''}`}
-                          style={{ backgroundColor: point ? divergingColor(rawValue, baseValue, maxAbsDelta) : undefined }}
+                          // Diverging tokens: --viz-div-mid at the base case,
+                          // a wash of --viz-div-pos / --viz-div-neg by distance
+                          // (capped so the text keeps its contrast in both themes).
+                          style={{
+                            color: 'var(--viz-text-primary)',
+                            backgroundColor: point ? 'var(--viz-div-mid)' : undefined,
+                          }}
                         >
-                          {point ? formatOutputValue(m, point.outputs[m.id]) : '—'}
-                          {meets && ' ✓'}
+                          {point && tint.strength > 0 && (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-0"
+                              style={{
+                                backgroundColor: tint.side === 'pos' ? 'var(--viz-div-pos)' : 'var(--viz-div-neg)',
+                                opacity: 0.12 + 0.43 * tint.strength,
+                              }}
+                            />
+                          )}
+                          <span className="relative">
+                            {point ? formatOutputValue(m, point.outputs[m.id]) : '—'}
+                            {meets && ' ✓'}
+                          </span>
                         </td>
                       )
                     })}

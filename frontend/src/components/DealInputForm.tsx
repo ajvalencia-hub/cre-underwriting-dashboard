@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import FieldRow, { type FieldIndicator } from './fields/FieldRow'
 import MarketContextPanel from './MarketContextPanel'
 import PropertyTaxLookup from './PropertyTaxLookup'
+import { ForwardCurveChart } from './analysisCharts/ForwardCurveChart'
 import { fetchBenchmarks, fetchMarketRates, type BenchmarkResult, type MarketRates } from '../lib/api'
 import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
 import { isVisible } from '../lib/visibility'
@@ -227,6 +228,17 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                       closing={closingDateOf(readCriticalDates(values))}
                       current={typeof values.analysisStartDate === 'string' ? values.analysisStartDate : ''}
                       onApply={(date) => onFieldChange('analysisStartDate', date)}
+                    />
+                  )}
+                  {field.id === 'forwardCurve' && (
+                    <ForwardCurveChart
+                      rateMode={values.rateMode}
+                      currentIndexPct={values.currentIndexPct}
+                      floorPct={values.floorPct}
+                      forwardCurve={values.forwardCurve}
+                      rateCapStrikePct={values.rateCapStrikePct}
+                      rateCapTermMonths={values.rateCapTermMonths}
+                      holdPeriodYears={values.holdPeriodYears}
                     />
                   )}
                   {field.id === 'currentIndexPct' && (

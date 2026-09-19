@@ -20,6 +20,7 @@ import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import { formatMoney } from '../lib/money'
+import { MonteCarloCharts } from '../components/analysisCharts/MonteCarloCharts'
 
 interface RiskPanelProps {
   schema: InputSchema
@@ -58,45 +59,6 @@ function defaultDriver(path: string, values: Record<string, unknown>): McDriver 
 const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`
 const fmtX = (v: number) => `${v.toFixed(2)}x`
 const fmtMoney = (v: number) => formatMoney(v)
-
-function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[] }) {
-  // B17: every trial can fail (empty bins) — render an empty state, not a crash.
-  if (bins.length === 0) {
-    return <div className="mt-2 text-xs text-slate-400">No distribution to plot — every trial failed.</div>
-  }
-  const max = Math.max(...bins.map((b) => b.count), 1)
-  const w = 460
-  const h = 120
-  const bw = w / bins.length
-  return (
-    <svg width={w} height={h + 16} className="mt-2">
-      {bins.map((b, i) => {
-        const bh = (b.count / max) * h
-        return (
-          <rect
-            key={i}
-            x={i * bw + 1}
-            y={h - bh}
-            width={bw - 2}
-            height={bh}
-            fill="#0284c7"
-            opacity={0.8}
-          >
-            <title>
-              {fmtPct(b.lo)} – {fmtPct(b.hi)}: {b.count}
-            </title>
-          </rect>
-        )
-      })}
-      <text x={0} y={h + 12} className="fill-chart-muted text-[10px]">
-        {fmtPct(bins[0].lo)}
-      </text>
-      <text x={w} y={h + 12} textAnchor="end" className="fill-chart-muted text-[10px]">
-        {fmtPct(bins[bins.length - 1].hi)}
-      </text>
-    </svg>
-  )
-}
 
 const PARAM_FIELDS: Record<string, string[]> = {
   normal: ['mean', 'stdDev'],
@@ -440,7 +402,13 @@ export default function RiskPanel({ schema, values, dealId }: RiskPanelProps) {
               ))}
             </tbody>
           </table>
-          {result.histogram.leveredIrr && <Histogram bins={result.histogram.leveredIrr} />}
+          <MonteCarloCharts
+            leveredIrr={result.leveredIrr}
+            bins={result.histogram.leveredIrr}
+            hurdleIrr={result.hurdleIrr}
+            probIrrNegative={result.probIrrNegative}
+            probIrrBelowHurdle={result.probIrrBelowHurdle}
+          />
 
           {dealScenarios.length > 0 && (
             <div className="mt-3 flex items-center gap-2 text-xs">

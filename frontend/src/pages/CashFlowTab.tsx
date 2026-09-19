@@ -1,5 +1,11 @@
 import { useMemo, useState } from 'react'
 import { fetchHoldSweep, type HoldSweepResponse } from '../lib/api'
+import {
+  CashFlowCharts,
+  HoldSweepCharts,
+  LeaseExpiryChart,
+  RenovationChart,
+} from '../components/analysisCharts/CashFlowCharts'
 import LeaseDrilldown from '../components/LeaseDrilldown'
 import { dealTypeOf } from '../lib/dealStages'
 import { friendlyEngineError } from '../lib/engineErrors'
@@ -33,81 +39,6 @@ const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).
 const mult = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
 const money = (v: number | null | undefined) =>
   v == null ? '—' : formatMoney(v)
-
-function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
-  const rows = response.sweep.rows
-  if (rows.length === 0) return null
-  const width = 560
-  const height = 180
-  const pad = { left: 46, right: 46, top: 10, bottom: 22 }
-  const plotW = width - pad.left - pad.right
-  const plotH = height - pad.top - pad.bottom
-
-  const years = rows.map((r) => r.holdYear)
-  const xFor = (year: number) =>
-    pad.left +
-    (years.length === 1 ? plotW / 2 : ((year - years[0]) / (years[years.length - 1] - years[0])) * plotW)
-
-  const irrValues = rows.flatMap((r) =>
-    [r.leveredIrr, r.unleveredIrr].filter((v): v is number => v != null),
-  )
-  const emValues = rows.map((r) => r.equityMultiple).filter((v): v is number => v != null)
-  const irrMin = Math.min(...irrValues, 0)
-  const irrMax = Math.max(...irrValues, 0.01)
-  const emMin = Math.min(...emValues, 1)
-  const emMax = Math.max(...emValues, 1.01)
-  const yIrr = (v: number) => pad.top + plotH - ((v - irrMin) / (irrMax - irrMin)) * plotH
-  const yEm = (v: number) => pad.top + plotH - ((v - emMin) / (emMax - emMin)) * plotH
-
-  const path = (values: (number | null)[], y: (v: number) => number) =>
-    rows
-      .map((r, i) => {
-        const v = values[i]
-        return v == null ? null : `${i === 0 || values[i - 1] == null ? 'M' : 'L'}${xFor(r.holdYear)},${y(v)}`
-      })
-      .filter(Boolean)
-      .join(' ')
-
-  const modeled = response.sweep.modeledHoldYears
-  return (
-    <svg width={width} height={height} role="img" aria-label="Hold sweep chart">
-      {/* modeled hold marker */}
-      {modeled >= years[0] && modeled <= years[years.length - 1] && (
-        <line
-          x1={xFor(modeled)}
-          y1={pad.top}
-          x2={xFor(modeled)}
-          y2={pad.top + plotH}
-          stroke="#f59e0b"
-          strokeDasharray="4 3"
-        />
-      )}
-      <path d={path(rows.map((r) => r.leveredIrr), yIrr)} fill="none" stroke="#0284c7" strokeWidth={2} />
-      <path d={path(rows.map((r) => r.unleveredIrr), yIrr)} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
-      <path d={path(rows.map((r) => r.equityMultiple), yEm)} fill="none" stroke="#059669" strokeWidth={1.5} strokeDasharray="5 3" />
-      {rows.map((r) => (
-        <g key={r.holdYear}>
-          {r.leveredIrr != null && <circle cx={xFor(r.holdYear)} cy={yIrr(r.leveredIrr)} r={2.5} fill="#0284c7" />}
-          <text x={xFor(r.holdYear)} y={height - 6} fontSize={10} className="fill-chart-muted" textAnchor="middle">
-            Y{r.holdYear}
-          </text>
-        </g>
-      ))}
-      <text x={2} y={pad.top + 8} fontSize={9} fill="#0284c7">
-        IRR {pct(irrMax)}
-      </text>
-      <text x={2} y={pad.top + plotH} fontSize={9} fill="#0284c7">
-        {pct(irrMin)}
-      </text>
-      <text x={width - 2} y={pad.top + 8} fontSize={9} fill="#059669" textAnchor="end">
-        {mult(emMax)}
-      </text>
-      <text x={width - 2} y={pad.top + plotH} fontSize={9} fill="#059669" textAnchor="end">
-        {mult(emMin)}
-      </text>
-    </svg>
-  )
-}
 
 const PHASE_STYLE: Record<string, string> = {
   close: 'bg-slate-200 text-slate-600',
@@ -347,6 +278,17 @@ export default function CashFlowTab({
         </table>
       </div>
 
+      {rawStatement && (
+        // Charts read the blended statement (debt isn't split by component)
+        // and are memoised on it — the component picker doesn't redraw them.
+        <details open className={`mt-4 rounded border border-slate-200 bg-white p-3 ${stale ? 'opacity-60' : ''}`}>
+          <summary className="cursor-pointer select-none text-sm font-semibold text-slate-600">Charts</summary>
+          <div className="mt-3">
+            <CashFlowCharts statement={rawStatement} blended={Boolean(rawStatement.components)} />
+          </div>
+        </details>
+      )}
+
       {statement.breakEvens && statement.breakEvens.years.length > 0 && (
         <div className="mt-4 rounded border border-slate-200 bg-white p-3">
           <div className="text-sm font-semibold text-slate-600">
@@ -404,44 +346,8 @@ export default function CashFlowTab({
             · {Math.round(statement.renovation.unitsComplete[statement.renovation.unitsComplete.length - 1])}{' '}
             unit(s) complete by exit
           </div>
-          {(() => {
-            const complete = statement.renovation.unitsComplete
-            const inProgress = statement.renovation.unitsInProgress
-            const remaining = statement.renovation.unitsRemaining
-            const months = complete.length - 1 // index 0 = close
-            const totalUnits = Math.max(
-              1,
-              complete[months] + inProgress[months] + remaining[months],
-              complete[1] + inProgress[1] + remaining[1],
-            )
-            const W = Math.max(240, months * 8)
-            const H = 46
-            return (
-              <svg
-                viewBox={`0 0 ${W} ${H}`}
-                className="mt-2 w-full max-w-2xl"
-                role="img"
-                aria-label="Renovation progress by month"
-              >
-                {Array.from({ length: months }, (_, i) => {
-                  const m = i + 1
-                  const x = (i / months) * W
-                  const barW = Math.max(1, W / months - 1)
-                  const done = (complete[m] / totalUnits) * H
-                  const wip = (inProgress[m] / totalUnits) * H
-                  return (
-                    <g key={m}>
-                      <rect x={x} y={H - done} width={barW} height={done} fill="#059669" />
-                      <rect x={x} y={H - done - wip} width={barW} height={wip} fill="#fbbf24" />
-                    </g>
-                  )
-                })}
-              </svg>
-            )
-          })()}
-          <div className="mt-1 flex gap-3 text-[10px] text-slate-400">
-            <span><span className="mr-1 inline-block h-2 w-2 bg-emerald-600" />complete</span>
-            <span><span className="mr-1 inline-block h-2 w-2 bg-amber-400" />in progress</span>
+          <div className="mt-2 max-w-2xl">
+            <RenovationChart renovation={statement.renovation} />
           </div>
         </div>
       )}
@@ -456,37 +362,10 @@ export default function CashFlowTab({
             {(statement.leases.occupancyStabilized * 100).toFixed(1)}%
           </div>
           {statement.leases.expirationSchedule.length > 0 && (
-            <div className="mt-2 flex items-end gap-4">
-              <svg
-                width={Math.max(160, statement.leases.expirationSchedule.length * 56)}
-                height={110}
-                role="img"
-                aria-label="Lease expiration schedule"
-              >
-                {statement.leases.expirationSchedule.map((row, i) => {
-                  const barHeight = Math.max(2, row.pctOfRent * 80)
-                  return (
-                    <g key={row.year}>
-                      <rect
-                        x={i * 56 + 8}
-                        y={88 - barHeight}
-                        width={36}
-                        height={barHeight}
-                        rx={2}
-                        fill="#7dd3fc"
-                        stroke="#0284c7"
-                        strokeWidth={0.5}
-                      />
-                      <text x={i * 56 + 26} y={84 - barHeight} fontSize={9} className="fill-chart-label" textAnchor="middle">
-                        {Math.round(row.pctOfRent * 100)}%
-                      </text>
-                      <text x={i * 56 + 26} y={102} fontSize={10} className="fill-chart-muted" textAnchor="middle">
-                        {row.year}
-                      </text>
-                    </g>
-                  )
-                })}
-              </svg>
+            <div className="mt-2 flex flex-wrap items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <LeaseExpiryChart schedule={statement.leases.expirationSchedule} />
+              </div>
               <table className="text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -542,7 +421,7 @@ export default function CashFlowTab({
             ))}
             {holdSweep.sweep.rows.length > 0 && (
               <>
-                <HoldSweepChart response={holdSweep} />
+                <HoldSweepCharts rows={holdSweep.sweep.rows} modeledHoldYears={holdSweep.sweep.modeledHoldYears} />
                 <table className="text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-slate-500">
