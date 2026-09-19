@@ -221,6 +221,10 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     debt_block = result.get("debt") or {}
     loan_amount = float(debt_block.get("loanAmount") or 0.0)
     construction = result.get("constructionLoan") or {"equity": 0.0, "commitment": 0.0}
+    if result.get("maturityRefinance"):
+        # The workbook mirrors one loan; a refinance mid-hold would export a
+        # silently different model.
+        raise UnsupportedModelFeatures(["loan maturity refinance before exit (loanTermYears < hold)"])
 
     hold_years = _num(inputs, "holdPeriodYears", 5)
     timeline, _tl_warnings = build_timeline(

@@ -571,6 +571,75 @@ def _compute(inputs: dict) -> dict:
                 "is repaid from sale proceeds."
             )
 
+    # ------------------------------------------------------------------
+    # [FIN] Loan maturity inside the hold (roadmap #11): the balloon is
+    # refinanced with a new loan sized by the same constraints on forward
+    # NOI / value at maturity, priced at the loan rate + refiRateSpreadPct,
+    # with refiCostsPct; the net (cash-out or paydown) goes to equity.
+    # loanTermYears blank = no maturity (the pre-#11 behavior).
+    # ------------------------------------------------------------------
+    maturity_refi = None
+    term_years = _num(inputs, "loanTermYears")
+    loan_start = takeout_month if deal_type == "development" else 1
+    if perm_loan > 0 and term_years > 0 and loan_start <= total:
+        maturity = loan_start + int(round(term_years * 12)) - 1
+        if maturity < total and debt_service[maturity] is not None:
+            balloon = debt_service[maturity].balance
+            refi_spread_m = _num(inputs, "refiRateSpreadPct")
+            refi_rate = interest_rate_for_perm + (refi_spread_m if deal_type == "acquisition" else 0.0)
+            forward = ops["noi"][maturity : maturity + 12]
+            fwd_noi = sum(forward) * (12 / len(forward)) if forward else 0.0
+            refi_value = fwd_noi / exit_cap if exit_cap > 0 else 0.0
+            refi_sizing = debt.size_permanent_loan(
+                fwd_noi, refi_value, perm_ltv, dscr_constraint,
+                debt_yield_constraint, refi_rate, amort_years,
+            )
+            new_loan = refi_sizing.amount if refi_sizing.amount > 0 else balloon
+            refi_cost = new_loan * _num(inputs, "refiCostsPct")
+            delta = new_loan - balloon
+            levered[maturity] += delta - refi_cost
+            stmt_debt_draws[maturity] += delta
+            stmt_loan_fees[maturity] += refi_cost
+            remaining = total - maturity
+            if rate_vec is not None:
+                spread_now = refi_rate - interest_rate_for_perm
+                refi_rates = [
+                    (rate_vec[m - 1] if m - 1 < len(rate_vec) else rate_vec[-1]) + spread_now
+                    for m in range(maturity + 1, total + 1)
+                ]
+                new_schedule = debt.amortization_schedule_floating(new_loan, refi_rates, amort_years, 0, remaining)
+            else:
+                new_schedule = debt.amortization_schedule(new_loan, refi_rate, amort_years, 0, remaining)
+            for m in range(maturity + 1, total + 1):
+                old = debt_service[m]
+                entry = new_schedule[m - maturity - 1]
+                levered[m] += (old.payment if old is not None else 0.0) - entry.payment
+                debt_service[m] = entry
+                stmt_interest[m] = entry.interest
+                stmt_principal[m] = entry.principal
+                stmt_service[m] = entry.payment
+                stmt_balance[m] = entry.balance
+            exit_debt_balance = new_schedule[-1].balance if new_schedule else 0.0
+            maturity_refi = {
+                "month": maturity,
+                "balloon": balloon,
+                "newLoan": new_loan,
+                "rate": refi_rate,
+                "costs": refi_cost,
+                "netToEquity": delta - refi_cost,
+                "governingConstraint": _GOVERNING_LABELS.get(
+                    refi_sizing.governing_constraint, refi_sizing.governing_constraint
+                ),
+            }
+            warnings.append(
+                f"The loan matures in month {maturity} (year {maturity / 12:.1f}), before the exit: "
+                f"the ${balloon:,.0f} balloon is refinanced with a ${new_loan:,.0f} loan at "
+                f"{refi_rate:.2%} ("
+                + (f"${delta - refi_cost:,.0f} cash out to equity" if delta - refi_cost >= 0
+                   else f"a ${refi_cost - delta:,.0f} equity paydown")
+                + " after costs)."
+            )
+
     # J5: rate-cap premium — a financing cost paid by equity at close.
     # [FIN]: it rides the loanFees statement row (levered only, never
     # unlevered — buying rate protection is a capital-structure choice,
@@ -1290,6 +1359,7 @@ def _compute(inputs: dict) -> dict:
         "debt": debt_block,
         "sourcesAndUses": sources_and_uses,
         "constructionLoan": construction_loan,
+        "maturityRefinance": maturity_refi,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
         "gpEconomics": gp_economics,

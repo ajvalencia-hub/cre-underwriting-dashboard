@@ -142,6 +142,22 @@ stated reason.
   of the rollover blend, base rent only (existing free-rent convention).
   All default 0: baseline unchanged. The Excel export already refuses
   lease deals.
+- **[FIN] Loan maturity inside the hold is refinanced** (roadmap #11).
+  `loanTermYears` was ignored, so a 10-year hold on a 5-year loan never
+  met its balloon. When the term (from close for acquisitions, from the
+  permanent takeout for developments) ends before the exit month, the
+  balloon is refinanced: a new loan sized by the same LTV/DSCR/debt-yield
+  constraints on FORWARD 12-month NOI and value (NOI / exit cap) at that
+  month, priced at the loan rate + refiRateSpreadPct (acquisitions; the
+  development perm rate already carries it), fully amortizing from the
+  next month, refiCostsPct paid by equity; the net cash-out (+) or paydown
+  (−) goes to equity, with a warning describing it. Rejected: paying the
+  balloon from equity (not the base case) and an extension option (a
+  separate feature). Blank term = no maturity, as before; a term that ends
+  AT the exit is simply repaid by the sale. Result block
+  `maturityRefinance`; the Excel export refuses such deals (it mirrors one
+  loan). refiRateSpreadPct / refiCostsPct are now shown for acquisitions
+  too. Baseline unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
