@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import RentComp, SaleComp
 from app.services import comps as comps_service
+from app.api_models import CompMapOut, CompOut, CompsImportOut
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
@@ -95,7 +96,7 @@ class ImportRequest(BaseModel):
 
 # NOTE: static /import routes must be declared before the /{kind} routes or
 # FastAPI matches them as kind="import".
-@router.post("/import")
+@router.post("/import", response_model=CompsImportOut)
 def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
     _model_for(payload.kind)  # validates kind
     if len(payload.csvText.encode("utf-8", errors="ignore")) > MAX_CSV_BYTES:
@@ -153,7 +154,7 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
     return {"phase": "imported", "imported": imported, "warnings": warnings}
 
 
-@router.get("/{kind}/map")
+@router.get("/{kind}/map", response_model=CompMapOut)
 def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     """I11: geocoded points for the filtered comp set. Comps whose address
     can't be geocoded are SKIPPED with a warning naming them — a map with
@@ -194,7 +195,7 @@ def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     return {"points": points, "warnings": warnings}
 
 
-@router.post("/import/file")
+@router.post("/import/file", response_model=CompsImportOut)
 async def import_csv_file(
     kind: str = Form(...),
     file: UploadFile = File(...),
@@ -211,7 +212,7 @@ async def import_csv_file(
     return {**preview, "csvText": text}
 
 
-@router.get("/{kind}")
+@router.get("/{kind}", response_model=list[CompOut])
 def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
     query = select(model).order_by(model.created_at.desc())
@@ -220,7 +221,7 @@ def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     return [_to_out(c, kind) for c in db.execute(query).scalars()]
 
 
-@router.post("/{kind}")
+@router.post("/{kind}", response_model=CompOut)
 def create_comp(kind: str, payload: CompIn, db: Session = Depends(get_db)):
     model = _model_for(kind)
     if not payload.name.strip():
@@ -233,7 +234,7 @@ def create_comp(kind: str, payload: CompIn, db: Session = Depends(get_db)):
     return _to_out(comp, kind)
 
 
-@router.put("/{kind}/{comp_id}")
+@router.put("/{kind}/{comp_id}", response_model=CompOut)
 def update_comp(kind: str, comp_id: str, payload: CompIn, db: Session = Depends(get_db)):
     model = _model_for(kind)
     comp = db.get(model, comp_id)

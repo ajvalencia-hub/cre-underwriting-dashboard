@@ -313,3 +313,47 @@ class RecalcAgreementRowOut(ApiModel):
 class RecalcAgreementOut(ApiModel):
     status: str = _enum("agrees", ["agrees", "differs", "noOutputsMapped", "noSavedValues"])
     rows: list[RecalcAgreementRowOut]
+
+
+# ---- comps -------------------------------------------------------------------
+class CompOut(ApiModel):
+    id: str
+    kind: str = _enum("sale", ["sale", "rent"])
+    name: str
+    address: str
+    market: str
+    submarket: str
+    propertyType: str
+    source: str
+    notes: str
+    createdAt: datetime
+
+
+class CompsImportOut(ApiModel):
+    phase: str = _enum("preview", ["preview", "imported"])
+    imported: int
+    warnings: list[str]
+
+
+class CompMapPointOut(ApiModel):
+    id: str
+    name: str
+    lat: float
+    lon: float
+
+
+class CompMapOut(ApiModel):
+    points: list[CompMapPointOut]
+    warnings: list[str]
+
+
+# ---- Monte Carlo / market ------------------------------------------------------
+class MonteCarloJobOut(ApiModel):
+    status: str = _enum("running", ["running", "done", "failed"])
+    completed: int
+    n: int
+
+
+class MarketRatesOut(ApiModel):
+    dataSource: str
+    rates: dict[str, float | None]

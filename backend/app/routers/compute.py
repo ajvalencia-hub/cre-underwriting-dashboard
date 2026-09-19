@@ -8,6 +8,7 @@ from app.services import compute_cache, goal_seek, monte_carlo, tornado_service
 from app.services.proforma import engine, hold
 from app.api_models import (
     ComputeResponseOut,
+    MonteCarloJobOut,
     GoalSeekInputOut,
     GoalSeekOut,
     HoldSweepResponseOut,
@@ -108,7 +109,7 @@ def monte_carlo_start(payload: MonteCarloRequest):
     return {"jobId": job_id, "n": payload.n}
 
 
-@router.get("/monte-carlo/{job_id}")
+@router.get("/monte-carlo/{job_id}", response_model=MonteCarloJobOut)
 def monte_carlo_poll(job_id: str):
     status = monte_carlo.job_status(job_id)
     if status is None:

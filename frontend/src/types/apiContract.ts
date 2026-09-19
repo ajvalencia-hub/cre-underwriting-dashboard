@@ -7,6 +7,9 @@ import type { components } from './api.gen'
 import type {
   AssumptionPreset,
   BackupListing,
+  Comp,
+  CompMapPoint,
+  CompsImportResult,
   ComputeResponse,
   DealAttachment,
   DealMetrics,
@@ -16,6 +19,8 @@ import type {
   GoalSeekResult,
   HoldSweepResponse,
   IntegrationStatus,
+  MarketRates,
+  MonteCarloJobStatus,
   PortfolioRollup,
   RecalcAgreement,
   SearchGroup,
@@ -63,4 +68,9 @@ export type ApiContract = [
   Check<Fits<Schemas['GoalSeekOut'], GoalSeekResult>>,
   Check<Fits<Schemas['MappingPreviewRowOut'], MappingPreviewRow>>,
   Check<Fits<Schemas['RecalcAgreementOut'], RecalcAgreement>>,
+  Check<Fits<Schemas['CompOut'], Comp>>,
+  Check<Fits<Schemas['CompsImportOut'], CompsImportResult>>,
+  Check<Fits<Schemas['CompMapPointOut'], CompMapPoint>>,
+  Check<Fits<Schemas['MonteCarloJobOut'], MonteCarloJobStatus>>,
+  Check<Fits<Schemas['MarketRatesOut'], MarketRates>>,
 ]

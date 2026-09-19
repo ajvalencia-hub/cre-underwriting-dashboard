@@ -1688,6 +1688,75 @@ export interface components {
             /** Yearbuilt */
             yearBuilt?: number | null;
         };
+        /** CompMapOut */
+        CompMapOut: {
+            /** Points */
+            points: components["schemas"]["CompMapPointOut"][];
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** CompMapPointOut */
+        CompMapPointOut: {
+            /** Id */
+            id: string;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            /** Name */
+            name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CompOut */
+        CompOut: {
+            /** Address */
+            address: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default sale
+             * @enum {string}
+             */
+            kind: "sale" | "rent";
+            /** Market */
+            market: string;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes: string;
+            /** Propertytype */
+            propertyType: string;
+            /** Source */
+            source: string;
+            /** Submarket */
+            submarket: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CompsImportOut */
+        CompsImportOut: {
+            /** Imported */
+            imported: number;
+            /**
+             * Phase
+             * @default preview
+             * @enum {string}
+             */
+            phase: "preview" | "imported";
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
         /** ComputeRequest */
         ComputeRequest: {
             /** Values */
@@ -2347,6 +2416,17 @@ export interface components {
             /** Priceunitlabel */
             priceUnitLabel: string;
         };
+        /** MarketRatesOut */
+        MarketRatesOut: {
+            /** Datasource */
+            dataSource: string;
+            /** Rates */
+            rates: {
+                [key: string]: number | null;
+            };
+        } & {
+            [key: string]: unknown;
+        };
         /** MarketRentTrends */
         MarketRentTrends: {
             /** Rentgrowthyoy */
@@ -2363,6 +2443,21 @@ export interface components {
         ModelExportRequest: {
             /** Values */
             values: Record<string, unknown>;
+        };
+        /** MonteCarloJobOut */
+        MonteCarloJobOut: {
+            /** Completed */
+            completed: number;
+            /** N */
+            n: number;
+            /**
+             * Status
+             * @default running
+             * @enum {string}
+             */
+            status: "running" | "done" | "failed";
+        } & {
+            [key: string]: unknown;
         };
         /** MonteCarloRequest */
         MonteCarloRequest: {
@@ -3200,7 +3295,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompsImportOut"];
                 };
             };
             /** @description Validation Error */
@@ -3233,7 +3328,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompsImportOut"];
                 };
             };
             /** @description Validation Error */
@@ -3266,7 +3361,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompOut"][];
                 };
             };
             /** @description Validation Error */
@@ -3301,7 +3396,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompOut"];
                 };
             };
             /** @description Validation Error */
@@ -3334,7 +3429,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompMapOut"];
                 };
             };
             /** @description Validation Error */
@@ -3370,7 +3465,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CompOut"];
                 };
             };
             /** @description Validation Error */
@@ -3587,7 +3682,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MonteCarloJobOut"];
                 };
             };
             /** @description Validation Error */
@@ -5068,7 +5163,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MarketRatesOut"];
                 };
             };
         };
