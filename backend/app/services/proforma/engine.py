@@ -798,6 +798,17 @@ def compute(inputs: dict) -> dict:
     put("unleveredIrr", irr_of(unlevered))
     levered_irr = irr_of(levered)
     put("leveredIrr", levered_irr)
+    for label, flows in (("Unlevered", unlevered), ("Levered", levered)):
+        if returns.sign_changes(flows) < 2:
+            continue  # one sign change: exactly one IRR (Descartes)
+        roots = returns.periodic_irr_roots(flows)
+        if len(roots) > 1:
+            shown = ", ".join(f"{r:.2%}" for r in roots[:4])
+            warnings.append(
+                f"{label} cash flows change sign more than once and have {len(roots)} IRRs "
+                f"({shown}) — the IRR shown is only one of them. Judge this deal on NPV "
+                "and equity multiple instead."
+            )
 
     em = returns.equity_multiple(levered)
     put("equityMultiple", em)

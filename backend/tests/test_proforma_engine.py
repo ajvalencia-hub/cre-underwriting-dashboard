@@ -139,3 +139,20 @@ def test_compute_endpoint_422_names_missing_fields():
     response = client.post("/api/compute", json={"values": {"dealType": "acquisition"}})
     assert response.status_code == 422
     assert "purchasePrice" in response.json()["missing"]
+
+
+
+def test_levered_flows_with_two_irrs_warn(monkeypatch):
+    # Pure-math coverage lives in test_proforma_returns; this checks the
+    # engine reports several IRRs instead of presenting one as the answer.
+    import json
+    from pathlib import Path
+
+    from app.services.proforma import engine, returns
+
+    inputs = json.loads((Path(__file__).parent / "fixtures" / "analytic_acquisition.json").read_text())
+    monkeypatch.setattr(returns, "sign_changes", lambda flows: 2)
+    monkeypatch.setattr(returns, "periodic_irr_roots", lambda flows: [0.05, 0.31])
+    result = engine.compute(inputs)
+    messages = [w for w in result["warnings"] if "IRRs" in w]
+    assert any(m.startswith("Levered cash flows change sign more than once and have 2 IRRs (5.00%, 31.00%)") for m in messages)

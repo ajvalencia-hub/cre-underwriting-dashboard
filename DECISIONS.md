@@ -3,6 +3,29 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Engine audit fixes (post-Run 5, owner-approved)
+
+An external analyst/engineer audit found calculation defects; the owner
+approved engine changes to fix them. Each fix has a test that fails before
+it. Where a fix moves the regression baseline, the entry lists which cases
+and metrics moved and why — the baseline is regenerated only for that
+stated reason.
+
+- **IRR solver never raises**: NPV at the solver's rate bounds over/under-
+  flowed on long holds (a 25-yr hold at 30% vacancy and 10% debt failed the
+  compute with a 500, and one such cell failed a whole sensitivity sweep,
+  tornado, goal seek and the exports). The NPV now returns its signed
+  limit (latest flow dominates near -100%, earliest at very high rates),
+  and Newton hands over to bisection on a non-finite value. Baseline
+  unchanged. Rejected: catching the error in each service (hides the root
+  cause, still no IRR for valid deals).
+- **[FIN] Several IRRs are reported, not hidden**: flows that change sign
+  more than once can have several IRRs; the solver returns one. When a flow
+  vector changes sign twice or more, the engine scans the NPV for every
+  root and warns with all of them, pointing to NPV and equity multiple.
+  One sign change (the usual deal) skips the scan (Descartes' rule), so
+  compute and Monte Carlo cost is unchanged. Baseline unchanged.
+
 ## Settings v1 — scaffold, dark mode, backups panel, integrations (post-Run 5)
 
 - **Two-tier settings architecture**: per-browser UI preferences live in

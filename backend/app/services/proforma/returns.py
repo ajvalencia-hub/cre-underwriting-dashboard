@@ -10,19 +10,37 @@ a guaranteed bisection fallback. Conventions (see DECISIONS.md):
   reference example.
 """
 
+import math
 from datetime import date
 
 _MAX_ITERATIONS = 100
 _TOLERANCE = 1e-10
 
 
+def _limit(rate: float, flows: list[float]) -> float:
+    """NPV's limit when a discount factor over/underflows: near rate = -1 the
+    latest non-zero flow dominates, at very high rates the earliest does.
+    Returned as a signed infinity so the solver still sees the sign (long
+    holds at stressed rates used to raise OverflowError/ZeroDivisionError
+    and fail the whole compute)."""
+    ordered = reversed(flows) if rate < 0 else flows
+    dominant = next((cf for cf in ordered if cf != 0), 0.0)
+    return math.copysign(math.inf, dominant) if dominant else 0.0
+
+
 def _npv_periodic(rate: float, flows: list[float]) -> float:
-    return sum(cf / (1 + rate) ** t for t, cf in enumerate(flows))
+    try:
+        return sum(cf / (1 + rate) ** t for t, cf in enumerate(flows))
+    except (OverflowError, ZeroDivisionError):
+        return _limit(rate, flows)
 
 
 def _npv_dated(rate: float, dates: list[date], amounts: list[float]) -> float:
     d0 = dates[0]
-    return sum(cf / (1 + rate) ** ((d - d0).days / 365) for d, cf in zip(dates, amounts))
+    try:
+        return sum(cf / (1 + rate) ** ((d - d0).days / 365) for d, cf in zip(dates, amounts))
+    except (OverflowError, ZeroDivisionError):
+        return _limit(rate, amounts)
 
 
 def _solve_rate(f, low: float = -0.9999, high: float = 10.0, guess: float = 0.1) -> float | None:
@@ -32,11 +50,13 @@ def _solve_rate(f, low: float = -0.9999, high: float = 10.0, guess: float = 0.1)
     rate = guess
     for _ in range(_MAX_ITERATIONS):
         value = f(rate)
+        if not math.isfinite(value):
+            break  # Newton wandered where the NPV over/underflows — bisect
         if abs(value) < _TOLERANCE:
             return rate
         step = 1e-7
         derivative = (f(rate + step) - value) / step
-        if derivative == 0:
+        if derivative == 0 or not math.isfinite(derivative):
             break
         next_rate = rate - value / derivative
         if next_rate <= -1:
@@ -74,6 +94,48 @@ def periodic_irr(flows: list[float], periods_per_year: int = 12) -> float | None
     if rate is None:
         return None
     return (1 + rate) ** periods_per_year - 1
+
+
+def sign_changes(flows: list[float]) -> int:
+    signs = [cf > 0 for cf in flows if cf != 0]
+    return sum(1 for a, b in zip(signs, signs[1:]) if a != b)
+
+
+def periodic_irr_roots(flows: list[float], periods_per_year: int = 12) -> list[float]:
+    """Every annualized IRR of the flows, located by scanning the NPV for sign
+    changes. Flows that change sign more than once (capital calls after
+    distributions, a refi payout then a shortfall) can have several; the
+    solver returns only the one nearest its guess, so a single IRR shown for
+    them can mislead. Scans periodic rates from -99% to +100% per period."""
+    # Descartes' rule of signs: one sign change means at most one IRR — the
+    # usual deal skips the scan entirely.
+    if sign_changes(flows) < 2:
+        root = periodic_irr(flows, periods_per_year)
+        return [] if root is None else [root]
+    grid = [-0.99 + i * 0.005 for i in range(398)]  # -99% .. +99.5% per period
+    roots: list[float] = []
+    previous = _npv_periodic(grid[0], flows)
+    for low, high in zip(grid, grid[1:]):
+        current = _npv_periodic(high, flows)
+        if previous == 0 or previous * current < 0:
+            rate = _solve_bracketed(lambda r: _npv_periodic(r, flows), low, high)
+            roots.append((1 + rate) ** periods_per_year - 1)
+        previous = current
+    return roots
+
+
+def _solve_bracketed(f, low: float, high: float) -> float:
+    f_low = f(low)
+    for _ in range(200):
+        mid = (low + high) / 2
+        f_mid = f(mid)
+        if abs(f_mid) < _TOLERANCE or high - low < 1e-15:
+            return mid
+        if f_low * f_mid < 0:
+            high = mid
+        else:
+            low, f_low = mid, f_mid
+    return (low + high) / 2
 
 
 def xirr(dates: list[date], amounts: list[float]) -> float | None:
