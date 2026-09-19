@@ -5,6 +5,8 @@ Self-contained (no network, no backend) so the window is never blank.
 
 import html
 
+from .osutil import FILE_BROWSER_LABEL
+
 _BASE_CSS = """
 :root { color-scheme: light dark; }
 body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -46,7 +48,7 @@ def error_html(summary: str, detail: str, log_path: str) -> str:
   <pre id="detail">{detail_js}</pre>
   <p class="muted" style="font-size:12px">Log file: {html.escape(log_path)}</p>
   <button onclick="navigator.clipboard.writeText(document.getElementById('detail').innerText)">Copy details</button>
-  <button onclick="window.pywebview && window.pywebview.api.reveal_logs()">Show log in Finder</button>
+  <button onclick="window.pywebview && window.pywebview.api.reveal_logs()">Show log in {FILE_BROWSER_LABEL}</button>
 </div></body></html>"""
 
 

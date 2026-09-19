@@ -11,6 +11,7 @@ import {
   mapQuickScreenToDealInputs,
   parseAcquisitionQuickScreenInputs,
   QUICK_SCREEN_DEFAULTS,
+  QUICK_SCREEN_OPEX_NOTE,
   serializeAcquisitionQuickScreenInputs,
   solveAcquisitionPriceForTier,
   solveAcquisitionRentForTier,
@@ -192,5 +193,26 @@ describe('development mapping hardCostsPsf fix', () => {
     const inputs = { ...QUICK_SCREEN_DEFAULTS, sizeMode: 'sf' as const, hardCostPerUnit: 200 }
     const mapped = mapQuickScreenToDealInputs(inputs, computeQuickScreen(inputs))
     expect(mapped.hardCostsPsf).toBe(200)
+  })
+})
+
+describe('Send to Deal Inputs carries the napkin expenses', () => {
+  const row = (mapped: Record<string, unknown>) => (mapped.opexLineItems as Record<string, unknown>[])[0]
+
+  it('development: one annual "other" row equal to the napkin opex', () => {
+    const results = computeQuickScreen(QUICK_SCREEN_DEFAULTS)
+    const mapped = mapQuickScreenToDealInputs(QUICK_SCREEN_DEFAULTS, results)
+    expect(mapped.opexLineItems).toHaveLength(1)
+    expect(row(mapped)).toMatchObject({ category: 'other', basis: 'annual_total', note: QUICK_SCREEN_OPEX_NOTE })
+    expect(row(mapped).amount).toBeCloseTo(results.operatingExpenses, 6)
+    expect(mapped.creditLossPct).toBe(0)
+  })
+
+  it('acquisition: the margin implied opex at the implied 5% vacancy', () => {
+    const results = computeAcquisitionQuickScreen(BASE)
+    const mapped = mapAcquisitionQuickScreenToDealInputs(BASE, results)
+    const egi = results.grossPotentialRent * 0.95
+    expect(egi - (row(mapped).amount as number)).toBeCloseTo(results.stabilizedNoi, 6)
+    expect(mapped.creditLossPct).toBe(0)
   })
 })

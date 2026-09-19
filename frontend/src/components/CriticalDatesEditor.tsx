@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useModalFocus } from '../lib/useModalFocus'
 import {
   PRESETS_BY_TYPE,
+  hasDate,
   readCriticalDates,
   sortByDate,
   type CriticalDate,
@@ -23,7 +24,9 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
 
   function commit(next: CriticalDate[]) {
     setRows(next)
-    onChange(next)
+    // B11: rows still waiting for a date stay local — only dated rows are
+    // written to the deal (chips, pipeline strip, share).
+    onChange(next.filter(hasDate))
   }
 
   function addRow(label: string) {
@@ -74,16 +77,23 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
         {rows.length === 0 && (
           <p className="mt-3 text-xs text-slate-400">No dates yet — add one above.</p>
         )}
+        {rows.some((r) => !hasDate(r)) && (
+          <p className="mt-3 text-xs text-amber-600">
+            Rows without a date are not saved until you pick one.
+          </p>
+        )}
         {rows.map((row) => (
           <div key={row.id} className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <input
               value={row.label}
               onChange={(e) => update(row.id, { label: e.target.value })}
               placeholder="label"
+              aria-label="Date label"
               className="w-44 rounded border border-slate-300 px-2 py-1"
             />
             <input
               type="date"
+              aria-label={`${row.label || 'Custom'} date`}
               value={row.date}
               onChange={(e) => update(row.id, { date: e.target.value })}
               className="rounded border border-slate-300 px-2 py-1"
@@ -92,6 +102,7 @@ export default function CriticalDatesEditor({ values, onChange, onClose }: Criti
               value={row.notes ?? ''}
               onChange={(e) => update(row.id, { notes: e.target.value })}
               placeholder="notes"
+              aria-label={`${row.label || 'Custom'} notes`}
               className="min-w-40 flex-1 rounded border border-slate-300 px-2 py-1"
             />
             <button

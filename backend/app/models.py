@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, String
+from sqlalchemy import JSON, DateTime, Float, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -51,6 +51,14 @@ class Deal(Base):
     status: Mapped[str] = mapped_column(String, default="screening")
     active_template_id: Mapped[str | None] = mapped_column(String, nullable=True)
     active_mapping_profile_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Soft delete: archived deals drop out of the pipeline/portfolio/search
+    # but keep every scenario, note and attachment; hard delete stays explicit.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Run 6: free-form labels ("core", "1031", "broker:JLL"). Normalized on
+    # write (see schemas.normalize_tags); filtered case-insensitively. The
+    # server_default keeps raw INSERTs working against a deals table whose
+    # tags column is NOT NULL (create_all builds it that way).
+    tags: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
@@ -207,3 +215,106 @@ class ExtractionResult(Base):
     confirmed_values: Mapped[dict] = mapped_column(JSON, default=dict)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class IcEvent(Base):
+    """Roadmap #28: one step in a deal's investment-committee sign-off —
+    submit, approve, reject, return, reopen or comment — with who (a typed
+    name; the app has no logins), why, and when. A submit also stores the
+    inputs and computed outputs it put in front of the committee, which is
+    the version an approval signs off on. The deal's IC state is derived
+    from these rows (services/ic_workflow.py)."""
+
+    __tablename__ = "ic_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    # Order within the deal's log (timestamps can tie).
+    seq: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String)
+    actor: Mapped[str] = mapped_column(String)
+    comment: Mapped[str] = mapped_column(String, default="")
+    # submit only: approvals needed, and the snapshot under review
+    required_approvals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    outputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AgentThread(Base):
+    """K4: one Underwriting Agent conversation, scoped to a single deal.
+    Token totals are accumulated here as messages are processed (K10) so no
+    later migration is needed to add cost tracking to an already-shipped
+    table."""
+
+    __tablename__ = "agent_threads"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    provider: Mapped[str] = mapped_column(String, default="anthropic")
+    total_input_tokens: Mapped[int] = mapped_column(default=0)
+    total_output_tokens: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class AgentMessage(Base):
+    """K4: one user or assistant turn in a thread. `tool_calls` and
+    `proposal_ids` are a transparency log of what happened while producing
+    an assistant turn (rendered as expandable chips in K6) — they are not
+    replayed back to the provider on the next turn; each new turn only
+    re-sends prior user/assistant TEXT, so the model always re-verifies
+    figures via a fresh tool call rather than trusting stale tool output
+    from earlier in the conversation."""
+
+    __tablename__ = "agent_messages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    thread_id: Mapped[str] = mapped_column(String, index=True)
+    role: Mapped[str] = mapped_column(String)  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(String, default="")
+    tool_calls: Mapped[list] = mapped_column(JSON, default=list)
+    proposal_ids: Mapped[list] = mapped_column(JSON, default=list)
+    unverified_claims: Mapped[list] = mapped_column(JSON, default=list)
+    stopped_reason: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AgentToolCall(Base):
+    """K4: one tool invocation during a turn — the full audit trail behind
+    an AgentMessage's summarized `tool_calls` log."""
+
+    __tablename__ = "agent_tool_calls"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    thread_id: Mapped[str] = mapped_column(String, index=True)
+    message_id: Mapped[str] = mapped_column(String, index=True)
+    tool_name: Mapped[str] = mapped_column(String)
+    privilege: Mapped[str] = mapped_column(String)  # "read" | "write"
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AgentProposal(Base):
+    """K4: a WRITE tool's output, persisted for user review. Applying one
+    goes through the approve endpoint, which records a deal_history
+    snapshot (kind="agent") exactly like every other deal edit — this row
+    is never written to Deal.inputs directly by anything in this module."""
+
+    __tablename__ = "agent_proposals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    thread_id: Mapped[str] = mapped_column(String, index=True)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    tool_call_id: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String)  # "input_changes" | "scenario"
+    changes: Mapped[dict] = mapped_column(JSON, default=dict)
+    rationale: Mapped[str] = mapped_column(String, default="")
+    scenario_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    preview: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    # pending | approved | rejected | stale
+    status: Mapped[str] = mapped_column(String, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

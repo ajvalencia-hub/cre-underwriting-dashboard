@@ -26,10 +26,18 @@ fs.mkdirSync(scratchDbDir, { recursive: true })
 // so globalSetup can recognise — and spare — the db the backend has open.
 process.env.CRE_E2E_SCRATCH_DB ??= path.join(scratchDbDir, `e2e-${Date.now()}.sqlite3`)
 export const scratchDbPath = process.env.CRE_E2E_SCRATCH_DB
+// Uploads, generated files and BACKUPS go to a scratch storage root too:
+// the settings spec takes a "Back up now" snapshot, which must never land in
+// (or rotate away) a developer's real backend/storage/backups.
+export const scratchStorageRoot = path.join(scratchDbDir, 'storage')
 
 export default defineConfig({
   testDir: './e2e',
   timeout: 90_000,
+  // Every spec file shares the ONE scratch database + backend booted below,
+  // and the smoke asserts on the exact deal list — spec files must not
+  // interleave.
+  workers: 1,
   globalSetup: './e2e/global-setup.ts',
   use: {
     baseURL: 'http://127.0.0.1:5273',
@@ -41,8 +49,12 @@ export default defineConfig({
       // The scratch DB path is injected INSIDE the python command (not via
       // webServer env) so it works identically regardless of how the runner
       // spawns the process.
+      // AGENT_PROVIDER=scripted: the Underwriting Agent spec (e2e/agent.spec.ts)
+      // needs a deterministic, network-free provider — no live model, no key.
       command:
         `"${pythonBin}" -c "import os; os.environ['CRE_DB_PATH'] = r'${scratchDbPath}'; ` +
+        `os.environ['AGENT_PROVIDER'] = 'scripted'; ` +
+        `os.environ['CRE_STORAGE_ROOT'] = r'${scratchStorageRoot}'; ` +
         `import uvicorn; uvicorn.run('app.main:app', port=8123)"`,
       cwd: backendDir,
       port: 8123,

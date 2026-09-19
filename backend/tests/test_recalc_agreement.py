@@ -25,7 +25,8 @@ def _template(tmp_path: Path, cached_irr: float) -> Path:
     path = tmp_path / "t.xlsx"
     wb.save(path)
     recalc_service.recalc_with_libreoffice(path)
-    import zipfile, re
+    import re
+    import zipfile
     src = zipfile.ZipFile(path)
     items = {n: src.read(n) for n in src.namelist()}
     src.close()

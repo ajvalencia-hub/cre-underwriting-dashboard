@@ -30,12 +30,14 @@ export default function KeyValueField({ value, onChange }: KeyValueFieldProps) {
           <input
             className="w-1/2 rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="Key"
+            aria-label={`Row ${idx + 1} key`}
             value={row.key}
             onChange={(e) => updateRow(idx, { key: e.target.value })}
           />
           <input
             className="w-1/2 rounded border border-slate-300 px-2 py-1 text-sm"
             placeholder="Value"
+            aria-label={`Row ${idx + 1} value`}
             value={row.value}
             onChange={(e) => updateRow(idx, { value: e.target.value })}
           />
@@ -43,7 +45,7 @@ export default function KeyValueField({ value, onChange }: KeyValueFieldProps) {
             type="button"
             onClick={() => removeRow(idx)}
             className="text-slate-400 hover:text-red-500"
-            aria-label="Remove row"
+            aria-label={`Remove row ${idx + 1}`}
           >
             ✕
           </button>

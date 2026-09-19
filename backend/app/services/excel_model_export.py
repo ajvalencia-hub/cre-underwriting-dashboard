@@ -29,7 +29,7 @@ from io import BytesIO
 
 import openpyxl
 
-from app.services.proforma import debt, development, engine, leases, operations
+from app.services.proforma import debt, development, engine, for_sale, leases, operations
 from app.services.proforma.operations import (
     EXPENSE_DOLLAR_FIELDS,
     RECOVERABLE_EXPENSE_FIELDS,
@@ -109,6 +109,10 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("missing deal type (set Deal Basics → Deal Type first)")
     if leases.has_leases(inputs):
         features.append("commercial lease-level rent rolls (escalations/recoveries/rollover)")
+    if for_sale.applies(inputs):
+        features.append("build-to-sell homes (sales absorption cash flow)")
+    if operations.has_hotel_operations(inputs):
+        features.append("hotel operations (rooms revenue, departmental and undistributed costs)")
     if inputs.get("waterfallTiers"):
         features.append("promote waterfall tiers")
     if inputs.get("irrConvention") == "xirr":
@@ -135,8 +139,6 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("tax & insurance escrows (close/exit cash timing)")
     if inputs.get("exitNoiBasis") == "trailing":
         features.append("exit value on trailing NOI (the workbook caps forward NOI)")
-    if _num(inputs, "prepaymentPenaltyPct") > 0:
-        features.append("prepayment cost at sale")
     if inputs.get("dealType") == "development" and inputs.get("growDuringConstruction"):
         features.append("growth during construction (the workbook grows from delivery)")
     if (inputs.get("dealType") or "acquisition") == "development":
@@ -147,9 +149,14 @@ def unsupported_features(inputs: dict) -> list[str]:
             lease_up_months=_num(inputs, "leaseUpMonths") or None,
             stabilization_month=_num(inputs, "stabilizationMonth") or None,
         )
-        if timeline.stabilization_month > timeline.total_months:
+        if timeline.stabilization_month >= timeline.total_months:
+            # Run 6 (B1): the engine takes out the perm loan only when it has
+            # a month to live before exit; a sale IN the stabilization month
+            # repays the construction debt from proceeds — a path this
+            # workbook (one-month perm schedule) does not mirror.
             features.append(
-                "development sold before stabilization (no permanent takeout occurs)"
+                "development sold before stabilization or in its stabilization "
+                "month (no permanent takeout occurs)"
             )
     return features
 
@@ -372,6 +379,10 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     put("ramp", "Lease-up ramp (months)", ramp)
     put("exitCap", "Exit cap rate", _num(inputs, "exitCapRatePct"))
     put("cos", "Cost of sale %", _num(inputs, "costOfSalePct"))
+    # Run 6 port: the prepayment cost rides inside the exit payoff (engine:
+    # net sale proceeds = gross net of costs − balance × (1 + pct)).
+    put("prepay", "Prepayment cost % (of loan balance repaid at sale)",
+        _num(inputs, "prepaymentPenaltyPct"))
     put("disc", "Discount rate", _num(inputs, "discountRatePct", 0.10))
     put("inPlaceNoi", "In-place NOI (0 = use year 1)", _num(inputs, "inPlaceNoi"))
     put("totalUnits", "Total units (per_unit basis)", total_units)
@@ -507,7 +518,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             continue  # forward window: income only, no debt or cash flows
 
         exit_u = f"+IF($A{r}={R['hold']},Outputs!$B$6,0)"
-        exit_l = f"+IF($A{r}={R['hold']},Outputs!$B$6-O{r},0)"
+        exit_l = f"+IF($A{r}={R['hold']},Outputs!$B$6-O{r}*(1+{R['prepay']}),0)"
 
         if not is_dev:
             begin = R["loan"] if m == 1 else f"O{r - 1}"
@@ -598,17 +609,17 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
 
     helper_rows = [
         ("Monthly payment (PMT)",
-         f"=IF({pmt_loan}<=0,0,IF({pmt_rate}=0,"
-         f"{pmt_loan}/ROUND({R['amort']}*12,0),"
-         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-ROUND({R['amort']}*12,0))))"),
+         f"=IF({pmt_loan}<=0,0,IF(ROUND({R['amort']}*12,0)<=0,{pmt_loan}*{pmt_rate}/12,"
+         f"IF({pmt_rate}=0,{pmt_loan}/ROUND({R['amort']}*12,0),"
+         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-ROUND({R['amort']}*12,0)))))"),
         ("Total cost basis", basis_formula),
         ("Loan fees", fees_formula),
         ("Initial equity", equity_formula),
-        ("Terminal value (fwd-12 NOI / cap)",
-         f"=SUM(Model!$K${fwd_first}:$K${fwd_last})/{R['exitCap']}"),
+        ("Terminal value (fwd-12 NOI / cap, floored at 0)",
+         f"=MAX(0,SUM(Model!$K${fwd_first}:$K${fwd_last})/{R['exitCap']})"),
         ("Gross sale net of costs", f"=B5*(1-{R['cos']})"),
         ("Exit loan balance", f"=Model!$O${hold_row}"),
-        ("Net sale proceeds", "=B6-B7"),
+        ("Net sale proceeds", f"=B6-B7*(1+{R['prepay']})"),
         ("Stabilized EGI (today's rents)",
          f"={R['gpr']}*(1-{R['vac']})*(1-{R['credit']})+{R['other']}"),
         ("Stabilized NOI",

@@ -3,6 +3,7 @@ import { formatOutputValue } from '../lib/formatValue'
 import { SOURCE_TAG } from '../lib/resultFreshness'
 import type { OutputMetric } from '../types/schema'
 import { headlineIds } from '../lib/headlineMetrics'
+import { isOutputVisibleFor } from '../lib/outputVisibility'
 
 export interface MetricView {
   value: unknown
@@ -16,6 +17,8 @@ interface MetricsSidebarProps {
   metrics: OutputMetric[]
   view: (metric: OutputMetric) => MetricView
   dealType: unknown
+  /** A build-to-sell deal leads with margin, peak equity and sellout. */
+  forSale?: boolean
   irrConvention: 'periodic_monthly' | 'xirr' | null
   onGoalSeek: (metric: OutputMetric) => void
 }
@@ -56,17 +59,26 @@ function SourceTag({ v }: { v: MetricView }) {
   return null
 }
 
-export default function MetricsSidebar({ metrics, view, dealType, irrConvention, onGoalSeek }: MetricsSidebarProps) {
+export default function MetricsSidebar({ metrics, view, dealType, forSale = false, irrConvention, onGoalSeek }: MetricsSidebarProps) {
   const [showEmpty, setShowEmpty] = useState(false)
   const byId = new Map(metrics.map((m) => [m.id, m]))
-  const headline = headlineIds(dealType)
+  const headline = headlineIds(dealType, forSale)
     .map((id) => byId.get(id))
     .filter((m): m is OutputMetric => m !== undefined)
   const headlineSet = new Set(headline.map((m) => m.id))
   const constraint = byId.get('governingConstraint')
   const constraintView = constraint ? view(constraint) : null
   const groups = Array.from(new Set(metrics.map((m) => m.group ?? 'Metrics')))
-  const detail = metrics.filter((m) => !headlineSet.has(m.id) && m.id !== 'governingConstraint')
+  // Run 6 P1: the detail list hides metrics that don't apply to this deal's
+  // type (development spread on an acquisition, …); untyped deals see all.
+  const typeForVisibility =
+    dealType === 'acquisition' || dealType === 'development' ? dealType : null
+  const detail = metrics.filter(
+    (m) =>
+      !headlineSet.has(m.id) &&
+      m.id !== 'governingConstraint' &&
+      isOutputVisibleFor(m.id, typeForVisibility),
+  )
   const emptyCount = detail.filter((m) => !hasValue(view(m))).length
 
   return (

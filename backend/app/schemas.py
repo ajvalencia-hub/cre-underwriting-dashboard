@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 
 class SheetMeta(BaseModel):
@@ -119,6 +119,7 @@ class DealIn(BaseModel):
 # never has an invalid status; each board's UI constrains to its own set.
 def _load_deal_stages() -> dict[str, list[str]]:
     import json
+
     from app.config import INPUT_SCHEMA_PATH
 
     return json.loads(INPUT_SCHEMA_PATH.read_text(encoding="utf-8"))["dealStages"]
@@ -130,6 +131,34 @@ DEAL_STATUSES = tuple(
 )
 
 
+MAX_TAGS_PER_DEAL = 20
+MAX_TAG_LENGTH = 40
+
+
+def normalize_tags(raw: list[Any]) -> list[str]:
+    """Strip, drop empties, dedupe case-insensitively keeping the FIRST
+    spelling, enforce the count/length caps. Raises ValueError (-> 422 via
+    the pydantic validators that call it) on a violation."""
+    seen: set[str] = set()
+    tags: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("tags must be strings")
+        tag = item.strip()
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"tag '{tag[:MAX_TAG_LENGTH]}…' exceeds {MAX_TAG_LENGTH} characters")
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+    if len(tags) > MAX_TAGS_PER_DEAL:
+        raise ValueError(f"a deal can carry at most {MAX_TAGS_PER_DEAL} tags")
+    return tags
+
+
 class DealUpdate(BaseModel):
     # All-optional partial update: autosave PUTs only the inputs blob, the
     # switcher PUTs only the name, template selection PUTs only the ids.
@@ -138,6 +167,14 @@ class DealUpdate(BaseModel):
     status: str | None = None
     activeTemplateId: str | None = None
     activeMappingProfileId: str | None = None
+    # Run 6: free-form labels, normalized (see normalize_tags). Tags are not
+    # deal inputs, so setting them is allowed while the deal is IC-locked.
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_tags(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalize_tags(value)
 
     @field_validator("status")
     @classmethod
@@ -159,6 +196,35 @@ class DealOut(BaseModel):
     status: str = Field("screening", json_schema_extra={"enum": list(DEAL_STATUSES)})
     activeTemplateId: str | None
     activeMappingProfileId: str | None
+    # Run 6: soft delete (null = active) and free-form labels.
+    archivedAt: datetime | None = None
+    tags: list[str] = []
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class DealSummaryFields(BaseModel):
+    """The handful of input keys the pipeline board actually reads."""
+
+    dealType: str | None = None
+    dealName: str | None = None
+    address: str | None = None
+    market: str | None = None
+
+
+class DealSummaryOut(BaseModel):
+    """`GET /api/deals?fields=summary`: DealOut minus the inputs blob, with
+    the pipeline's keys lifted into `summary`. Opt-in; the default list
+    response is unchanged."""
+
+    id: str
+    name: str
+    status: str = Field("screening", json_schema_extra={"enum": list(DEAL_STATUSES)})
+    activeTemplateId: str | None
+    activeMappingProfileId: str | None
+    archivedAt: datetime | None = None
+    tags: list[str] = []
+    summary: DealSummaryFields
     createdAt: datetime
     updatedAt: datetime
 
@@ -303,7 +369,8 @@ class ProposedUnitMixRow(ApiModel):
 
 class UnitMixProposal(ApiModel):
     rows: list[ProposedUnitMixRow]
-    groupedBy: Literal["label", "bedBath"]
+    # "sf": Run 6 rent-roll parser groups unlabeled units by square footage.
+    groupedBy: Literal["label", "bedBath", "sf"]
     warnings: list[str]
 
 
@@ -335,7 +402,8 @@ class CommercialLeaseProposal(ApiModel):
 def _enum(default: str, values: list[str]):
     """A string documented as one of `values` in the API schema but not
     enforced on output (stored rows predate some values)."""
-    return Field(default, json_schema_extra={"enum": values})
+    enum: list[JsonValue] = [*values]
+    return Field(default, json_schema_extra={"enum": enum})
 
 
 class SourceRefOut(ApiModel):

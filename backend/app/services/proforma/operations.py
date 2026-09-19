@@ -19,6 +19,7 @@ Conventions (see DECISIONS.md):
 
 import contextvars
 from contextlib import contextmanager
+
 from app.services.proforma import leases
 from app.services.proforma.timeline import Timeline, analysis_epoch
 
@@ -45,6 +46,15 @@ RECOVERABLE_EXPENSE_FIELDS = [
     "generalAdmin",
 ]
 
+# Run 6 (B7) — implemented, OFF pending the owner's decision. When True,
+# annual_gpr_and_other_income builds the year-1 recovery pool for lease deals
+# in expense-DETAIL mode from the per-line recoverable vector (the basis the
+# NOI build uses) instead of the flat recoverable fields (usually zero when
+# lines are used). Flipping it moves the regression baseline VALUE of
+# commercial_rollover.outputs.breakEvenRatio (see DECISIONS.md); flat mode is
+# unaffected in both states.
+DETAIL_MODE_YEAR1_RECOVERIES = False
+
 
 def _num(inputs: dict, field: str, default: float = 0.0) -> float:
     value = inputs.get(field)
@@ -68,9 +78,18 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
     # a mixed-use composition (H2). Year-1 scheduled base rent; recoveries
     # ride in "other".
     if leases.has_leases(inputs):
-        recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
+        if has_opex_detail(inputs) and DETAIL_MODE_YEAR1_RECOVERIES:
+            # Run 6 (B7, opt-in): in expense-detail mode the year-1 recovery
+            # pool is the SAME per-line recoverable vector the NOI build uses,
+            # so the legacy break-even ratio's EGI and NOI sit on one basis.
+            recoverable_monthly = _fixed_expense_vectors(inputs, Timeline(12, 0, 0, 1))[
+                "recoverable"
+            ]
+        else:
+            recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
+            recoverable_monthly = [recoverable_base / 12] * 12
         income = leases.build_lease_income(
-            inputs, 12, [recoverable_base / 12] * 12, _num(inputs, "expenseGrowthPct", 0.025)
+            inputs, 12, recoverable_monthly, _num(inputs, "expenseGrowthPct", 0.025)
         )
         gpr = sum(income["scheduledBaseRent"])
         other = sum(income["recoveries"]) + _num(inputs, "otherIncome")
@@ -80,6 +99,22 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
             )
             return gpr + res_gpr, other + res_other - _num(inputs, "otherIncome"), "mixed", warnings
         return gpr, other, "commercialLeases", warnings
+
+    if (
+        inputs.get("propertyType") in ("single_family", "townhouse")
+        and inputs.get("isForSale") is False
+        and _num(inputs, "homeCount") > 0
+        and _num(inputs, "rentPerHome") > 0
+    ):
+        # Roadmap #26: single-family / townhouse rentals — homes x monthly rent.
+        return _num(inputs, "homeCount") * _num(inputs, "rentPerHome") * 12, _num(inputs, "otherIncome"), "homes", warnings
+
+    if has_hotel_operations(inputs):
+        # Rooms revenue at 100% occupancy (the hotel's "GPR"); F&B and other
+        # revenue ride in other income, as in the hotel NOI builder.
+        gpr = _num(inputs, "keys") * _num(inputs, "adr") * 365
+        other = _num(inputs, "fnbRevenue") + _num(inputs, "otherRevenue") + _num(inputs, "otherIncome")
+        return gpr, other, "hotel", warnings
 
     unit_mix = inputs.get("unitMix")
     if isinstance(unit_mix, list) and any(
@@ -560,6 +595,17 @@ def _build_lease_noi_vector(
     # mgmt_vec is ALL EGI-based opex (it drives opex/NOI); only the
     # management_fee share is reported as the management fee.
     mgmt_report, egi_opex_by_category = _split_egi_opex(egi_vec, *expenses["egiPctSplit"])
+    lease_detail = {
+        "walt": income["walt"],
+        "totalSf": income["totalSf"],
+        "occupancyYear1": income["occupancyYear1"],
+        "occupancyStabilized": income["occupancyStabilized"],
+        "expirationSchedule": income["expirationSchedule"],
+        "perLease": income["perLease"],
+    }
+    if income.get("buildingRsf"):
+        # Run 6: conditional key — only when a valid buildingRsf applied.
+        lease_detail["buildingRsf"] = income["buildingRsf"]
     return {
         "noi": noi_vec,
         "egi": egi_vec,
@@ -575,14 +621,7 @@ def _build_lease_noi_vector(
         "fixedOpexByCategory": expenses["byCategory"],
         "recoveries": income["recoveries"],
         "leasingCapital": leasing_capital,
-        "leaseDetail": {
-            "walt": income["walt"],
-            "totalSf": income["totalSf"],
-            "occupancyYear1": income["occupancyYear1"],
-            "occupancyStabilized": income["occupancyStabilized"],
-            "expirationSchedule": income["expirationSchedule"],
-            "perLease": income["perLease"],
-        },
+        "leaseDetail": lease_detail,
         "gprSource": "commercialLeases",
         "warnings": warnings,
     }
@@ -994,6 +1033,157 @@ def _loss_to_lease_vectors(
     return {"upliftScheduled": uplift, "marketGpr": market_gpr, "lossToLease": loss}
 
 
+# ---------------------------------------------------------------------------
+# Roadmap #25: hotel operations (USALI summary). [FIN] conventions, in brief
+# (DECISIONS.md has the full list):
+# - Rooms revenue = keys x ADR x occupancy x 365/12 per month; ADR, F&B and
+#   other revenue grow at the rent growth rate from the start of operations.
+#   F&B and other revenue are entered at stabilized occupancy and scale with
+#   occupancy during a ramp.
+# - Departmental and undistributed expenses are ratios of total revenue, the
+#   management fee is on total revenue, the franchise fee on rooms revenue,
+#   and the FF&E reserve on total revenue; fixed charges (taxes, insurance
+#   and any other entered expense) come from the usual expense inputs.
+# - NOI is after the FF&E reserve (the lender and appraiser convention), so
+#   exit value and debt sizing use it.
+# - Statement mapping keeps the identities: gpr = rooms revenue at 100%
+#   occupancy, vacancyLoss = unsold room-nights, otherIncome = F&B + other,
+#   egi = total revenue, the percentage costs appear as opex categories and
+#   the management fee in its own row. Credit loss is not applied.
+# ---------------------------------------------------------------------------
+
+HOTEL_CATEGORY_KEYS = ("hotelDepartmental", "hotelUndistributed", "franchiseFee", "ffeReserve")
+DAYS_PER_MONTH = 365 / 12
+
+
+def has_hotel_operations(inputs: dict) -> bool:
+    return (
+        inputs.get("propertyType") == "hotel"
+        and _num(inputs, "keys") > 0
+        and _num(inputs, "adr") > 0
+        and not leases.has_leases(inputs)
+    )
+
+
+def _build_hotel_noi_vector(inputs: dict, timeline: Timeline) -> dict:
+    warnings: list[str] = []
+    keys = _num(inputs, "keys")
+    adr = _num(inputs, "adr")
+    stabilized_occupancy = min(1.0, max(0.0, _num(inputs, "occupancyPct")))
+    if stabilized_occupancy <= 0:
+        warnings.append("Hotel occupancy is 0% — no rooms revenue is modeled.")
+    fnb_annual = _num(inputs, "fnbRevenue")
+    other_annual = _num(inputs, "otherRevenue") + _num(inputs, "otherIncome")
+    departmental_pct = _num(inputs, "departmentalExpenseRatioPct")
+    undistributed_pct = _num(inputs, "undistributedExpenseRatioPct")
+    management_pct = _num(inputs, "managementFeeHotelPct")
+    franchise_pct = _num(inputs, "franchiseFeePct")
+    ffe_pct = _num(inputs, "ffeReservePct", 0.04)
+    revenue_growth = (
+        _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
+    )
+
+    expenses = _fixed_expense_vectors(inputs, timeline)
+    warnings.extend(expenses["warnings"])
+    fixed_by_category = expenses["byCategory"]
+    if expenses["egiPctTotal"] > 0:
+        warnings.append(
+            "The general Management Fee % is ignored for hotels — the Hotel Management Fee "
+            "applies to total revenue."
+        )
+    operating_lines = [f for f in ("utilities", "repairsMaintenance", "payroll", "generalAdmin") if _num(inputs, f) > 0]
+    if operating_lines:
+        warnings.append(
+            "Hotel fixed charges include "
+            + ", ".join(operating_lines)
+            + " on top of the departmental and undistributed expense ratios — check they aren't counted twice."
+        )
+    if any(_num(inputs, f) > 0 for f in ("replacementReserves", "replacementReservesPerUnit", "replacementReservesPsf")):
+        warnings.append(
+            "Replacement reserves are entered in addition to the hotel FF&E reserve — check they aren't counted twice."
+        )
+
+    total = timeline.total_months
+    vectors: dict[str, list[float]] = {
+        name: [0.0] * total
+        for name in (
+            "gpr", "vacancyLoss", "otherIncome", "egi", "opex", "noi", "occupancy",
+            "managementFee", "roomsRevenue", "fnbRevenue", "otherRevenue", "gop", "revenueLinkedOpex",
+        )
+    }
+    by_category = {key: [0.0] * total for key in HOTEL_CATEGORY_KEYS}
+    for month in range(1, total + 1):
+        operating_month = month - timeline.construction_months
+        if operating_month < 1:
+            continue
+        if timeline.phase(month) == "lease_up":
+            ramp_months = max(1, timeline.stabilization_month - timeline.construction_months - 1)
+            occupancy = stabilized_occupancy * min(1.0, operating_month / ramp_months)
+        else:
+            occupancy = stabilized_occupancy
+        mult = _growth_multiplier(revenue_growth, operating_month)
+        i = month - 1
+        potential_rooms = keys * adr * DAYS_PER_MONTH * mult
+        rooms = potential_rooms * occupancy
+        ramp_share = occupancy / stabilized_occupancy if stabilized_occupancy > 0 else 0.0
+        fnb = fnb_annual / 12 * mult * ramp_share
+        other = other_annual / 12 * mult * ramp_share
+        revenue = rooms + fnb + other
+
+        departmental = departmental_pct * revenue
+        undistributed = undistributed_pct * revenue
+        management = management_pct * revenue
+        franchise = franchise_pct * rooms
+        ffe = ffe_pct * revenue
+        fixed = sum(vec[i] for vec in fixed_by_category.values())
+        opex = departmental + undistributed + management + franchise + ffe + fixed
+
+        vectors["gpr"][i] = potential_rooms
+        vectors["vacancyLoss"][i] = potential_rooms - rooms
+        vectors["otherIncome"][i] = fnb + other
+        vectors["egi"][i] = revenue
+        vectors["opex"][i] = opex
+        vectors["noi"][i] = revenue - opex
+        vectors["occupancy"][i] = occupancy
+        vectors["managementFee"][i] = management
+        vectors["roomsRevenue"][i] = rooms
+        vectors["fnbRevenue"][i] = fnb
+        vectors["otherRevenue"][i] = other
+        vectors["gop"][i] = revenue - departmental - undistributed
+        vectors["revenueLinkedOpex"][i] = departmental + undistributed + franchise + ffe
+        by_category["hotelDepartmental"][i] = departmental
+        by_category["hotelUndistributed"][i] = undistributed
+        by_category["franchiseFee"][i] = franchise
+        by_category["ffeReserve"][i] = ffe
+
+    return {
+        "noi": vectors["noi"],
+        "egi": vectors["egi"],
+        "gpr": vectors["gpr"],
+        "opex": vectors["opex"],
+        "occupancy": vectors["occupancy"],
+        "vacancyLoss": vectors["vacancyLoss"],
+        "creditLoss": [0.0] * total,
+        "otherIncome": vectors["otherIncome"],
+        "managementFee": vectors["managementFee"],
+        # Every revenue-scaled cost (break-evens treat these as variable).
+        "egiBasedOpex": [
+            vectors["managementFee"][i] + vectors["revenueLinkedOpex"][i] for i in range(total)
+        ],
+        "fixedOpexByCategory": {**by_category, **fixed_by_category},
+        "gprSource": "hotel",
+        "warnings": warnings,
+        "hotel": {
+            "keys": keys,
+            "roomsRevenue": vectors["roomsRevenue"],
+            "fnbRevenue": vectors["fnbRevenue"],
+            "otherRevenue": vectors["otherRevenue"],
+            "gop": vectors["gop"],
+            "revenueLinkedOpex": vectors["revenueLinkedOpex"],
+        },
+    }
+
+
 def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
     """Returns monthly vectors for months 1..total_months:
     {"noi", "egi", "gpr", "opex", "occupancy", "gprSource", "warnings"} plus
@@ -1007,6 +1197,8 @@ def build_noi_vector(inputs: dict, timeline: Timeline) -> dict:
         return _build_mixed_noi_vector(inputs, timeline)
     if leases.has_leases(inputs):
         return _build_lease_noi_vector(inputs, timeline)
+    if has_hotel_operations(inputs):
+        return _build_hotel_noi_vector(inputs, timeline)
 
     annual_gpr, annual_other, source, warnings = annual_gpr_and_other_income(inputs)
 
@@ -1253,8 +1445,8 @@ def stabilized_annual_noi(inputs: dict) -> float:
             return sum(_build_mixed_noi_vector(inputs, Timeline(12, 0, 0, 1))["noi"])
         window = _build_lease_noi_vector(inputs, Timeline(12, 0, 0, 1))
         return sum(window["noi"])
-    if has_opex_detail(inputs):
-        # Detail mode: mirror the vector math over a 12-month in-place window.
+    if has_opex_detail(inputs) or has_hotel_operations(inputs):
+        # Detail mode and hotels: the vector math over a 12-month in-place window.
         return sum(build_noi_vector(inputs, Timeline(12, 0, 0, 1))["noi"])
 
     annual_gpr, annual_other, _, _ = annual_gpr_and_other_income(inputs)
@@ -1263,8 +1455,16 @@ def stabilized_annual_noi(inputs: dict) -> float:
     management_fee_pct = _num(inputs, "managementFeePct")
     occupancy = max(0.0, 1 - vacancy_pct)
     egi = annual_gpr * occupancy * (1 - credit_loss_pct) + annual_other
+    category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
+    # Run 6 (B2): the reassessment substitution (H4) applies to the legacy
+    # stabilized figure exactly as it does to the expense vectors, so sizing
+    # NOI / debt yield / yield on cost / break-evens move with
+    # useReassessedTaxes in flat mode too. Toggle off is identical.
+    reassessed_taxes, _ = _reassessed_tax_annual(inputs)
+    if reassessed_taxes is not None:
+        category_bases["realEstateTaxes"] = reassessed_taxes
     expenses = (
-        sum(_num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS)
+        sum(category_bases.values())
         + _num(inputs, "nonAdValoremTaxes")  # I5: separate fixed line
         + egi * management_fee_pct
     )

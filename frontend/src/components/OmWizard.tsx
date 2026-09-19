@@ -350,6 +350,7 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
                 value={dealName}
                 onChange={(e) => setDealName(e.target.value)}
                 placeholder="Deal name"
+                aria-label="New deal name"
                 className="w-64 rounded border border-slate-300 px-2 py-1 text-sm"
               />
               <label className="flex items-center gap-1 text-xs text-slate-500">

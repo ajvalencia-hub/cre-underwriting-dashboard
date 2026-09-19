@@ -3,6 +3,7 @@ import AcquisitionQuickScreen from '../components/AcquisitionQuickScreen'
 import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
 import QuickScreenShare from '../components/QuickScreenShare'
+import { DevCostChart } from '../components/analysisCharts/QuickScreenCharts'
 import type { SharedScreen } from '../lib/shareLink'
 import { computeNative, saveScenario, type DebtBlock } from '../lib/api'
 import {
@@ -135,7 +136,7 @@ export default function QuickScreen({
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,
       })
-      setSaveMessage('Saved — see it under "6. Scenarios".')
+      setSaveMessage('Saved — see it under "Scenarios".')
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {
@@ -410,6 +411,9 @@ export default function QuickScreen({
               <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
               <Row label="Total Development Cost" value={formatMoney(results.totalDevelopmentCost)} strong />
             </dl>
+            <div className="mt-3">
+              <DevCostChart results={results} landCost={inputs.landCost} />
+            </div>
           </div>
 
           <div className="rounded-md border border-slate-200 bg-white p-4">
@@ -518,6 +522,7 @@ export default function QuickScreen({
                 onChange={(e) => setScenarioName(e.target.value)}
                 className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
                 placeholder="Scenario name"
+                aria-label="Quick Screen scenario name"
               />
               <button
                 onClick={handleSaveAsScenario}

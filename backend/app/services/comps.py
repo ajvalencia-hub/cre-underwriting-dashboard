@@ -10,12 +10,14 @@ mapping. Unparseable rows are skipped with a warning, never guessed.
 import csv
 import io
 import re
+from datetime import date
 from statistics import median
 
-from sqlalchemy import select
+from sqlalchemy import literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import RentComp, SaleComp
+from app.services.sql_like import LIKE_ESCAPE, contains
 
 # --- CSV parsing -----------------------------------------------------------
 
@@ -172,8 +174,9 @@ def normalize_address(address: str | None) -> str:
     return " ".join(words)
 
 
-def _iso_date(value) -> "date | None":
-    from datetime import date as _date, datetime as _datetime
+def _iso_date(value) -> date | None:
+    from datetime import date as _date
+    from datetime import datetime as _datetime
 
     if isinstance(value, str) and value:
         try:
@@ -194,7 +197,7 @@ def find_duplicates(
     """Import-time dedupe (I11): a candidate matches an existing comp when
     the normalized addresses are equal AND the sale/as-of dates fall within
     ±window_days. Returns [{rowIndex, existingId, existingName, daysApart}]."""
-    model = SaleComp if kind == "sale" else RentComp
+    model: type[SaleComp] | type[RentComp] = SaleComp if kind == "sale" else RentComp
     date_attr = "sale_date" if kind == "sale" else "as_of"
     existing = [
         (c, normalize_address(c.address), _iso_date(getattr(c, date_attr)))
@@ -224,7 +227,8 @@ def find_duplicates(
 
 def stale_count(comp_rows: list, date_attr: str, now=None) -> int:
     """How many comps carry a date older than COMP_STALE_MONTHS."""
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     today = now or _date.today()
     cutoff = today - timedelta(days=COMP_STALE_MONTHS * 30)
@@ -254,8 +258,43 @@ EXIT_CAP_CAUTION_BPS = 0.005  # subject exit cap below comps median by >50/>100b
 EXIT_CAP_WARNING_BPS = 0.010
 
 
-def _market_filter(query, model, market: str):
-    return query.where(model.market.ilike(f"%{market.strip()}%")) if market.strip() else query
+def market_matches(comp_market: str | None, search: str) -> bool:
+    """Bidirectional substring match, case-insensitive: a comp market of
+    "North Miami" matches a deal market search of "Miami" (comp CONTAINS
+    search), and — the direction plain `ILIKE '%search%'` missed — a comp
+    market of "Miami" also matches a deal market search of "North Miami"
+    (search CONTAINS comp). Without the reverse direction, comps stored
+    under the more general market name silently vanish whenever a deal's
+    own market string happens to be the more specific one.
+
+    Plain Python `in`, so `%`/`_` in the search text are literal — this
+    predicate is the source of truth; market_prefilter() below only narrows
+    the SQL fetch to a superset of what this accepts."""
+    if not search.strip():
+        return True
+    if not comp_market:
+        return False
+    comp_norm, search_norm = comp_market.strip().lower(), search.strip().lower()
+    return search_norm in comp_norm or comp_norm in search_norm
+
+
+def market_prefilter(query, model, market: str):
+    """SQL prefilter that is a deliberate SUPERSET of market_matches(): the
+    forward direction (comp contains search) with the user's text escaped
+    via sql_like so `%`/`_` stay literal, OR the reverse direction (search
+    contains comp) built as `search ILIKE '%' || comp.market || '%'`. In the
+    reverse arm a `%`/`_` stored in a comp's market acts as a wildcard and
+    can only ADMIT extra rows, never drop a real match — callers must still
+    apply market_matches() to every row this returns."""
+    search = market.strip()
+    if not search:
+        return query
+    return query.where(
+        or_(
+            model.market.ilike(contains(search), escape=LIKE_ESCAPE),
+            literal(search).ilike(literal("%") + model.market + literal("%")),
+        )
+    )
 
 
 def _type_ok(comp_type: str, asset_class: str) -> bool:
@@ -366,8 +405,8 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
 
     rent_rows = [
         c
-        for c in db.execute(_market_filter(select(RentComp), RentComp, market)).scalars()
-        if _type_ok(c.property_type, asset_class)
+        for c in db.execute(market_prefilter(select(RentComp), RentComp, market)).scalars()
+        if market_matches(c.market, market) and _type_ok(c.property_type, asset_class)
     ]
     comparison = _rent_comparison(rent_rows, subject)
     if comparison is not None:
@@ -404,8 +443,8 @@ def benchmark_flags(db: Session, market: str, asset_class: str, subject: dict) -
     if isinstance(exit_cap, (int, float)) and exit_cap > 0:
         sale_rows = [
             c
-            for c in db.execute(_market_filter(select(SaleComp), SaleComp, market)).scalars()
-            if _type_ok(c.property_type, asset_class)
+            for c in db.execute(market_prefilter(select(SaleComp), SaleComp, market)).scalars()
+            if market_matches(c.market, market) and _type_ok(c.property_type, asset_class)
         ]
         caps = [c.cap_rate_pct for c in sale_rows if c.cap_rate_pct]
         if len(caps) >= MIN_COMPS_FOR_FLAG:

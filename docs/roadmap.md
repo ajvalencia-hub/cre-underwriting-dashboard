@@ -11,6 +11,28 @@ here. **✓** means I reproduced or read the problem in code.
 
 Effort: **S** is under a day, **M** is a few days, **L** is a week or more.
 
+## Done: Windows desktop app and friendlier installs
+
+| Item | What was built |
+|---|---|
+| Windows build + installers (both OSes) | The desktop shell now runs on Windows 10/11 x64: Edge WebView2 window (with a friendly "install WebView2" prompt when the runtime is missing), Windows Credential Manager for API keys, data in `%LOCALAPPDATA%\CRE Underwriting`, a single-instance lock, process-tree cleanup on quit, and a detached relaunch (`desktop/cre_desktop/osutil.py`). `desktop/build_windows.ps1` builds the app folder, runs the frozen self-test and zips a portable copy. `desktop/windows/installer.iss` (Inno Setup) makes a per-user installer with Start-menu and desktop shortcuts, a WebView2 check and download, and an optional-LibreOffice note. Its uninstaller keeps the user's deals. On macOS, `build_mac.sh` now also makes a drag-to-Applications DMG, which `sign_mac.sh` signs and notarizes. The update check offers each OS its own download. CI runs the shell tests on macOS and Windows, and a `desktop-app-windows` job builds the installer. |
+
+## Done: Run 6 port (from the desktop audit branch `run6-desktop-audit`)
+
+Ported feature by feature onto this line; where this line already had an
+owner-approved version (loan-maturity refinance, prepayment cost,
+interest-only amortization, construction fee on the commitment, backup
+rotation, shared-file delete) the Run 6 version was dropped. See the
+"Run 6 port" blocks at the top of `DECISIONS.md`.
+
+| Area | Ported |
+|---|---|
+| Engine | sale-at-stabilization takeout fix, reassessed taxes in sizing NOI, cash-on-cash strips capital events, building RSF for lease deals, renovation double-display fix, junior tranche on no-takeout developments, input warnings, tornado inert drivers, IRR diagnostics, prepayment cost in the Excel export, analysis callers skip the insurance-stress recomputes, feature-on regression case + baseline guard |
+| API and security | backup download, Monte Carlo pool/cancel/429, attachment delete, cabinet isolation, LIKE escaping, rate limiting on external-API routes, optional `CRE_API_TOKEN` gate, archive/unarchive, clone, tags, ETag / If-Match, slim deal list |
+| Extraction | numeric letter guard, multifamily signals, tenant-ID header fix, rent-roll boundaries, unit mix by SF, operating-statement parser, classification thresholds |
+| Underwriting Agent | chat assistant with proposal-only write tools, provenance check, IC-lock-aware approvals |
+| Tooling | shared test fixtures, parity `--require-libreoffice`, CI concurrency/timeouts/audits/docker smoke, dependabot, Makefile, demo seed, ARCHITECTURE.md |
+
 ## Done: engine audit fixes
 
 Each fix below has a test that fails without it. They're recorded in
@@ -68,14 +90,14 @@ DECISIONS.md under "Engine audit fixes".
 
 | # | Item | Notes | Effort |
 |---|---|---|---|
-| 25 | **Hotel model** (keys, ADR, occupancy, departmental and undistributed expenses, FF&E) | The inputs already exist and are labelled template-only | L |
-| 26 | **For-sale / build-to-sell** (homes, absorption, sale price) | The inputs already exist; needs a sales-absorption cash-flow engine | L |
-| 27 | **Market leasing profiles per tenant or space type** | ARGUS-style market leasing assumptions; today there is one global rollover profile | M–L |
-| 28 | **Investment committee workflow** | Approvals, sign-off, change log with reasons, several users (Dealpath and Rockport VAL audit trail) | L |
+| 25 | ~~**Hotel model** (keys, ADR, occupancy, departmental and undistributed expenses, FF&E)~~ **Done** | The inputs already exist and are labelled template-only | L |
+| 26 | ~~**For-sale / build-to-sell** (homes, absorption, sale price)~~ **Done** | The inputs already exist; needs a sales-absorption cash-flow engine | L |
+| 27 | ~~**Market leasing profiles per tenant or space type**~~ **Done** | ARGUS-style market leasing assumptions; today there is one global rollover profile | M–L |
+| 28 | ~~**Investment committee workflow**~~ **Done, local sign-off** (74e4cbe and the UI commit) | Approvals, sign-off, change log with reasons, several users (Dealpath and Rockport VAL audit trail) | L |
 | 29 | **Market data feeds for comps** | CoStar, CompStak or MSCI integrations; licensing-dependent | L |
-| 30 | **⌘K for fields, tabs and actions** | Linear-style: Compute, Generate, or jump to any field | M |
-| 31 | **Signing, notarization and auto-update for the desktop app** | Previously out of scope; needed before wider distribution (Developer ID with hardened runtime, then Sparkle) | L |
-| 32 | **Engineering hygiene** | Split `App.tsx` (1,226 lines), add ruff and mypy, share test cases between the TypeScript Quick Screen math and the engine, add property-based input tests, SQLite WAL and `busy_timeout`, and build the `.app` plus its self-test in CI | M |
+| 30 | ~~**⌘K for fields, tabs and actions**~~ **Done** | Linear-style: Compute, Generate, or jump to any field | M |
+| 31 | **Signing, notarization and auto-update for the desktop app** — *signing and notarization scripted and tested ad-hoc (needs the owner's Developer ID to ship); update check against GitHub Releases done* | Previously out of scope; needed before wider distribution (Developer ID with hardened runtime, then Sparkle) | L |
+| 32 | ~~**Engineering hygiene**~~ **Done** (f4ae14b, d515893, ad3d73b, ef4b8e7, e088d0b, and the CI job) | Split `App.tsx` (1,226 lines), add ruff and mypy, share test cases between the TypeScript Quick Screen math and the engine, add property-based input tests, SQLite WAL and `busy_timeout`, and build the `.app` plus its self-test in CI | M |
 
 ## Strengths to keep
 

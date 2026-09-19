@@ -116,3 +116,229 @@ html, body, #root {
 @layer utilities {
   .text-slate-400 { color: #667587; }
 }
+
+/* Run 6 audit — utilities that were in use but unmapped ---------------- */
+
+/* Active-tab underline and the sensitivity grid's center cell used the
+   primary slate-900 border, invisible on the slate-900 page. */
+.dark .border-slate-900 { border-color: #e2e8f0; }
+.dark .border-b-slate-900 { border-bottom-color: #e2e8f0; }
+
+/* Hairline row separators */
+.dark .border-slate-50 { border-color: #263449; }
+.dark .divide-slate-100 > :not(:last-child) { border-color: #293548; }
+.dark .divide-slate-50 > :not(:last-child) { border-color: #263449; }
+
+/* Emphasis rows/cells that use the page background INSIDE a white card
+   rendered darker than their card; inside a card they should read lighter. */
+.dark .bg-white .bg-slate-50 { background-color: #263449; }
+.dark .bg-white .hover\:bg-slate-50:hover { background-color: #2f3e55; }
+
+/* Remaining tinted surfaces */
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.12); }
+.dark .bg-indigo-50\/50 { background-color: rgba(99, 102, 241, 0.08); }
+.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.4); }
+.dark .hover\:bg-indigo-100:hover { background-color: rgba(99, 102, 241, 0.22); }
+
+.dark .bg-violet-50 { background-color: rgba(139, 92, 246, 0.12); }
+.dark .bg-violet-50\/40 { background-color: rgba(139, 92, 246, 0.08); }
+.dark .text-violet-600 { color: #c4b5fd; }
+.dark .border-violet-100 { border-color: rgba(139, 92, 246, 0.3); }
+.dark .border-violet-300 { border-color: rgba(139, 92, 246, 0.5); }
+.dark .hover\:bg-violet-50:hover { background-color: rgba(139, 92, 246, 0.15); }
+
+.dark .bg-sky-50\/40 { background-color: rgba(14, 165, 233, 0.06); }
+.dark .border-sky-100 { border-color: rgba(14, 165, 233, 0.3); }
+.dark .border-sky-300 { border-color: rgba(14, 165, 233, 0.5); }
+.dark .text-sky-800 { color: #bae6fd; }
+.dark .text-sky-400 { color: #7dd3fc; }
+
+.dark .hover\:bg-emerald-100:hover { background-color: rgba(16, 185, 129, 0.3); }
+.dark .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.3); }
+.dark .hover\:bg-red-100:hover { background-color: rgba(239, 68, 68, 0.3); }
+.dark .hover\:bg-slate-200:hover { background-color: #3b4a61; }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.15); }
+
+.dark .border-amber-400 { border-color: #d97706; }
+.dark .border-emerald-300 { border-color: rgba(16, 185, 129, 0.5); }
+.dark .border-red-300 { border-color: rgba(239, 68, 68, 0.5); }
+.dark .bg-slate-300 { background-color: #475569; }
+
+/* Chart SVG theming: components use these classes instead of hex fills so
+   labels/backgrounds follow the theme. */
+.fill-chart-bg { fill: #f8fafc; }
+.fill-chart-label { fill: #475569; }
+.fill-chart-muted { fill: #64748b; }
+.stroke-chart-grid { stroke: #cbd5e1; }
+.dark .fill-chart-bg { fill: #1e293b; }
+.dark .fill-chart-label { fill: #cbd5e1; }
+.dark .fill-chart-muted { fill: #94a3b8; }
+.dark .stroke-chart-grid { stroke: #475569; }
+
+/* ---------------------------------------------------------------------------
+   Data-viz tokens (src/components/charts). The dataviz skill's reference
+   palette (references/palette.md), light AND dark steps selected per mode —
+   never auto-flipped. Components reference these roles, never raw hex.
+   Validated with the skill's validate_palette.js against this app's card
+   surfaces (light bg-white #ffffff, dark .bg-white -> #1e293b):
+     light, adjacent: all PASS; contrast WARN (relief = labels/table view)
+       for aqua #1baf7a 2.82, yellow #eda100 2.17, magenta #e87ba4 2.69.
+     dark, adjacent: all PASS after one re-step (below).
+     first 3 slots, --pairs all (scatter cap): PASS both modes.
+   Dark re-step (snap rule: hold hue, move lightness): slot 6 green #008300
+   measures 2.96:1 on #1e293b (it clears 3:1 only on the skill's #1a1a19), so
+   it steps to #008a00 (3.23:1); every other check unchanged (worst adjacent
+   CVD dE 8.4, normal-vision 19.3). Dark delta text likewise re-steps
+   #0ca30c (4.36:1) -> #12b312 (5.21:1) to clear WCAG 4.5:1 as text.
+   Chrome (text/grid/axis) follows the app's slate neutrals so charts sit in
+   the existing cards. Status colors are fixed (not themed) and always paired
+   with an icon + label; they are never a series color.
+   --------------------------------------------------------------------------- */
+:root {
+  --viz-surface: #ffffff;
+
+  /* Categorical — fixed slot order, assigned in sequence, never cycled. */
+  --viz-series-1: #2a78d6; /* blue */
+  --viz-series-2: #eb6834; /* orange */
+  --viz-series-3: #1baf7a; /* aqua */
+  --viz-series-4: #eda100; /* yellow */
+  --viz-series-5: #e87ba4; /* magenta */
+  --viz-series-6: #008300; /* green */
+  --viz-series-7: #4a3aa7; /* violet */
+  --viz-series-8: #e34948; /* red */
+  /* Emphasis form: the "rest" / context series. */
+  --viz-deemphasis: #94a3b8;
+
+  /* Ink + chart furniture (text never wears a series color). */
+  --viz-text-primary: #0f172a;   /* 17.9:1 */
+  --viz-text-secondary: #475569; /* 7.6:1 */
+  --viz-text-muted: #64748b;     /* 4.8:1 — axis ticks, captions */
+  --viz-grid: #e2e8f0;           /* hairline, one step off the surface */
+  --viz-axis: #cbd5e1;           /* baseline / zero line */
+
+  /* Sequential (blue, magnitude): 100 = least, 700 = most. Ordinal use
+     starts no lighter than 250 on light. */
+  --viz-seq-100: #cde2fb;
+  --viz-seq-150: #b7d3f6;
+  --viz-seq-200: #9ec5f4;
+  --viz-seq-250: #86b6ef;
+  --viz-seq-300: #6da7ec;
+  --viz-seq-350: #5598e7;
+  --viz-seq-400: #3987e5;
+  --viz-seq-450: #2a78d6;
+  --viz-seq-500: #256abf;
+  --viz-seq-550: #1c5cab;
+  --viz-seq-600: #184f95;
+  --viz-seq-650: #104281;
+  --viz-seq-700: #0d366b;
+
+  /* Diverging (below/above a baseline): warm/cool poles + gray midpoint. */
+  --viz-div-neg: #e34948;
+  --viz-div-mid: #f0efec;
+  --viz-div-pos: #2a78d6;
+
+  /* Status (fixed, reserved meaning; icon + label always). */
+  --viz-status-good: #0ca30c;
+  --viz-status-warning: #fab219;
+  --viz-status-serious: #ec835a;
+  --viz-status-critical: #d03b3b;
+  /* Delta text on stat tiles (WCAG 4.5:1 as text). */
+  --viz-delta-good: #006300;     /* 7.5:1 */
+  --viz-delta-bad: #d03b3b;      /* 4.8:1 */
+}
+
+.dark {
+  --viz-surface: #1e293b;
+
+  --viz-series-1: #3987e5;
+  --viz-series-2: #d95926;
+  --viz-series-3: #199e70;
+  --viz-series-4: #c98500;
+  --viz-series-5: #d55181;
+  --viz-series-6: #008a00; /* re-stepped from #008300, see above */
+  --viz-series-7: #9085e9;
+  --viz-series-8: #e66767;
+  --viz-deemphasis: #64748b;
+
+  --viz-text-primary: #f1f5f9;   /* 13.4:1 on #1e293b */
+  --viz-text-secondary: #cbd5e1; /* 9.9:1 */
+  --viz-text-muted: #94a3b8;     /* 5.7:1 */
+  --viz-grid: #334155;
+  --viz-axis: #475569;
+
+  /* Sequential flips its anchor in dark: 100 (least) recedes into the dark
+     surface, 700 (most) is the brightest. Ordinal use starts at 250 here
+     (#1c5cab, 2.21:1 on #1e293b; the skill's 600-step #184f95 is only
+     1.81:1 on this slate card). */
+  --viz-seq-100: #0d366b;
+  --viz-seq-150: #104281;
+  --viz-seq-200: #184f95;
+  --viz-seq-250: #1c5cab;
+  --viz-seq-300: #256abf;
+  --viz-seq-350: #2a78d6;
+  --viz-seq-400: #3987e5;
+  --viz-seq-450: #5598e7;
+  --viz-seq-500: #6da7ec;
+  --viz-seq-550: #86b6ef;
+  --viz-seq-600: #9ec5f4;
+  --viz-seq-650: #b7d3f6;
+  --viz-seq-700: #cde2fb;
+
+  --viz-div-neg: #e66767;
+  --viz-div-mid: #383835;
+  --viz-div-pos: #3987e5;
+
+  --viz-delta-good: #12b312;     /* 5.2:1, re-stepped from #0ca30c */
+  --viz-delta-bad: #f87171;      /* 5.3:1 */
+}
+
+/* Chart-kit utilities (SVG text/strokes + the HTML tooltip). */
+.fill-viz-primary { fill: var(--viz-text-primary); }
+.fill-viz-secondary { fill: var(--viz-text-secondary); }
+.fill-viz-muted { fill: var(--viz-text-muted); }
+.stroke-viz-grid { stroke: var(--viz-grid); }
+.stroke-viz-axis { stroke: var(--viz-axis); }
+.text-viz-primary { color: var(--viz-text-primary); }
+.text-viz-secondary { color: var(--viz-text-secondary); }
+.text-viz-muted { color: var(--viz-text-muted); }
+.viz-tabular { font-variant-numeric: tabular-nums; }
+.viz-tooltip {
+  background: var(--viz-surface);
+  color: var(--viz-text-primary);
+  border: 1px solid var(--viz-grid);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+.dark .viz-tooltip { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45); }
+@media (forced-colors: active) {
+  .viz-tooltip { border-color: CanvasText; }
+}
+
+/* Sensitivity heat cells set an inline pastel background; keep their text
+   readable on it in dark mode (the cell's own color wins over .dark text). */
+.dark [data-heat-cell] { color: #0f172a; }
+
+/* ---------------------------------------------------------------------------
+   Accessibility: a visible keyboard focus ring everywhere (the components
+   never set focus: styles; several use outline-none). Mouse clicks are
+   unaffected thanks to :focus-visible.
+   --------------------------------------------------------------------------- */
+:where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.dark :where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline-color: #7dd3fc;
+}
+
+/* ---------------------------------------------------------------------------
+   Print: only the workflow content prints — no sidebars, nav or controls —
+   and the main pane expands to the page.
+   --------------------------------------------------------------------------- */
+@media print {
+  aside, nav, [data-no-print], .no-print { display: none !important; }
+  html, body, #root { height: auto !important; }
+  main { overflow: visible !important; padding: 0 !important; }
+  .sticky { position: static !important; }
+  body { background: #fff !important; color: #000 !important; }
+}

@@ -1,0 +1,62 @@
+# Tool configuration only; the backend is not packaged. Roadmap #32.
+
+[tool.ruff]
+target-version = "py310"
+line-length = 110
+extend-exclude = ["storage"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle errors, import order, bugbear, pyupgrade.
+select = ["F", "E", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # long lines: formulas and messages read better unwrapped
+    "B008",  # FastAPI's Depends()/File() defaults are the intended pattern
+    "B905",  # zip(strict=): most zips here are pairwise windows of unequal length
+    "E741",  # `l` for a lease in short comprehensions
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Helper closures here are called inside the loop iteration that defines them,
+# so late binding of the loop variables can't bite.
+"app/services/proforma/leases.py" = ["B023"]
+"app/services/monte_carlo.py" = ["B023"]
+"app/services/extraction/rent_roll_parser.py" = ["B023"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["app"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Ratchet: modules that still carry type errors from before mypy was added.
+# Remove a module from this list once it checks clean; never add one.
+[[tool.mypy.overrides]]
+module = [
+    "app.routers.comps",
+    "app.routers.search",
+    "app.services.benchmarks",
+    "app.services.comps",
+    "app.services.deck_service",
+    "app.services.document_classifier",
+    "app.services.excel_model_export",
+    "app.services.extraction.llm_extraction",
+    "app.services.extraction.ocr",
+    "app.services.extraction_service",
+    "app.services.goal_seek",
+    "app.services.mapping_service",
+    "app.services.memo_charts",
+    "app.services.memo_service",
+    "app.services.proforma.engine",
+    "app.services.proforma.hold",
+    "app.services.proforma.leases",
+    "app.services.proforma.operations",
+    "app.services.share_html",
+    "app.services.tornado_service",
+]
+ignore_errors = true

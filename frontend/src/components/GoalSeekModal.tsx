@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchGoalSeekInputs, runGoalSeek, type GoalSeekResult } from '../lib/api'
+import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
 import { parseNumericInput } from '../lib/numericInput'
 import { visibleFields } from '../lib/schemaFields'
@@ -72,7 +73,7 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
         }),
       )
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Goal seek failed.')
+      setError(friendlyEngineError(e, 'Goal seek failed.'))
     } finally {
       setRunning(false)
     }
@@ -121,6 +122,7 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="search inputs…"
+          aria-label="Search inputs to change"
           className="mb-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
         />
         <div className="mb-3 max-h-36 overflow-y-auto rounded border border-slate-200">

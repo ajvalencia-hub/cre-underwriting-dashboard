@@ -16,11 +16,14 @@ function TrendChart({
   source,
   points,
   kind,
+  upIsGood = true,
 }: {
   title: string
   source: string
   points: TrendPoint[] | undefined
   kind: 'count' | 'money' | 'percent'
+  /** False where a rise is bad news for the deal (unemployment). */
+  upIsGood?: boolean
 }) {
   if (!points || points.length === 0) return null
   const values = points.map((p) => p.value)
@@ -36,7 +39,7 @@ function TrendChart({
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label={title}>
-        <path d={linePath(values, W, H)} fill="none" stroke="#0369a1" strokeWidth="1.5" />
+        <path d={linePath(values, W, H)} fill="none" strokeWidth="1.5" style={{ stroke: 'var(--viz-series-1)' }} />
       </svg>
       <div className="mt-1 flex justify-between text-[11px] text-slate-400">
         <span>
@@ -45,8 +48,20 @@ function TrendChart({
         <span className="text-slate-600">
           {last.period}: {compactValue(last.value, kind)}
           {change !== null && (
-            <span className={change >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+            // Direction carries an arrow; color only where up/down has a
+            // clear reading for a deal (unemployment rising is bad).
+            <span
+              style={{
+                color:
+                  Math.abs(change) < 1e-9
+                    ? 'var(--viz-text-muted)'
+                    : (change > 0) === upIsGood
+                      ? 'var(--viz-delta-good)'
+                      : 'var(--viz-delta-bad)',
+              }}
+            >
               {' '}
+              <span aria-hidden="true" className="text-[9px]">{change > 0 ? '▲' : change < 0 ? '▼' : '▬'}</span>{' '}
               ({change >= 0 ? '+' : ''}
               {(change * 100).toFixed(1)}%)
             </span>
@@ -131,6 +146,7 @@ export default function DemographicsPanel({ market, submarket, address }: Demogr
             source="bls"
             points={trends.employment.unemploymentRatePct}
             kind="percent"
+            upIsGood={false}
           />
           <TrendChart
             title={`HOME PRICE INDEX${trends.homePrices.metroName ? ` (${trends.homePrices.metroName})` : ''}`}

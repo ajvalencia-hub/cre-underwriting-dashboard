@@ -8,10 +8,10 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api_models import PortfolioOut
 from app.database import get_db
 from app.models import Deal
 from app.services import portfolio
-from app.api_models import PortfolioOut
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 def _deal_dicts(db: Session) -> list[dict]:
     return [
         {"id": d.id, "name": d.name, "status": d.status or "screening", "inputs": d.inputs or {}}
-        for d in db.execute(select(Deal)).scalars()
+        # Archived deals are out of the roll-up (and its CSV).
+        for d in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars()
     ]
 
 

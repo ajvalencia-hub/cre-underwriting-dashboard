@@ -14,7 +14,8 @@ export interface SourceRef {
 
 export interface FieldProvenance {
   /** extraction | reviewed_proposal (OM wizard / Documents) | preset |
-   *  goalSeek | quickScreen. Unknown sources from older data still show. */
+   *  goalSeek | quickScreen | agent (an approved Agent proposal). Unknown
+   *  sources from older data still show. */
   source: string
   label?: string
   sourceRef?: SourceRef | null
@@ -75,6 +76,8 @@ export function describeProvenance(p: FieldProvenance): string {
       return 'goal seek'
     case 'quickScreen':
       return 'from Quick Screen'
+    case 'agent':
+      return 'from the Underwriting Agent'
     default:
       return p.label ?? p.source
   }

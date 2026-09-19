@@ -124,3 +124,54 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.getByText('ASSUMPTION PRESETS')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Input history' })).toBeVisible()
 })
+
+test('command palette jumps to a field and runs Compute', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('select').first()).toBeVisible()
+
+  // Roadmap #30: ⌘K → a Deal Inputs field by name → focused on its tab.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('textbox', { name: 'Command or search' }).fill('exit cap')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Deal Inputs', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('#field-exitCapRatePct input').first()).toBeFocused()
+
+  // ⌘K → "compute" runs the pro forma: the summary reports a current result
+  // or, for a deal still missing inputs, the failed compute naming them.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('textbox', { name: 'Command or search' }).fill('compute')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeHidden()
+  await expect(page.getByText(/^(Current|Last compute failed\.)$/).first()).toBeVisible({ timeout: 20_000 })
+})
+
+test('investment committee: submit locks the inputs, reopen with a reason unlocks them', async ({ page }) => {
+  page.on('dialog', (dialog) => void dialog.accept())
+  await page.goto('/')
+  await expect(page.locator('select').first()).toBeVisible()
+
+  // A deal that computes: send the Quick Screen to Deal Inputs.
+  await page.getByRole('button', { name: 'Quick Screen', exact: true }).click()
+  await page.getByRole('button', { name: /Send to Deal Inputs/ }).click()
+  await expect(page.getByRole('button', { name: 'Compute (native)' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'IC Approval', exact: true }).click()
+  await page.getByLabel('Your name').fill('Ana Analyst')
+  await page.getByRole('button', { name: 'Submit to IC' }).click()
+  await expect(page.getByText('0 of 1 approval. Inputs are locked.')).toBeVisible()
+  await expect(page.getByText('Ana Analyst submitted to IC (1 approval needed)')).toBeVisible()
+
+  // Deal Inputs are read-only while it's with the committee.
+  await page.getByRole('button', { name: 'Deal Inputs', exact: true }).click()
+  await expect(page.getByText(/these inputs are locked/)).toBeVisible()
+  await expect(page.locator('#field-exitCapRatePct input').first()).toBeDisabled()
+
+  // Reopening needs a reason; then the inputs are editable again.
+  await page.getByRole('button', { name: 'IC Approval', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Reopen for edits' })).toBeDisabled()
+  await page.getByLabel('Comment or reason').fill('Revisit the exit cap')
+  await page.getByRole('button', { name: 'Reopen for edits' }).click()
+  await expect(page.getByText('Ana Analyst reopened it for edits')).toBeVisible()
+  await page.getByRole('button', { name: 'Deal Inputs', exact: true }).click()
+  await expect(page.locator('#field-exitCapRatePct input').first()).toBeEnabled()
+})

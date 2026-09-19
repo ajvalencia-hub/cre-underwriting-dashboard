@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import {
   computeQuickScreenSensitivityGrid,
   type QuickScreenInputs,
@@ -17,7 +17,8 @@ const TIER_CELL_CLASS: Record<string, string> = {
   weak: 'bg-red-50 text-red-700 hover:bg-red-100',
 }
 
-export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: QuickScreenSensitivityGridProps) {
+/** Memoised (Run 6 wave 2 perf): re-renders only when its inputs change. */
+export default memo(function QuickScreenSensitivityGrid({ inputs, onApplyCell }: QuickScreenSensitivityGridProps) {
   const [metric, setMetric] = useState<SensitivityGridMetric>('spread')
   const grid = useMemo(() => computeQuickScreenSensitivityGrid(inputs, metric), [inputs, metric])
 
@@ -32,6 +33,7 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
             <button
               key={m}
               onClick={() => setMetric(m)}
+              aria-pressed={metric === m}
               className={`rounded px-2 py-0.5 ${
                 metric === m ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
               }`}
@@ -64,13 +66,21 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
               {row.map((cell) => (
                 <td
                   key={cell.exitCapDeltaBps}
-                  onClick={() => onApplyCell(cell.rentDeltaPct, cell.exitCapDeltaBps)}
-                  title="Click to apply this rent / exit cap pair to the inputs"
-                  className={`cursor-pointer border p-1.5 font-medium ${TIER_CELL_CLASS[cell.tier]} ${
+                  className={`border p-0 font-medium ${TIER_CELL_CLASS[cell.tier]} ${
                     cell.isCenter ? 'border-2 border-slate-900' : 'border-slate-100'
                   }`}
                 >
-                  {formatPct(cell.value, 1)}
+                  {/* A real button (Run 6 a11y) filling the cell, so the grid is
+                      keyboard-operable without changing how it looks. */}
+                  <button
+                    type="button"
+                    onClick={() => onApplyCell(cell.rentDeltaPct, cell.exitCapDeltaBps)}
+                    title="Click to apply this rent / exit cap pair to the inputs"
+                    aria-label={`Apply rent ${cell.rentDeltaPct >= 0 ? '+' : ''}${(cell.rentDeltaPct * 100).toFixed(0)}% and exit cap ${cell.exitCapDeltaBps >= 0 ? '+' : ''}${cell.exitCapDeltaBps} bps (${formatPct(cell.value, 1)})`}
+                    className="block w-full cursor-pointer p-1.5 font-medium"
+                  >
+                    {formatPct(cell.value, 1)}
+                  </button>
                 </td>
               ))}
             </tr>
@@ -83,4 +93,4 @@ export default function QuickScreenSensitivityGrid({ inputs, onApplyCell }: Quic
       </p>
     </div>
   )
-}
+})

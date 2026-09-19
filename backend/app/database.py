@@ -1,9 +1,30 @@
-from sqlalchemy import create_engine, inspect, text
+from datetime import timezone
+
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import DB_PATH
 
+# Roadmap #32: how long a connection waits on another's write lock before
+# raising "database is locked" (the backup thread, Monte Carlo jobs and
+# requests share the file).
+BUSY_TIMEOUT_MS = 15_000
+
+
+def configure_sqlite_connection(dbapi_connection, _record=None) -> None:
+    """WAL lets readers work while a write is in progress, and busy_timeout
+    makes a writer wait rather than fail. journal_mode=WAL persists in the
+    file; an in-memory database keeps its own mode."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        cursor.execute("PRAGMA journal_mode = WAL")
+    finally:
+        cursor.close()
+
+
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+event.listen(engine, "connect", configure_sqlite_connection)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -23,7 +44,7 @@ def get_db():
 # (roadmap #21): a build refuses a database written by a newer build instead
 # of silently opening it, and an existing database is backed up before it
 # is migrated to a newer version.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseTooNewError(RuntimeError):
@@ -91,6 +112,35 @@ def _run_migration_steps(eng) -> None:
     _migrate_deals_status(eng)
     _migrate_documents_deal_id(eng)
     _migrate_search_indexes(eng)
+    # Schema version 2 (Run 6 port): archive + tags. The agent_* tables need
+    # no step — create_all adds them.
+    _migrate_deals_archived_at(eng)
+    _migrate_deals_tags(eng)
+
+
+def _migrate_deals_tags(eng) -> None:
+    """Deals gained a JSON `tags` list (Run 6). Existing rows get []."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "tags" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN tags JSON DEFAULT '[]'"))
+        conn.execute(text("UPDATE deals SET tags = '[]' WHERE tags IS NULL"))
+
+
+def _migrate_deals_archived_at(eng) -> None:
+    """Deals gained a nullable archived_at (Run 6 soft delete)."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "archived_at" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN archived_at DATETIME"))
 
 
 def _migrate_search_indexes(eng) -> None:
@@ -255,7 +305,7 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
     deal-scoped scenario list still shows them. Only creates the Default Deal
     when orphans actually exist."""
     import uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     inspector = inspect(eng)
     tables = inspector.get_table_names()
@@ -280,11 +330,15 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
             deal_columns = {c["name"] for c in inspector.get_columns("deals")}
             status_col = ", status" if "status" in deal_columns else ""
             status_val = ", 'screening'" if "status" in deal_columns else ""
+            # Same probe for tags (Run 6): a Run-6-built table has it NOT NULL
+            # with no DB default.
+            tags_col = ", tags" if "tags" in deal_columns else ""
+            tags_val = ", '[]'" if "tags" in deal_columns else ""
             conn.execute(
                 text(
                     "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at"
-                    f"{status_col}) "
-                    f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val})"
+                    f"{status_col}{tags_col}) "
+                    f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val}{tags_val})"
                 ),
                 {"id": default_deal_id, "now": now},
             )

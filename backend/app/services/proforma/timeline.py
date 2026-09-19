@@ -115,7 +115,15 @@ def build_timeline(
             "so the forward 12-month NOI behind the exit value is partly "
             "un-stabilized."
         )
-    if construction >= total_months:
+    if construction <= 0:
+        # Run 6 (B5): a warning, never an error. The Excel Draws sheet mirrors
+        # this shape (parity case export_development_no_build_period).
+        warnings.append(
+            "Development with no construction period (constructionMonths is 0 "
+            "or blank) — the entire budget lands at close as a single draw. "
+            "Enter a construction period for a phased draw schedule."
+        )
+    elif construction >= total_months:
         warnings.append(
             f"Construction ({construction} mo) covers the whole hold "
             f"({total_months} mo) — no operating period exists."

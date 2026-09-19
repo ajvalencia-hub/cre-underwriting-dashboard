@@ -11,6 +11,7 @@ import {
 } from '../lib/api'
 import { checkForGenerate, withSharedTargets, type GenerateCheckResult } from '../lib/mappingCoverage'
 import { flattenFields, visibleFields } from '../lib/schemaFields'
+import { friendlyEngineError } from '../lib/engineErrors'
 import type { InputSchema } from '../types/schema'
 import { GeneratePreflight, GenerateReport } from './GenerateCheck'
 import { fieldIdFromMissing, goToField } from '../lib/goToField'
@@ -61,7 +62,7 @@ function RateSparkline({ rates }: { rates: number[] }) {
       <title>
         All-in rate {(min * 100).toFixed(2)}%–{(max * 100).toFixed(2)}% over the hold
       </title>
-      <polyline points={points} fill="none" stroke="#0284c7" strokeWidth="1.5" />
+      <polyline points={points} fill="none" strokeWidth="1.5" style={{ stroke: 'var(--viz-series-1)' }} />
     </svg>
   )
 }
@@ -105,14 +106,27 @@ export default function GeneratePanel({
   const labelOf = (id: string) => labels.get(id) ?? id
 
   function errorParts(err: unknown, fallback: string): { message: string; missing: string[] } {
-    if (err instanceof ApiError) return { message: err.message, missing: err.missing }
-    return { message: err instanceof Error ? err.message : fallback, missing: [] }
+    // Run 6 B3c: an untyped deal's "missing dealType" reads as the fix, not a bug.
+    const message = friendlyEngineError(err, fallback)
+    if (err instanceof ApiError) return { message, missing: err.missing }
+    return { message, missing: [] }
   }
   const [exportWarnings, setExportWarnings] = useState<string[]>([])
   const [exportError, setExportError] = useState<{ message: string; missing: string[] } | null>(null)
   const [exportingModel, setExportingModel] = useState(false)
   const computeError = exportError ?? failure
   const computeWarnings = [...(native?.response.warnings ?? []), ...exportWarnings]
+  const irrDiagnostics = native?.response.irrDiagnostics
+  const irrOtherRoots = (
+    [
+      ['Levered', irrDiagnostics?.levered],
+      ['Unlevered', irrDiagnostics?.unlevered],
+    ] as const
+  ).flatMap(([label, d]) => {
+    if (!d) return []
+    const others = d.roots.filter((r) => d.reported === null || Math.abs(r - d.reported) > 1e-6)
+    return others.length > 0 ? [{ label, reported: d.reported, others }] : []
+  })
   const debtBlock: DebtBlock | null = native?.response.debt ?? null
   const gpEconomics: GpEconomics | null = native?.response.gpEconomics ?? null
 
@@ -182,7 +196,7 @@ export default function GeneratePanel({
       })
       if (Object.keys(outputs).length > 0) onGenerated?.(outputs, requestValues, requestDealId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generate failed')
+      setError(friendlyEngineError(err, 'Generate failed'))
     } finally {
       setGenerating(false)
     }
@@ -193,7 +207,7 @@ export default function GeneratePanel({
       <div className="flex max-w-3xl flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="text-xs text-slate-500">
           {!template && (
-            <>Upload a template and save a mapping profile under "2. Template &amp; Mapping".</>
+            <>Upload a template and save a mapping profile under "Template &amp; Mapping".</>
           )}
           {template && !mappingProfileId && (
             <>
@@ -203,7 +217,7 @@ export default function GeneratePanel({
           )}
           {template && mappingProfileId && mappingUnsaved && (
             <span className="text-amber-700">
-              Unsaved mapping changes in <strong>2. Template &amp; Mapping</strong> — save them
+              Unsaved mapping changes in <strong>Template &amp; Mapping</strong> — save them
               before generating (Generate uses the saved profile).
             </span>
           )}
@@ -291,6 +305,18 @@ export default function GeneratePanel({
             <li key={i}>{w}</li>
           ))}
         </ul>
+      )}
+      {irrOtherRoots.length > 0 && (
+        // Run 6 irrDiagnostics: additive detail under the multi-root warning;
+        // the reported IRR itself is unchanged.
+        <div className="mt-1 pl-4 text-[11px] text-amber-700">
+          {irrOtherRoots.map(({ label, reported, others }) => (
+            <div key={label}>
+              {label} IRR shown {reported === null ? '—' : `${(reported * 100).toFixed(2)}%`}; other roots:{' '}
+              {others.map((r) => `${(r * 100).toFixed(2)}%`).join(', ')}
+            </div>
+          ))}
+        </div>
       )}
       {debtBlock && nativeStale && (
         <div className="mt-3 text-xs font-medium text-amber-700">

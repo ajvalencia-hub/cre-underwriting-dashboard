@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createComp,
   deleteComp,
@@ -10,10 +10,13 @@ import {
   type CompMapPoint,
   type CompsImportResult,
 } from '../lib/api'
+import { createLatestGuard } from '../lib/latest'
 import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import FileChooser from '../components/FileChooser'
 import { formatMoney } from '../lib/money'
+import { CompsCharts } from '../components/portfolioCharts'
+import type { CompSubject } from '../lib/portfolioChartData'
 
 const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
 const VIEWPORT_HEIGHT = 480
@@ -49,11 +52,11 @@ function CompsMap({ points, warnings }: { points: CompMapPoint[]; warnings: stri
         <div className="text-xs text-slate-400">No comps could be mapped.</div>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-xl" role="img" aria-label="Comp locations">
-          <rect x={0} y={0} width={W} height={H} fill="#f8fafc" rx={4} />
+          <rect x={0} y={0} width={W} height={H} className="fill-chart-bg" rx={4} />
           {points.map((p) => (
             <g key={p.id}>
               <circle cx={x(p.lon)} cy={y(p.lat)} r={5} fill="#0284c7" fillOpacity={0.75} />
-              <text x={x(p.lon) + 8} y={y(p.lat) + 3} fontSize={9} fill="#475569">
+              <text x={x(p.lon) + 8} y={y(p.lat) + 3} fontSize={9} className="fill-chart-label">
                 {p.name}
               </text>
             </g>
@@ -77,6 +80,9 @@ function CompsMap({ points, warnings }: { points: CompMapPoint[]; warnings: stri
 interface CompsPageProps {
   /** Deal market from the input form — prefills the filter, nothing more. */
   dealMarket: string
+  /** The active deal's own numbers, marked "your deal" on the comp charts
+   *  (see compSubjectFromValues). Optional: no reference line without it. */
+  subject?: CompSubject
 }
 
 const money = (v: number | null | undefined) =>
@@ -120,10 +126,16 @@ const IMPORT_FIELDS: Record<CompKind, { id: string; label: string }[]> = {
 const EMPTY_SALE = { name: '', market: '', price: '', units: '', capRatePct: '' }
 const EMPTY_RENT = { name: '', market: '', avgRent: '', unitType: '', occupancyPct: '' }
 
-export default function CompsPage({ dealMarket }: CompsPageProps) {
+export default function CompsPage({ dealMarket, subject }: CompsPageProps) {
   const [kind, setKind] = useState<CompKind>('sale')
-  const [marketFilter, setMarketFilter] = useState(dealMarket)
+  // Run 6 B8: the tab stays mounted across deal switches, so the filter
+  // follows the active deal's market until the user types their own filter
+  // (derived, not synced by an effect; "Use deal market" resets it).
+  const [typedFilter, setTypedFilter] = useState<string | null>(null)
+  const marketFilter = typedFilter ?? dealMarket
   const [comps, setComps] = useState<Comp[]>([])
+  // Run 6 B5: only the newest list fetch may land (kind toggles / typing).
+  const loadGuard = useRef(createLatestGuard())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -169,12 +181,21 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   )
 
   const load = useCallback(() => {
+    const token = loadGuard.current.next()
     setLoading(true)
     setError(null)
     fetchComps(kind, marketFilter)
-      .then(setComps)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load comps'))
-      .finally(() => setLoading(false))
+      .then((list) => {
+        if (loadGuard.current.isCurrent(token)) setComps(list)
+      })
+      .catch((err) => {
+        if (loadGuard.current.isCurrent(token)) {
+          setError(err instanceof Error ? err.message : 'Failed to load comps')
+        }
+      })
+      .finally(() => {
+        if (loadGuard.current.isCurrent(token)) setLoading(false)
+      })
   }, [kind, marketFilter])
 
   useEffect(() => {
@@ -226,6 +247,8 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
   }
 
   async function handleDelete(compId: string) {
+    const target = comps.find((c) => c.id === compId)
+    if (!window.confirm(`Delete the ${kind} comp "${target?.name ?? 'this comp'}"? This cannot be undone.`)) return
     try {
       await deleteComp(kind, compId)
       load()
@@ -292,10 +315,20 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
         </div>
         <input
           value={marketFilter}
-          onChange={(e) => setMarketFilter(e.target.value)}
+          onChange={(e) => setTypedFilter(e.target.value)}
           placeholder="Filter by market"
+          aria-label="Filter comps by market"
           className="rounded border border-slate-200 px-2 py-1.5 text-sm"
         />
+        {typedFilter !== null && dealMarket && typedFilter !== dealMarket && (
+          <button
+            onClick={() => setTypedFilter(null)}
+            className="text-xs text-sky-700 hover:underline"
+            title="Follow the active deal's market again"
+          >
+            Use deal market ({dealMarket})
+          </button>
+        )}
         <button
           onClick={() => void handleToggleMap()}
           className={`rounded border px-2 py-1.5 text-xs ${
@@ -312,6 +345,9 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {showMap && !mapLoading && <CompsMap points={mapPoints} warnings={mapWarnings} />}
+
+      {/* Distributions of the listed comps (same market filter as the table). */}
+      <CompsCharts kind={kind} comps={comps} subject={subject} />
 
       <div
         className="max-h-[480px] overflow-auto rounded border border-slate-200 bg-white"
@@ -404,6 +440,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="New comp name"
+                  aria-label="New comp name"
                   className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                 />
               </td>
@@ -412,6 +449,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                   value={draft.market}
                   onChange={(e) => setDraft({ ...draft, market: e.target.value })}
                   placeholder="Market"
+                  aria-label="New comp market"
                   className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                 />
               </td>
@@ -423,6 +461,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.price}
                       onChange={(e) => setDraft({ ...draft, price: e.target.value })}
                       placeholder="Price"
+                      aria-label="New comp sale price"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -431,6 +470,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.units}
                       onChange={(e) => setDraft({ ...draft, units: e.target.value })}
                       placeholder="Units"
+                      aria-label="New comp units"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -439,6 +479,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.capRatePct}
                       onChange={(e) => setDraft({ ...draft, capRatePct: e.target.value })}
                       placeholder="Cap % e.g. 5.25"
+                      aria-label="New comp cap rate (%)"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -450,6 +491,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.unitType}
                       onChange={(e) => setDraft({ ...draft, unitType: e.target.value })}
                       placeholder="e.g. 1BR"
+                      aria-label="New comp unit type"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -458,6 +500,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.avgRent}
                       onChange={(e) => setDraft({ ...draft, avgRent: e.target.value })}
                       placeholder="Avg rent"
+                      aria-label="New comp average rent"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>
@@ -466,6 +509,7 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
                       value={draft.occupancyPct}
                       onChange={(e) => setDraft({ ...draft, occupancyPct: e.target.value })}
                       placeholder="Occ % e.g. 95"
+                      aria-label="New comp occupancy (%)"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
                     />
                   </td>

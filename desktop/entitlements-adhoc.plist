@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Only for local ad-hoc test signing (SIGN_IDENTITY=-): an ad-hoc
+     signature has no Team ID, so library validation would refuse the
+     bundled libraries. A Developer ID build uses entitlements.plist. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

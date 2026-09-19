@@ -9,6 +9,7 @@ import {
   type AcquisitionQuickScreenInputs,
 } from '../lib/quickScreenMath'
 import { formatMoney, formatPct } from '../lib/quickScreenFormat'
+import { NoiSplitChart } from './analysisCharts/QuickScreenCharts'
 
 interface AcquisitionQuickScreenProps {
   inputs: AcquisitionQuickScreenInputs
@@ -156,6 +157,9 @@ export default function AcquisitionQuickScreen({
             />
             <Row label="Break-even ratio" value={formatPct(results.breakEvenRatio)} />
           </dl>
+          <div className="mt-3">
+            <NoiSplitChart results={results} />
+          </div>
         </div>
 
         <button

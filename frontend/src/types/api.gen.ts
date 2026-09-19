@@ -60,6 +60,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/backups/{kind}/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Backup
+         * @description Download a snapshot's SQLite file (offsite copy / migration). Same
+         *     validated resolver as restore (backup_service.snapshot_path), so only a
+         *     known kind plus a well-formed snapshot name inside the backups root is
+         *     reachable: malformed -> 400, well-formed but absent -> 404.
+         */
+        get: operations["download_backup_api_admin_backups__kind___name__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/integrations": {
         parameters: {
             query?: never;
@@ -97,6 +120,209 @@ export interface paths {
          *     soffice.py and extraction/ocr.py and is unchanged.
          */
         get: operations["external_tools_status_api_admin_tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/plays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Plays
+         * @description K8: the canned-workflow library surfaced as suggestion chips in the
+         *     UI — id + label only; the prompt and tool-subset stay server-side.
+         */
+        get: operations["list_plays_api_agent_plays_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/proposals/{proposal_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Proposal
+         * @description K7: applies a proposal's changes through the same audit-trail
+         *     mechanism every other deal edit uses (deal_history.record_snapshot),
+         *     tagged kind="agent" so it's visibly distinguishable in the history
+         *     drawer. Any other still-pending proposal for this deal is marked
+         *     "stale" — its preview was computed against inputs that just changed.
+         *     Archived deals are still approvable by id (the thread was opened on
+         *     them), matching the rest of the by-id deal routes.
+         *
+         *     Order matters — nothing is written until both gates pass:
+         *     1. input validation of the changes being applied (overrideChanges come
+         *        straight from the client, so they are re-checked) -> 422;
+         *     2. the IC lock (ic_workflow.check_input_change, the same check PUT
+         *        /api/deals/{id} runs) -> 409. The proposal stays pending, so it can
+         *        still be approved after the deal is reopened.
+         */
+        post: operations["approve_proposal_api_agent_proposals__proposal_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/proposals/{proposal_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Proposal */
+        post: operations["reject_proposal_api_agent_proposals__proposal_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Providers
+         * @description Which providers the UI may switch to, and whether each has a key
+         *     configured server-side — the UI never sees the key itself, only this
+         *     boolean, so it can gray out an option instead of letting the user pick
+         *     a provider that will just come back "unavailable".
+         */
+        get: operations["list_providers_api_agent_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/threads/{deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Thread */
+        get: operations["get_thread_api_agent_threads__deal_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/threads/{deal_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Message */
+        post: operations["post_message_api_agent_threads__deal_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/threads/{deal_id}/provider": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Thread Provider
+         * @description Switches which model answers the NEXT turn in this deal's thread.
+         *     Takes effect immediately — no server restart, no .env edit — since the
+         *     runner already reads thread.provider per turn rather than a fixed
+         *     global. History from the previous provider is untouched; only future
+         *     turns use the new one.
+         */
+        put: operations["set_thread_provider_api_agent_threads__deal_id__provider_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auth Status */
+        get: operations["auth_status_api_auth_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -190,7 +416,8 @@ export interface paths {
          * Comps Map
          * @description I11: geocoded points for the filtered comp set. Comps whose address
          *     can't be geocoded are SKIPPED with a warning naming them — a map with
-         *     silently missing pins would misrepresent the set.
+         *     silently missing pins would misrepresent the set. Rate-limited: each
+         *     uncached address is an external geocoder call.
          */
         get: operations["comps_map_api_comps__kind__map_get"];
         put?: never;
@@ -306,8 +533,9 @@ export interface paths {
         put?: never;
         /**
          * Monte Carlo Start
-         * @description J8: start a seeded Monte Carlo run on a background thread. Validation
-         *     is synchronous — a bad request fails HERE, not at the poll.
+         * @description J8: start a seeded Monte Carlo run on the bounded worker pool.
+         *     Validation is synchronous — a bad request fails HERE, not at the poll;
+         *     a saturated pool is a 429 with Retry-After.
          */
         post: operations["monte_carlo_start_api_compute_monte_carlo_post"];
         delete?: never;
@@ -327,7 +555,13 @@ export interface paths {
         get: operations["monte_carlo_poll_api_compute_monte_carlo__job_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Monte Carlo Cancel
+         * @description Cancel a running job (it stops after the trial in flight; the poll
+         *     then reports "cancelled"). Idempotent: a finished job reports its
+         *     terminal status.
+         */
+        delete: operations["monte_carlo_cancel_api_compute_monte_carlo__job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -357,7 +591,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Deals */
+        /**
+         * List Deals
+         * @description Archived deals are hidden unless `includeArchived=true`. `tag=<name>`
+         *     filters case-insensitively; `fields=summary` returns the slim pipeline
+         *     shape (no inputs blob). All opt-in — the default response is the
+         *     active deals in the full DealOut shape.
+         */
         get: operations["list_deals_api_deals_get"];
         put?: never;
         /** Create Deal */
@@ -407,6 +647,29 @@ export interface paths {
          *     anything is written.
          */
         post: operations["bulk_status_api_deals_bulk_status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/bulk-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Tags
+         * @description Add and/or remove tags across many deals in one write. Same shape as
+         *     bulk-status: unknown ids are reported, not silently dropped; the
+         *     normalized result on each deal must still satisfy the tag caps (422
+         *     before anything is written otherwise). Allowed while IC-locked.
+         */
+        post: operations["bulk_tags_api_deals_bulk_tags_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -491,11 +754,39 @@ export interface paths {
         };
         /** Get Deal */
         get: operations["get_deal_api_deals__deal_id__get"];
-        /** Update Deal */
+        /**
+         * Update Deal
+         * @description Optional optimistic concurrency: send the `ETag` from the last read
+         *     as `If-Match`. A stale value is a 412 carrying the CURRENT deal so the
+         *     client can merge; no header keeps last-writer-wins; `*` always passes.
+         *     Order: 404 -> 412 -> IC lock 409 -> write.
+         */
         put: operations["update_deal_api_deals__deal_id__put"];
         post?: never;
         /** Delete Deal */
         delete: operations["delete_deal_api_deals__deal_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Deal
+         * @description Soft delete: hides the deal from the pipeline, portfolio, search,
+         *     metrics and IC state lists while keeping everything attached to it.
+         *     Idempotent. Not an input change, so allowed while IC-locked.
+         */
+        post: operations["archive_deal_api_deals__deal_id__archive_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -514,6 +805,29 @@ export interface paths {
         /** Upload Attachment */
         post: operations["upload_attachment_api_deals__deal_id__attachments_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/attachments/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Attachment
+         * @description Remove one of the deal's OWN attachments (extraction documents are
+         *     global and are not deletable from a cabinet — 404). Not a deal input, so
+         *     no IC-lock check. The file is unlinked only when no other row shares it
+         *     (document_storage.release_file).
+         */
+        delete: operations["delete_attachment_api_deals__deal_id__attachments__document_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -551,6 +865,30 @@ export interface paths {
         get: operations["preview_attachment_api_deals__deal_id__attachments__document_id__preview_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone Deal
+         * @description Duplicate a deal for a what-if: inputs (minus any in-progress wizard
+         *     draft), pipeline stage, tags, template/mapping selection and scenarios
+         *     are copied. Notes, attachments, input history and IC events are NOT —
+         *     they belong to the source record — so the copy starts a fresh history
+         *     in the draft IC state (editable even when the source is IC-locked).
+         */
+        post: operations["clone_deal_api_deals__deal_id__clone_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -665,6 +1003,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deals/{deal_id}/ic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ic */
+        get: operations["get_ic_api_deals__deal_id__ic_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deals/{deal_id}/ic-deck.pptx": {
         parameters: {
             query?: never;
@@ -682,6 +1037,23 @@ export interface paths {
         get: operations["deal_ic_deck_api_deals__deal_id__ic_deck_pptx_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/ic/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Ic Step */
+        post: operations["add_ic_step_api_deals__deal_id__ic_events_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -739,6 +1111,23 @@ export interface paths {
         get: operations["share_deal_api_deals__deal_id__share_html_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive Deal */
+        post: operations["unarchive_deal_api_deals__deal_id__unarchive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -929,6 +1318,26 @@ export interface paths {
         };
         /** Health */
         get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ic/states": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ic States
+         * @description Each deal's IC state other than draft (the pipeline's IC column).
+         */
+        get: operations["ic_states_api_ic_states_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1311,7 +1720,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search */
+        /**
+         * Search
+         * @description Archived deals are excluded from every deal-scoped group (deals,
+         *     tenants, notes). `typeFilter` / `tagFilter` and item `tags` ride the
+         *     response undeclared (conditional keys).
+         */
         get: operations["search_api_search_get"];
         put?: never;
         post?: never;
@@ -1432,6 +1846,217 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentApproveOut */
+        AgentApproveOut: {
+            deal: components["schemas"]["DealOut"];
+            proposal: components["schemas"]["AgentProposalOut"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentMessageOut */
+        AgentMessageOut: {
+            /** Content */
+            content: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /** Proposalids */
+            proposalIds: string[];
+            /**
+             * Role
+             * @default user
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Stoppedreason */
+            stoppedReason: string | null;
+            /** Toolcalls */
+            toolCalls: components["schemas"]["AgentToolCallLogOut"][];
+            /** Unverifiedclaims */
+            unverifiedClaims: components["schemas"]["AgentUnverifiedClaimOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentPlayOut */
+        AgentPlayOut: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentProposalOut */
+        AgentProposalOut: {
+            /** Changes */
+            changes: Record<string, unknown>;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default input_changes
+             * @enum {string}
+             */
+            kind: "input_changes" | "scenario";
+            /** Preview */
+            preview: Record<string, unknown> | null;
+            /** Rationale */
+            rationale: string;
+            /** Scenarioname */
+            scenarioName: string | null;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected" | "stale";
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentProviderOut */
+        AgentProviderOut: {
+            /** Haskey */
+            hasKey: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentRejectOut */
+        AgentRejectOut: {
+            proposal: components["schemas"]["AgentProposalOut"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentThreadOut */
+        AgentThreadOut: {
+            /** Dealid */
+            dealId: string;
+            /** Id */
+            id: string;
+            /** Messages */
+            messages: components["schemas"]["AgentMessageOut"][];
+            /** Proposals */
+            proposals: components["schemas"]["AgentProposalOut"][];
+            /** Provider */
+            provider: string;
+            /** Totalinputtokens */
+            totalInputTokens: number;
+            /** Totaloutputtokens */
+            totalOutputTokens: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentThreadRefOut */
+        AgentThreadRefOut: {
+            /** Dealid */
+            dealId: string;
+            /** Id */
+            id: string;
+            /** Provider */
+            provider: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentToolCallLogOut */
+        AgentToolCallLogOut: {
+            /** Arguments */
+            arguments: Record<string, unknown>;
+            /** Name */
+            name: string;
+            /**
+             * Privilege
+             * @default read
+             * @enum {string}
+             */
+            privilege: "read" | "write" | "unknown";
+            /** Result */
+            result: Record<string, unknown>;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentTurnOut */
+        AgentTurnOut: {
+            /** Proposals */
+            proposals: components["schemas"]["AgentTurnProposalOut"][];
+            /** Stoppedreason */
+            stoppedReason: string | null;
+            /** Text */
+            text: string;
+            /** Threadid */
+            threadId: string;
+            /** Toolcalls */
+            toolCalls: components["schemas"]["AgentToolCallLogOut"][];
+            /** Unverifiedclaims */
+            unverifiedClaims: components["schemas"]["AgentUnverifiedClaimOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AgentTurnProposalOut
+         * @description A proposal as a turn returns it (no createdAt — see AgentProposalOut).
+         */
+        AgentTurnProposalOut: {
+            /** Changes */
+            changes: Record<string, unknown>;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default input_changes
+             * @enum {string}
+             */
+            kind: "input_changes" | "scenario";
+            /** Preview */
+            preview: Record<string, unknown> | null;
+            /** Rationale */
+            rationale: string;
+            /** Scenarioname */
+            scenarioName: string | null;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected" | "stale";
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AgentUnverifiedClaimOut */
+        AgentUnverifiedClaimOut: {
+            /**
+             * Kind
+             * @default bare
+             * @enum {string}
+             */
+            kind: "dollar" | "percent" | "multiple" | "bare";
+            /** Raw */
+            raw: string;
+            /** Value */
+            value: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ApproveProposalRequest */
+        ApproveProposalRequest: {
+            /** Overridechanges */
+            overrideChanges?: Record<string, unknown> | null;
+        };
         /** AttachmentOut */
         AttachmentOut: {
             /**
@@ -1457,6 +2082,15 @@ export interface components {
              * @enum {string}
              */
             source: "attachment" | "extraction";
+        } & {
+            [key: string]: unknown;
+        };
+        /** AuthStatusOut */
+        AuthStatusOut: {
+            /** Authenticated */
+            authenticated: boolean;
+            /** Required */
+            required: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -1581,6 +2215,30 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** BulkTagsOut */
+        BulkTagsOut: {
+            /** Missing */
+            missing: string[];
+            /** Updated */
+            updated: components["schemas"]["DealOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** BulkTagsRequest */
+        BulkTagsRequest: {
+            /**
+             * Add
+             * @default []
+             */
+            add: string[];
+            /** Dealids */
+            dealIds: string[];
+            /**
+             * Remove
+             * @default []
+             */
+            remove: string[];
+        };
         /** ClassExposureOut */
         ClassExposureOut: {
             /** Assetclass */
@@ -1609,6 +2267,11 @@ export interface components {
              * @default
              */
             url: string;
+        };
+        /** CloneRequest */
+        CloneRequest: {
+            /** Name */
+            name?: string | null;
         };
         /** CommercialLeaseProposal */
         CommercialLeaseProposal: {
@@ -1881,6 +2544,8 @@ export interface components {
             activeMappingProfileId: string | null;
             /** Activetemplateid */
             activeTemplateId: string | null;
+            /** Archivedat */
+            archivedAt?: string | null;
             /**
              * Createdat
              * Format: date-time
@@ -1899,6 +2564,65 @@ export interface components {
              */
             status: "screening" | "underwriting" | "loi" | "under_contract" | "closed" | "dead" | "feasibility" | "site_control" | "entitlements" | "pre_construction" | "construction" | "lease_up" | "stabilized";
             /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        };
+        /**
+         * DealSummaryFields
+         * @description The handful of input keys the pipeline board actually reads.
+         */
+        DealSummaryFields: {
+            /** Address */
+            address?: string | null;
+            /** Dealname */
+            dealName?: string | null;
+            /** Dealtype */
+            dealType?: string | null;
+            /** Market */
+            market?: string | null;
+        };
+        /**
+         * DealSummaryOut
+         * @description `GET /api/deals?fields=summary`: DealOut minus the inputs blob, with
+         *     the pipeline's keys lifted into `summary`. Opt-in; the default list
+         *     response is unchanged.
+         */
+        DealSummaryOut: {
+            /** Activemappingprofileid */
+            activeMappingProfileId: string | null;
+            /** Activetemplateid */
+            activeTemplateId: string | null;
+            /** Archivedat */
+            archivedAt?: string | null;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @default screening
+             * @enum {string}
+             */
+            status: "screening" | "underwriting" | "loi" | "under_contract" | "closed" | "dead" | "feasibility" | "site_control" | "entitlements" | "pre_construction" | "construction" | "lease_up" | "stabilized";
+            summary: components["schemas"]["DealSummaryFields"];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /**
              * Updatedat
              * Format: date-time
              */
@@ -1916,6 +2640,8 @@ export interface components {
             name?: string | null;
             /** Status */
             status?: string | null;
+            /** Tags */
+            tags?: string[] | null;
         };
         /** DebtBlockOut */
         DebtBlockOut: {
@@ -2195,6 +2921,81 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** IcEventOut */
+        IcEventOut: {
+            /** Actor */
+            actor: string;
+            /** Comment */
+            comment: string;
+            /** Createdat */
+            createdAt: string;
+            /** Hassnapshot */
+            hasSnapshot: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "submit" | "approve" | "reject" | "return" | "reopen" | "comment";
+            /** Requiredapprovals */
+            requiredApprovals: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** IcStepIn */
+        IcStepIn: {
+            /** Actor */
+            actor: string;
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "submit" | "approve" | "reject" | "return" | "reopen" | "comment";
+            /** Requiredapprovals */
+            requiredApprovals?: number | null;
+        };
+        /** IcSubmissionOut */
+        IcSubmissionOut: {
+            /** Current */
+            current: boolean;
+            /** Eventid */
+            eventId: string;
+            /** Inputs */
+            inputs: Record<string, unknown>;
+            /** Outputs */
+            outputs: Record<string, unknown>;
+            /** Submittedat */
+            submittedAt: string;
+            /** Submittedby */
+            submittedBy: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** IcSummaryOut */
+        IcSummaryOut: {
+            /** Approvers */
+            approvers: string[];
+            /** Events */
+            events: components["schemas"]["IcEventOut"][];
+            lastSubmission: components["schemas"]["IcSubmissionOut"] | null;
+            /** Locked */
+            locked: boolean;
+            /** Requiredapprovals */
+            requiredApprovals: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "draft" | "submitted" | "approved" | "rejected";
+        } & {
+            [key: string]: unknown;
+        };
         /** ImportRequest */
         ImportRequest: {
             /** Csvtext */
@@ -2242,6 +3043,11 @@ export interface components {
             path: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Token */
+            token: string;
         };
         /** MappingEntry */
         MappingEntry: {
@@ -2444,6 +3250,19 @@ export interface components {
             /** Values */
             values: Record<string, unknown>;
         };
+        /** MonteCarloCancelOut */
+        MonteCarloCancelOut: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Status
+             * @default cancelling
+             * @enum {string}
+             */
+            status: "cancelling" | "cancelled" | "done" | "failed";
+        } & {
+            [key: string]: unknown;
+        };
         /** MonteCarloJobOut */
         MonteCarloJobOut: {
             /** Completed */
@@ -2455,7 +3274,7 @@ export interface components {
              * @default running
              * @enum {string}
              */
-            status: "running" | "done" | "failed";
+            status: "running" | "done" | "failed" | "cancelled";
         } & {
             [key: string]: unknown;
         };
@@ -2636,6 +3455,16 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** PostMessageRequest */
+        PostMessageRequest: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /** Playid */
+            playId?: string | null;
+        };
         /** PresetIn */
         PresetIn: {
             /**
@@ -2790,6 +3619,14 @@ export interface components {
             leveredIrr: number | null;
         } & {
             [key: string]: unknown;
+        };
+        /** RejectProposalRequest */
+        RejectProposalRequest: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /** RestoreRequest */
         RestoreRequest: {
@@ -2952,6 +3789,11 @@ export interface components {
             /** Sensitivity */
             sensitivity: Record<string, unknown>;
         };
+        /** SetProviderRequest */
+        SetProviderRequest: {
+            /** Provider */
+            provider: string;
+        };
         /** SheetGrid */
         SheetGrid: {
             /** Columns */
@@ -2995,7 +3837,7 @@ export interface components {
              * @default autosave
              * @enum {string}
              */
-            kind: "baseline" | "autosave" | "restore";
+            kind: "baseline" | "autosave" | "restore" | "agent";
             /**
              * Updatedat
              * Format: date-time
@@ -3048,12 +3890,19 @@ export interface components {
             high: number | null;
             /** Impact */
             impact: number;
+            /**
+             * Inert
+             * @default false
+             */
+            inert: boolean;
             /** Key */
             key: string;
             /** Label */
             label: string;
             /** Low */
             low: number | null;
+            /** Reason */
+            reason: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -3084,7 +3933,7 @@ export interface components {
              * Groupedby
              * @enum {string}
              */
-            groupedBy: "label" | "bedBath";
+            groupedBy: "label" | "bedBath" | "sf";
             /** Rows */
             rows: components["schemas"]["ProposedUnitMixRow"][];
             /** Warnings */
@@ -3203,6 +4052,38 @@ export interface operations {
             };
         };
     };
+    download_backup_api_admin_backups__kind___name__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     integration_status_api_admin_integrations_get: {
         parameters: {
             query?: never;
@@ -3239,6 +4120,290 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExternalToolsOut"];
+                };
+            };
+        };
+    };
+    list_plays_api_agent_plays_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPlayOut"][];
+                };
+            };
+        };
+    };
+    approve_proposal_api_agent_proposals__proposal_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveProposalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApproveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_proposal_api_agent_proposals__proposal_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectProposalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRejectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_providers_api_agent_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProviderOut"][];
+                };
+            };
+        };
+    };
+    get_thread_api_agent_threads__deal_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentThreadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_message_api_agent_threads__deal_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTurnOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_thread_provider_api_agent_threads__deal_id__provider_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentThreadRefOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthStatusOut"];
+                };
+            };
+        };
+    };
+    auth_status_api_auth_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthStatusOut"];
                 };
             };
         };
@@ -3696,6 +4861,37 @@ export interface operations {
             };
         };
     };
+    monte_carlo_cancel_api_compute_monte_carlo__job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonteCarloCancelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     tornado_api_compute_tornado_post: {
         parameters: {
             query?: never;
@@ -3731,7 +4927,11 @@ export interface operations {
     };
     list_deals_api_deals_get: {
         parameters: {
-            query?: never;
+            query?: {
+                includeArchived?: boolean;
+                tag?: string | null;
+                fields?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3744,7 +4944,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DealOut"][];
+                    "application/json": components["schemas"]["DealOut"][] | components["schemas"]["DealSummaryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3835,6 +5044,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_tags_api_deals_bulk_tags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTagsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTagsOut"];
                 };
             };
             /** @description Validation Error */
@@ -3970,7 +5212,9 @@ export interface operations {
     update_deal_api_deals__deal_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "if-match"?: string | null;
+            };
             path: {
                 deal_id: string;
             };
@@ -3990,6 +5234,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DealOut"];
                 };
+            };
+            /** @description If-Match is stale: {detail, current: DealOut} */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -4020,6 +5271,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_deal_api_deals__deal_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealOut"];
                 };
             };
             /** @description Validation Error */
@@ -4099,6 +5381,38 @@ export interface operations {
             };
         };
     };
+    delete_attachment_api_deals__deal_id__attachments__document_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     download_attachment_api_deals__deal_id__attachments__document_id__download_get: {
         parameters: {
             query?: {
@@ -4152,6 +5466,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clone_deal_api_deals__deal_id__clone_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CloneRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealOut"];
                 };
             };
             /** @description Validation Error */
@@ -4322,6 +5671,37 @@ export interface operations {
             };
         };
     };
+    get_ic_api_deals__deal_id__ic_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcSummaryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     deal_ic_deck_api_deals__deal_id__ic_deck_pptx_get: {
         parameters: {
             query?: {
@@ -4342,6 +5722,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_ic_step_api_deals__deal_id__ic_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IcStepIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcSummaryOut"];
                 };
             };
             /** @description Validation Error */
@@ -4507,6 +5922,37 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unarchive_deal_api_deals__deal_id__unarchive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealOut"];
                 };
             };
             /** @description Validation Error */
@@ -4853,6 +6299,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    ic_states_api_ic_states_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: "draft" | "submitted" | "approved" | "rejected";
+                    };
                 };
             };
         };

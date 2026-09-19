@@ -16,10 +16,12 @@ the cost for numbers nobody reads per-trial). Long runs execute on a
 background thread with a polling job store.
 """
 
+import logging
 import math
 import threading
 import uuid
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -31,16 +33,34 @@ MAX_RUNS = 2000
 HISTOGRAM_BINS = 20
 DEFAULT_HURDLE = 0.08
 _MAX_JOBS = 20
+# Each job is up to MAX_RUNS full engine computes. Runs execute on a small
+# fixed pool (not one thread per POST) and the pool refuses new work past a
+# queue depth — otherwise every click on "Run" spawned an unbounded CPU-bound
+# thread that kept running even after its job entry was evicted.
+_MAX_WORKERS = 2
+_MAX_QUEUED = 4
 
 _DISTRIBUTIONS = ("normal", "triangular", "uniform")
+
+logger = logging.getLogger("app.monte_carlo")
 
 
 class MonteCarloError(ValueError):
     """Bad request — invalid drivers, params, correlations, or run size."""
 
 
+class MonteCarloBusy(RuntimeError):
+    """The pool is saturated — the caller should retry later (429)."""
+
+
+class MonteCarloCancelled(Exception):
+    """Raised inside the trial loop when the job was cancelled by the client."""
+
+
 _jobs: "OrderedDict[str, dict]" = OrderedDict()
 _jobs_lock = threading.Lock()
+_executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="monte-carlo")
+_pending = 0  # queued + running, guarded by _jobs_lock
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +240,9 @@ def run_simulation(
     peaks: list[float] = []
     failed = 0
     for row in samples:
+        if progress is not None and progress.get("cancel"):
+            # Checked once per trial so a cancel lands within one engine pass.
+            raise MonteCarloCancelled()
         trial = {**values, "_skipCategoricalStress": True}
         for driver, value in zip(cleaned, row):
             trial[driver["inputPath"]] = value
@@ -282,31 +305,72 @@ def start_job(
     hurdle_irr: float,
 ) -> str:
     """Validates SYNCHRONOUSLY (bad requests fail the POST, not the poll),
-    then runs the simulation on a daemon thread."""
+    then queues the simulation on the bounded worker pool (MonteCarloBusy
+    past _MAX_WORKERS + _MAX_QUEUED jobs in flight)."""
     if not isinstance(n, int) or n < 1 or n > MAX_RUNS:
         raise MonteCarloError(f"n must be an integer in 1 .. {MAX_RUNS}.")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 or seed >= 2**32):
+        # numpy's Generator rejects negative seeds with a ValueError that used
+        # to escape the worker and leave the job "running" forever.
+        raise MonteCarloError("seed must be an integer in 0 .. 2^32-1.")
     cleaned = _validate_drivers(drivers)
     _correlation_matrix(cleaned, correlations)
 
+    global _pending
     job_id = uuid.uuid4().hex[:12]
     job = {"status": "running", "completed": 0, "n": n, "result": None, "error": None}
     with _jobs_lock:
+        if _pending >= _MAX_WORKERS + _MAX_QUEUED:
+            raise MonteCarloBusy(
+                "Too many Monte Carlo runs in flight — wait for one to finish and retry."
+            )
+        _pending += 1
         _jobs[job_id] = job
         while len(_jobs) > _MAX_JOBS:
             _jobs.popitem(last=False)
 
     def _run():
+        global _pending
         try:
             job["result"] = run_simulation(
                 values, cleaned, correlations, n, seed, hurdle_irr, progress=job
             )
             job["status"] = "done"
+        except MonteCarloCancelled:
+            job["status"] = "cancelled"
         except MonteCarloError as exc:
             job["error"] = str(exc)
             job["status"] = "failed"
+        except Exception as exc:  # noqa: BLE001 — a job must never hang in "running"
+            logger.exception("Monte Carlo job %s crashed", job_id)
+            job["error"] = f"Simulation failed: {exc}"
+            job["status"] = "failed"
+        finally:
+            with _jobs_lock:
+                _pending -= 1
 
-    threading.Thread(target=_run, daemon=True).start()
+    _executor.submit(_run)
     return job_id
+
+
+def cancel_job(job_id: str) -> str | None:
+    """Ask a running job to stop after its current trial. Returns the job's
+    status after the request ('cancelling' while the worker winds down, or
+    its terminal status if it already finished), or None for an unknown id.
+    A queued-but-not-started job is cancelled before its first trial."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return None
+        if job["status"] != "running":
+            return str(job["status"])
+        job["cancel"] = True
+    return "cancelling"
+
+
+def pending_jobs() -> int:
+    with _jobs_lock:
+        return _pending
 
 
 def job_status(job_id: str) -> dict | None:

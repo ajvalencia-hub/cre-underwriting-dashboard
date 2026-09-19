@@ -1,6 +1,6 @@
 // Desktop vs browser file handling. In the desktop app (pywebview) the
 // Python side exposes window.pywebview.api; opening and saving files go
-// through native macOS dialogs. In a browser everything falls back to the
+// through native macOS or Windows dialogs. In a browser everything falls back to the
 // existing <input type=file> / anchor-download behaviour.
 
 interface DesktopPickedFile {
@@ -16,6 +16,36 @@ export interface DesktopSettings {
   extraToolDir: string | null
   restartNeeded: boolean
   dataFolder: string
+  /** Newer shells report the OS and its user-facing names. */
+  platform?: 'macos' | 'windows'
+  secretStore?: string
+  fileBrowser?: string
+}
+
+/** Windows vs macOS wording for the few labels that name an OS feature.
+ *  Derived from the user agent so it works before (and without) the shell's
+ *  settings — both WebView2 and WKWebView report their OS. */
+export function isWindowsHost(userAgent: string = globalThis.navigator?.userAgent ?? ''): boolean {
+  return /Windows/i.test(userAgent)
+}
+
+export function fileBrowserLabel(userAgent?: string): string {
+  return isWindowsHost(userAgent) ? 'File Explorer' : 'Finder'
+}
+
+export function secretStoreLabel(userAgent?: string): string {
+  return isWindowsHost(userAgent) ? 'Windows Credential Manager' : 'macOS Keychain'
+}
+
+/** Roadmap #31: result of the GitHub Releases check (desktop/cre_desktop/updates.py). */
+export interface UpdateCheckResult {
+  status: 'available' | 'current' | 'noReleases' | 'unknown' | 'off' | 'error'
+  currentVersion: string
+  enabled: boolean
+  releasesPage: string
+  checkedAt?: number
+  error?: string
+  latest?: { tag: string; url: string; zipUrl: string | null; publishedAt: string | null }
 }
 
 export interface DesktopApi {
@@ -30,6 +60,9 @@ export interface DesktopApi {
   restart(): Promise<void>
   open_external(url: string): Promise<void>
   set_unsaved(unsaved: boolean): Promise<void>
+  /** Absent in builds before the update check. */
+  check_for_updates?(force: boolean): Promise<UpdateCheckResult | { error: string }>
+  set_update_checks?(enabled: boolean): Promise<{ enabled: boolean; currentVersion: string } | { error: string }>
 }
 
 declare global {

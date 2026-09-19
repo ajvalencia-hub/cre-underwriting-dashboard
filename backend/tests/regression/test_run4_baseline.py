@@ -12,6 +12,11 @@ and goes to BLOCKED.md; the baseline is never loosened to fit.
 Regenerate (Run-4 behavior changes are NOT a valid reason; payload
 EXPANSION with a verified key-only diff is):
     UPDATE_BASELINE=1 pytest tests/regression -q
+The regeneration is guarded (ported from Run 6): it REFUSES to write a case
+whose existing values moved. For an owner-approved value move (the DECISIONS
+entry names the cases and why), name the cases — or 1 for all — in
+BASELINE_ALLOW_VALUE_CHANGES:
+    UPDATE_BASELINE=1 BASELINE_ALLOW_VALUE_CHANGES=commercial_rollover pytest tests/regression -q
 """
 
 import json
@@ -38,6 +43,11 @@ CASES = {
     "commercial_rollover": _FIXTURES / "commercial_rollover.json",
     "mixed_use": _FIXTURES / "mixed_use.json",
     "value_add_multifamily": _FIXTURES / "value_add_multifamily.json",
+    # Run 6 (re-created on later-items): the value-add deal with its optional
+    # features switched ON (floating debt + cap, mezz, renovation, loss-to-
+    # lease, reserves, escrows, fees, prepayment cost), so the feature paths
+    # themselves are pinned, not only their defaults.
+    "feature_on_value_add": _FIXTURES / "feature_on_value_add.json",
 }
 
 FLOAT_TOL = 1e-9
@@ -75,6 +85,27 @@ def _diff(expected, actual, path: str, problems: list[str]) -> None:
         problems.append(f"{path}: {expected!r} -> {actual!r}")
 
 
+def expansion_violations(expected, actual, name: str) -> list[str]:
+    """Pure guard for UPDATE_BASELINE: the differences between `actual` and
+    `expected` that are NOT pure key additions. New dict keys (at any depth)
+    are the only permitted difference; changed values, vanished keys, type
+    changes and list-length changes are violations. Empty = regenerate."""
+    problems: list[str] = []
+    _diff(expected, actual, name, problems)
+    return [p for p in problems if not p.endswith(": unexpected new key")]
+
+
+def value_changes_allowed(name: str) -> bool:
+    """Owner-approval escape: BASELINE_ALLOW_VALUE_CHANGES=1 (every case) or
+    a comma-separated list of case names whose value moves are approved."""
+    raw = os.environ.get("BASELINE_ALLOW_VALUE_CHANGES", "").strip()
+    if not raw:
+        return False
+    if raw == "1":
+        return True
+    return name in {part.strip() for part in raw.split(",")}
+
+
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_run4_baseline(name: str):
     inputs = json.loads(CASES[name].read_text())
@@ -82,6 +113,19 @@ def test_run4_baseline(name: str):
 
     baseline_path = _BASELINE / f"{name}.json"
     if os.environ.get("UPDATE_BASELINE") == "1":
+        # Regeneration is an EXPANSION-only operation unless the owner
+        # approved this case's value move (see value_changes_allowed).
+        if baseline_path.exists() and not value_changes_allowed(name):
+            violations = expansion_violations(
+                json.loads(baseline_path.read_text()), payload, name
+            )
+            if violations:
+                raise AssertionError(
+                    f"UPDATE_BASELINE refused for {name}: {len(violations)} existing "
+                    "value(s) differ — only key additions may regenerate the baseline "
+                    "(an owner-approved move needs BASELINE_ALLOW_VALUE_CHANGES; "
+                    "first 20):\n" + "\n".join(violations[:20])
+                )
         _BASELINE.mkdir(exist_ok=True)
         baseline_path.write_text(json.dumps(payload, indent=1, sort_keys=True))
         pytest.skip(f"baseline regenerated: {baseline_path.name}")

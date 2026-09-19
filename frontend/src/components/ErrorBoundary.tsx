@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportClientError } from '../lib/clientErrors'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -20,16 +21,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    void fetch('/api/client-errors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: String(error?.message ?? error).slice(0, 4000),
-        stack: String(error?.stack ?? '').slice(0, 4000),
-        componentStack: String(info?.componentStack ?? '').slice(0, 4000),
-        url: window.location.href,
-      }),
-    }).catch(() => {})
+    reportClientError(error, info)
   }
 
   render() {

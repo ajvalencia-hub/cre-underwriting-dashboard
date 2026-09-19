@@ -6,9 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      # Published on this machine only: the app has no login, so anyone who
-      # can reach the port can read and change every deal. To share it on a
-      # trusted network on purpose, change this to "8000:8000".
+      # Published on this machine only: without CRE_API_TOKEN the app has no
+      # login, so anyone who can reach the port can read and change every
+      # deal. To share it on a trusted network on purpose, set CRE_API_TOKEN
+      # below AND change this to "8000:8000".
       - "127.0.0.1:8000:8000"
     volumes:
       - cre-data:/data
@@ -16,6 +17,10 @@ services:
       # Data + backups live on the mounted volume.
       CRE_STORAGE_ROOT: /data
       CRE_ENABLE_BACKUP_SCHEDULER: "1"
+      # Optional shared API token (backend/app/auth.py). Empty = no gate.
+      CRE_API_TOKEN: ${CRE_API_TOKEN:-}
+      # Requests/minute per external-data route (0 disables the limiter).
+      CRE_EXTERNAL_RATE_LIMIT_PER_MIN: ${CRE_EXTERNAL_RATE_LIMIT_PER_MIN:-60}
       # Optional free public-data API keys (all degrade gracefully if unset).
       # See backend/.env.example for signup links.
       FRED_API_KEY: ${FRED_API_KEY:-}
@@ -27,6 +32,9 @@ services:
       MEMO_BRAND_COLOR: ${MEMO_BRAND_COLOR:-1F3B57}
       # Optional Anthropic key for LLM extraction/classification fallback.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional Underwriting Agent provider (anthropic | openai) and key.
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-anthropic}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     restart: unless-stopped
 
 volumes:

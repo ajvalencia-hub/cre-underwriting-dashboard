@@ -11,7 +11,7 @@ it didn't have.
 from datetime import datetime
 from typing import Any, Literal
 
-from app.schemas import ApiModel, _enum
+from app.schemas import ApiModel, DealOut, _enum
 
 
 # ---- deals: attachments, notes, history, metrics --------------------------
@@ -35,7 +35,7 @@ class NoteOut(ApiModel):
 
 class SnapshotMetaOut(ApiModel):
     id: str
-    kind: str = _enum("autosave", ["baseline", "autosave", "restore"])
+    kind: str = _enum("autosave", ["baseline", "autosave", "restore", "agent"])
     changedPaths: list[str]
     createdAt: datetime
     updatedAt: datetime
@@ -264,6 +264,10 @@ class TornadoBarOut(ApiModel):
     low: float | None
     high: float | None
     impact: float
+    # Run 6: an input that cannot move the metric for this deal (e.g. a
+    # lease-up input on a stabilized deal) is flagged, with the reason.
+    inert: bool = False
+    reason: str | None = None
 
 
 class TornadoOut(ApiModel):
@@ -349,11 +353,149 @@ class CompMapOut(ApiModel):
 
 # ---- Monte Carlo / market ------------------------------------------------------
 class MonteCarloJobOut(ApiModel):
-    status: str = _enum("running", ["running", "done", "failed"])
+    status: str = _enum("running", ["running", "done", "failed", "cancelled"])
     completed: int
     n: int
+
+
+class MonteCarloCancelOut(ApiModel):
+    jobId: str
+    status: str = _enum("cancelling", ["cancelling", "cancelled", "done", "failed"])
 
 
 class MarketRatesOut(ApiModel):
     dataSource: str
     rates: dict[str, float | None]
+
+
+# ---- investment committee (roadmap #28) ------------------------------------
+IcState = Literal["draft", "submitted", "approved", "rejected"]
+IcKind = Literal["submit", "approve", "reject", "return", "reopen", "comment"]
+
+
+class IcEventOut(ApiModel):
+    id: str
+    kind: IcKind
+    actor: str
+    comment: str
+    requiredApprovals: int | None
+    hasSnapshot: bool
+    createdAt: str
+
+
+class IcSubmissionOut(ApiModel):
+    eventId: str
+    submittedBy: str
+    submittedAt: str
+    inputs: dict[str, Any]
+    outputs: dict[str, Any]
+    # False once the deal was returned or reopened after this submission.
+    current: bool
+
+
+class IcSummaryOut(ApiModel):
+    state: IcState
+    locked: bool
+    requiredApprovals: int | None
+    approvers: list[str]
+    lastSubmission: IcSubmissionOut | None
+    events: list[IcEventOut]
+
+
+# ---- auth (optional CRE_API_TOKEN gate) --------------------------------------
+class AuthStatusOut(ApiModel):
+    required: bool
+    authenticated: bool
+
+
+# ---- deals: bulk tags ----------------------------------------------------------
+class BulkTagsOut(ApiModel):
+    updated: list[DealOut]
+    missing: list[str]
+
+
+# ---- Underwriting Agent ----------------------------------------------------------
+class AgentToolCallLogOut(ApiModel):
+    name: str
+    arguments: dict[str, Any]
+    result: dict[str, Any]
+    privilege: str = _enum("read", ["read", "write", "unknown"])
+
+
+class AgentUnverifiedClaimOut(ApiModel):
+    raw: str
+    value: float
+    kind: str = _enum("bare", ["dollar", "percent", "multiple", "bare"])
+
+
+class AgentMessageOut(ApiModel):
+    id: str
+    role: str = _enum("user", ["user", "assistant"])
+    content: str
+    toolCalls: list[AgentToolCallLogOut]
+    proposalIds: list[str]
+    unverifiedClaims: list[AgentUnverifiedClaimOut]
+    stoppedReason: str | None
+    createdAt: datetime
+
+
+class AgentTurnProposalOut(ApiModel):
+    """A proposal as a turn returns it (no createdAt — see AgentProposalOut)."""
+
+    id: str
+    kind: str = _enum("input_changes", ["input_changes", "scenario"])
+    changes: dict[str, Any]
+    rationale: str
+    scenarioName: str | None
+    preview: dict[str, Any] | None
+    warnings: list[str]
+    status: str = _enum("pending", ["pending", "approved", "rejected", "stale"])
+
+
+class AgentProposalOut(AgentTurnProposalOut):
+    createdAt: datetime
+
+
+class AgentThreadOut(ApiModel):
+    id: str
+    dealId: str
+    provider: str
+    totalInputTokens: int
+    totalOutputTokens: int
+    messages: list[AgentMessageOut]
+    proposals: list[AgentProposalOut]
+
+
+class AgentThreadRefOut(ApiModel):
+    id: str
+    dealId: str
+    provider: str
+
+
+class AgentPlayOut(ApiModel):
+    id: str
+    label: str
+
+
+class AgentProviderOut(ApiModel):
+    id: str
+    label: str
+    hasKey: bool
+
+
+class AgentTurnOut(ApiModel):
+    threadId: str
+    text: str
+    toolCalls: list[AgentToolCallLogOut]
+    proposals: list[AgentTurnProposalOut]
+    unverifiedClaims: list[AgentUnverifiedClaimOut]
+    stoppedReason: str | None
+
+
+class AgentApproveOut(ApiModel):
+    deal: DealOut
+    proposal: AgentProposalOut
+
+
+class AgentRejectOut(ApiModel):
+    proposal: AgentProposalOut

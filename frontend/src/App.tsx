@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
@@ -16,9 +16,16 @@ import SensitivityPanel from './pages/SensitivityPanel'
 import SettingsPage from './pages/SettingsPage'
 import TemplateUpload from './pages/TemplateUpload'
 import {
+  ApiError,
+  UNAUTHORIZED_EVENT,
+  approveAgentProposal,
+  archiveDeal,
+  cloneDeal,
   createDeal,
+  dealConcurrency,
   deleteDeal,
   exportDeal,
+  fetchAuthStatus,
   fetchDeal,
   fetchDeals,
   bulkUpdateDealStatus,
@@ -26,37 +33,41 @@ import {
   fetchInputSchema,
   fetchTemplate,
   importDeal,
+  isConflictError,
   updateDeal,
+  fetchIc,
   type DealExportBundle,
+  type IcSummary,
 } from './lib/api'
 import {
   ACTIVE_DEAL_STORAGE_KEY,
   createAutosaver,
   hydrateDealState,
+  modeToPersist,
   serializeDealInputs,
   type Autosaver,
   type AutosaveState,
+  type QuickScreenMode,
+  type SaveConflict,
 } from './lib/dealPersistence'
-import { formatValue } from './lib/formatValue'
-import { flattenFields } from './lib/schemaFields'
+import { safeStorage } from './lib/safeStorage'
+import { RECENT_DEALS_KEY, loadRecent, recordRecent } from './lib/recentDeals'
+import { compSubjectFromValues } from './lib/portfolioChartData'
+import { dealTypeOf } from './lib/dealStages'
+import AuthGate from './components/AuthGate'
+import PanelBoundary from './components/PanelBoundary'
+import ShortcutsDialog from './components/ShortcutsDialog'
+import AgentDock from './components/AgentDock'
+import ComparePage from './pages/ComparePage'
+import AgentPage from './pages/AgentPage'
+import type { AgentProposal } from './types/agent'
+import { defaultValuesFor, flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
-import {
-  ACQUISITION_QUICK_SCREEN_DEFAULTS,
-  QUICK_SCREEN_DEFAULTS,
-  QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS,
-  computeAcquisitionQuickScreen,
-  computeQuickScreen,
-  mapAcquisitionQuickScreenToOutputMetrics,
-  mapQuickScreenToDealInputs,
-  mapQuickScreenToOutputMetrics,
-  type AcquisitionQuickScreenInputs,
-  type QuickScreenInputs,
-} from './lib/quickScreenMath'
+import { mapQuickScreenToDealInputs, type QuickScreenInputs } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
 import CommandPalette from './components/CommandPalette'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
-import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { showToast, toastError } from './lib/toast'
 import { isDesktop, reportUnsavedToShell } from './lib/platform'
@@ -64,80 +75,62 @@ import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
 import { focusUnparsedEntry, goToField } from './lib/goToField'
 import { orderSections } from './lib/sectionOrder'
-import { presetDiff } from './lib/presetDiff'
+import { describeInputChanges, inputChangesPrompt } from './lib/inputChanges'
 import { inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
-import { parseShareLink, shareParams, type SharedScreen } from './lib/shareLink'
+import { useQuickScreens } from './app/useQuickScreens'
+import { parseShareLink, type SharedScreen } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
-import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
-import { dealTypeOf, type DealType } from './lib/dealStages'
+import type { DealType } from './lib/dealStages'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 import { clearProvenance, recordProvenance, sameSourceFor, type FieldProvenance } from './lib/provenance'
+import { MULTI_DEAL_TABS, loadLastTab, rememberTab, tabLabel, type Tab } from './app/navigation'
+import ModuleNav from './components/ModuleNav'
+import DealHeaderBar from './components/DealHeaderBar'
+import DealImportNotices from './components/DealImportNotices'
+import UpdateBanner from './components/UpdateBanner'
+import { buildPaletteCommands } from './app/paletteCommands'
+import { isLockedField } from './lib/icWorkflow'
+import { isForSaleDeal } from './lib/headlineMetrics'
+import IcApprovalPage from './pages/IcApprovalPage'
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
+  // The server wants an API token and this browser has no session
+  // (never in the desktop app — its launcher token protects the API).
+  | { status: 'auth' }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
-const TABS = [
-  'pipeline',
-  'quickscreen',
-  'documents',
-  'setup',
-  'dashboard',
-  'cashflow',
-  'sensitivity',
-  'risk',
-  'scenarios',
-  'comps',
-  'portfolio',
-  'settings',
-] as const
-type Tab = (typeof TABS)[number]
-
-/** Views that span many deals — no one-deal summary panel beside them. */
-const MULTI_DEAL_TABS: ReadonlySet<Tab> = new Set<Tab>(['pipeline', 'portfolio', 'comps', 'settings'])
-
-// Left-rail module navigation. Grouped (workflow steps under "This deal"),
-// no step numbers — "0." / "5b." implied a strict order that doesn't exist.
-const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string])[] }[] = [
-  {
-    label: 'Portfolio',
-    items: [
-      ['pipeline', 'Deals'],
-      ['portfolio', 'Portfolio'],
-      ['comps', 'Comps'],
-    ],
-  },
-  {
-    label: 'This deal',
-    items: [
-      ['quickscreen', 'Quick Screen'],
-      ['documents', 'Documents'],
-      ['setup', 'Template & Mapping'],
-      ['dashboard', 'Deal Inputs'],
-      ['cashflow', 'Cash Flow'],
-      ['sensitivity', 'Sensitivity'],
-      ['risk', 'Risk'],
-      ['scenarios', 'Scenarios'],
-    ],
-  },
-  { label: '', items: [['settings', 'Settings']] },
-]
-
-// Reopen where the user was (per browser / desktop profile). Storage can be
-// unavailable (private mode); the app then just starts on Quick Screen.
-const LAST_TAB_KEY = 'cre.lastTab'
 const HEALTH_POLL_MS = 30_000
-function loadLastTab(): Tab {
-  try {
-    const stored = localStorage.getItem(LAST_TAB_KEY)
-    return (TABS as readonly string[]).includes(stored ?? '') ? (stored as Tab) : 'quickscreen'
-  } catch {
-    return 'quickscreen'
+
+/** Thrown by the autosave's save function instead of hitting the network
+ *  while an edit conflict (412) waits for the user's Reload / Overwrite. */
+class SaveParkedError extends Error {
+  constructor() {
+    super('Save paused: this deal was changed elsewhere')
+    this.name = 'SaveParkedError'
   }
+}
+
+/** Keys of `a` and `b` whose values differ (JSON comparison). */
+function changedKeys(a: Record<string, unknown>, b: Record<string, unknown>): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...keys].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+}
+
+/** One tab's content. All tabs stay mounted (in-progress state survives
+ *  switching) — only visibility toggles. Each sits in its own error
+ *  boundary, so one crashing panel doesn't take down the header, the
+ *  sidebar or the other tabs. */
+function TabPane({ id, current, children }: { id: Tab; current: Tab; children: ReactNode }) {
+  return (
+    <div style={{ display: current === id ? 'block' : 'none' }}>
+      <PanelBoundary name={tabLabel(id)}>{children}</PanelBoundary>
+    </div>
+  )
 }
 
 function blockedByUnparsedEntry(): boolean {
@@ -150,47 +143,25 @@ function blockedByUnparsedEntry(): boolean {
   return true
 }
 
-function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  for (const field of flattenFields(schema)) {
-    if (field.default !== undefined) values[field.id] = field.default
-  }
-  return values
-}
-
-const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
-  idle: '',
-  pending: 'Saving…',
-  saving: 'Saving…',
-  saved: 'Saved',
-  error: 'Not saved — retrying automatically',
-}
-
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>(loadLastTab)
-  useEffect(() => {
-    try {
-      localStorage.setItem(LAST_TAB_KEY, tab)
-    } catch {
-      // storage unavailable — not remembering the tab is harmless
-    }
-  }, [tab])
+  useEffect(() => rememberTab(tab), [tab])
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
   const [mappingUnsaved, setMappingUnsaved] = useState(false)
-  const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
-  // The acquisition-side napkin (lifted here for URL sharing + sidebar
-  // estimates, same as the development inputs above).
-  const [acquisitionQuickScreenInputs, setAcquisitionQuickScreenInputs] =
-    useState<AcquisitionQuickScreenInputs>(ACQUISITION_QUICK_SCREEN_DEFAULTS)
-  const [quickScreenMode, setQuickScreenMode] = useState<'development' | 'acquisition'>('development')
+  const quickScreens = useQuickScreens()
   // A Quick Screen link the app was opened with, waiting for the user to
   // open it (it replaces this deal's napkin) or dismiss it.
   const [sharedFromLink, setSharedFromLink] = useState<SharedScreen | null>(null)
   // The saved scenario the working inputs were loaded from (header chip).
   const [loadedScenario, setLoadedScenario] = useState<{ name: string; key: string } | null>(null)
+  // Roadmap #28: the active deal's investment-committee record. While it's
+  // locked the server refuses underwriting-input changes, so the UI doesn't
+  // make any (an autosave it refused would retry forever).
+  const [ic, setIc] = useState<IcSummary | null>(null)
+  const icLocked = ic?.locked ?? false
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -199,24 +170,18 @@ function App() {
   const [datesEditorOpen, setDatesEditorOpen] = useState(false)
   // J13: Cmd+K command palette.
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Typed New Deal chooser (header button popover).
-  const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
-  useEffect(() => {
-    if (!newDealMenuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setNewDealMenuOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [newDealMenuOpen])
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
   const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
-  const [renamingName, setRenamingName] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
-  const importInputRef = useRef<FileChooserHandle>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // Recently opened deal ids, newest first (the palette's "Recent deals").
+  const [recentIds, setRecentIds] = useState<string[]>(() => loadRecent(safeStorage))
+  // A 412 on autosave (browser mode): this deal changed in another tab.
+  const [conflict, setConflict] = useState<SaveConflict<Deal> | null>(() => dealConcurrency.conflict())
+  useEffect(() => dealConcurrency.subscribe(setConflict), [])
 
   const activeDealIdRef = useRef<string | null>(null)
   // Computed results (engine + Excel read-back), each stamped with the deal
@@ -226,33 +191,33 @@ function App() {
   // JSON of the state as last hydrated/saved — suppresses the no-op autosave
   // that hydration itself would otherwise trigger.
   const lastPersistedJsonRef = useRef('')
+  // The Quick Screen mode as the server stores it for the active deal (null:
+  // never stored) — see modeToPersist.
+  const storedModeRef = useRef<QuickScreenMode | null>(null)
   const autosaverRef = useRef<Autosaver<{ dealId: string; inputs: Record<string, unknown> }> | null>(null)
   if (autosaverRef.current === null) {
-    autosaverRef.current = createAutosaver(async ({ dealId, inputs }) => {
-      await updateDeal(dealId, { inputs })
-    })
+    autosaverRef.current = createAutosaver(
+      async ({ dealId, inputs }) => {
+        // A parked conflict must not hit the network until the user picks
+        // Reload or Overwrite.
+        if (dealConcurrency.isBlocked(dealId)) throw new SaveParkedError()
+        try {
+          // If-Match (browser only — updateDeal drops it in the desktop app).
+          const updated = await updateDeal(dealId, { inputs }, { ifMatch: dealConcurrency.ifMatchFor(dealId) })
+          // Keep the list's copy current (the header's untyped chip and the
+          // pipeline read it).
+          setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+        } catch (err) {
+          if (isConflictError(err)) dealConcurrency.markConflict({ dealId, current: err.current, etag: err.etag })
+          throw err
+        }
+      },
+      2000,
+      // A 412 (or a parked save) never enters the retry loop: retrying can't fix it.
+      { shouldRetry: (err) => !(isConflictError(err) || err instanceof SaveParkedError) },
+    )
   }
 
-  const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
-  const acquisitionQuickScreenResults = useMemo(
-    () => computeAcquisitionQuickScreen(acquisitionQuickScreenInputs),
-    [acquisitionQuickScreenInputs],
-  )
-  // Sidebar estimates follow the ACTIVE napkin.
-  const quickScreenOutputs = useMemo(
-    () =>
-      quickScreenMode === 'acquisition'
-        ? mapAcquisitionQuickScreenToOutputMetrics(
-            acquisitionQuickScreenResults, acquisitionQuickScreenInputs,
-          )
-        : mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
-    [quickScreenMode, quickScreenResults, quickScreenInputs,
-     acquisitionQuickScreenResults, acquisitionQuickScreenInputs],
-  )
-  const quickScreenFullModelOnlyIds = useMemo(
-    () => new Set<string>(QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS),
-    [],
-  )
 
   // Freshness of what's on screen vs the inputs on screen.
   const currentInputsKey = useMemo(() => inputsKey(formValues), [formValues])
@@ -292,7 +257,8 @@ function App() {
   // Closing with edits the server hasn't accepted loses them: ask first.
   // Browser: the standard leave-page prompt. Desktop: the window's quit
   // confirmation (Cmd+Q / close button), switched on through the bridge.
-  const hasUnsavedWork = autosaveState === 'pending' || autosaveState === 'saving' || autosaveState === 'error'
+  const hasUnsavedWork =
+    autosaveState === 'pending' || autosaveState === 'saving' || autosaveState === 'error' || autosaveState === 'blocked'
   useEffect(() => {
     reportUnsavedToShell(hasUnsavedWork)
     if (!hasUnsavedWork) return
@@ -301,15 +267,28 @@ function App() {
       // Kick off the save; if it lands before the user answers, nothing is lost.
       void autosaverRef.current!.flush()
     }
+    // The tab went to the background (switched away, minimized, a phone
+    // locking): save now rather than after the debounce — a hidden tab may
+    // be discarded without a beforeunload.
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') void autosaverRef.current!.flush()
+    }
     window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [hasUnsavedWork])
 
   function applyDealState(schema: InputSchema, deal: Deal) {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs)
     setFormValues(hydrated.formValues)
-    setQuickScreenInputs(hydrated.quickScreen)
-    setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
+    quickScreens.setDevelopment(hydrated.quickScreen)
+    quickScreens.setAcquisition(hydrated.acquisitionQuickScreen)
+    // The napkin the deal was last left on (development when never chosen).
+    quickScreens.setMode(hydrated.quickScreenMode ?? 'development')
+    storedModeRef.current = hydrated.quickScreenMode
     results.reset()
     setLoadedScenario(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
@@ -332,10 +311,82 @@ function App() {
         })
     }
     lastPersistedJsonRef.current = JSON.stringify(
-      serializeDealInputs(hydrated.formValues, hydrated.quickScreen, hydrated.acquisitionQuickScreen),
+      serializeDealInputs(
+        hydrated.formValues,
+        hydrated.quickScreen,
+        hydrated.acquisitionQuickScreen,
+        hydrated.quickScreenMode,
+      ),
     )
     activeDealIdRef.current = deal.id
     hydratedRef.current = true
+  }
+
+  /** Make `deal` the active deal: remember it (storage + recent list),
+   *  hydrate the form from it and drop any edit conflict left on another
+   *  deal. Every path that opens a deal goes through here. */
+  function activateDeal(schema: InputSchema, deal: Deal) {
+    const parked = dealConcurrency.conflict()
+    if (parked && parked.dealId !== deal.id) dealConcurrency.forget(parked.dealId)
+    safeStorage.set(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    setRecentIds(recordRecent(safeStorage, deal.id))
+    applyDealState(schema, deal)
+    setActiveDealId(deal.id)
+  }
+
+  // Where the app was when a 401 raised the token gate mid-session: signing
+  // in again resumes it (unsaved edits intact) instead of re-booting.
+  const resumeAfterAuthRef = useRef<LoadState | null>(null)
+
+  async function boot() {
+    setState({ status: 'loading' })
+    try {
+      // Browser/Docker mode with CRE_API_TOKEN set: ask for the token first.
+      // Never in the desktop app (its launcher token protects the API).
+      if (!isDesktop()) {
+        const auth = await fetchAuthStatus().catch(() => null)
+        if (auth?.required && !auth.authenticated) {
+          setState({ status: 'auth' })
+          return
+        }
+      }
+      const [schema, health, dealList] = await Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
+      let list = dealList
+      if (list.length === 0) {
+        list = [await createDeal({ name: 'Default Deal' })]
+      }
+      const storedId = safeStorage.get(ACTIVE_DEAL_STORAGE_KEY)
+      let active = list.find((d) => d.id === storedId) ?? list[0]
+      // A single-deal read records the deal's ETag, so the first autosave
+      // is already guarded (the list response carries none).
+      active = await fetchDeal(active.id).catch(() => active)
+      activateDeal(schema, active)
+      // A Quick Screen link is offered, never applied automatically — it
+      // used to overwrite the active deal's saved napkin on every load.
+      const shared = parseShareLink(window.location.search)
+      if (shared) {
+        const hydrated = hydrateDealState({}, active.inputs)
+        const differs =
+          (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
+          (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
+        if (differs) {
+          setSharedFromLink(shared)
+          setTab('quickscreen') // so the offer is seen
+        } else {
+          quickScreens.setMode(shared.mode)
+        }
+      }
+      const fresh = active
+      setDeals(list.map((d) => (d.id === fresh.id ? fresh : d)))
+      setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
+    } catch (err) {
+      // A 401 already raised the token gate (UNAUTHORIZED_EVENT); keep it.
+      if (err instanceof ApiError && err.status === 401 && !isDesktop()) {
+        setState({ status: 'auth' })
+        return
+      }
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   const bootStartedRef = useRef(false)
@@ -344,40 +395,35 @@ function App() {
     // would run twice and could create two "Default Deal" rows.
     if (bootStartedRef.current) return
     bootStartedRef.current = true
-    Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
-      .then(async ([schema, health, dealList]) => {
-        let list = dealList
-        if (list.length === 0) {
-          list = [await createDeal({ name: 'Default Deal' })]
-        }
-        const storedId = localStorage.getItem(ACTIVE_DEAL_STORAGE_KEY)
-        const active = list.find((d) => d.id === storedId) ?? list[0]
-        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
-        applyDealState(schema, active)
-        // A Quick Screen link is offered, never applied automatically — it
-        // used to overwrite the active deal's saved napkin on every load.
-        const shared = parseShareLink(window.location.search)
-        if (shared) {
-          const hydrated = hydrateDealState({}, active.inputs)
-          const differs =
-            (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
-            (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
-          if (differs) {
-            setSharedFromLink(shared)
-            setTab('quickscreen') // so the offer is seen
-          } else {
-            setQuickScreenMode(shared.mode)
-          }
-        }
-        setDeals(list)
-        setActiveDealId(active.id)
-        setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
-      })
-      .catch((err: Error) => {
-        setState({ status: 'error', message: err.message })
-      })
+    void boot()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Any 401 (session expired, token rotated) shows the token gate. Browser
+  // mode only — apiError() never fires the event in the desktop app.
+  useEffect(() => {
+    function onUnauthorized() {
+      setState((prev) => {
+        if (prev.status === 'auth') return prev
+        if (prev.status === 'ready') resumeAfterAuthRef.current = prev
+        return { status: 'auth' }
+      })
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
+
+  function handleAuthenticated() {
+    const resume = resumeAfterAuthRef.current
+    resumeAfterAuthRef.current = null
+    if (resume) {
+      // Back where we were; push whatever didn't save while signed out.
+      setState(resume)
+      void autosaverRef.current!.flush()
+    } else {
+      void boot()
+    }
+  }
 
   // Keep the connection indicator honest after boot: re-check every 30s so a
   // backend that went away shows before the next action fails.
@@ -419,34 +465,71 @@ function App() {
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
     if (!hydratedRef.current || activeDealId === null) return
-    const blob = serializeDealInputs(formValues, quickScreenInputs, acquisitionQuickScreenInputs)
+    const mode = modeToPersist(storedModeRef.current, quickScreens.mode, icLocked)
+    const blob = serializeDealInputs(formValues, quickScreens.development, quickScreens.acquisition, mode)
     const json = JSON.stringify(blob)
     if (json === lastPersistedJsonRef.current) return
     lastPersistedJsonRef.current = json
+    storedModeRef.current = mode
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
-  }, [formValues, quickScreenInputs, acquisitionQuickScreenInputs, activeDealId])
+  }, [formValues, quickScreens.development, quickScreens.acquisition, quickScreens.mode, icLocked, activeDealId])
 
-  // Keep the sharable URL in sync with BOTH napkins + the active screen.
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      const params = shareParams(quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode)
-      window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
-    }, 500)
-    return () => clearTimeout(handle)
-  }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode])
+  /** The Deal.inputs blob for what's on screen now (explicit saves). */
+  function currentInputsBlob(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    const mode = modeToPersist(storedModeRef.current, quickScreens.mode, icLocked)
+    return serializeDealInputs(
+      { ...formValuesRef.current, ...overrides },
+      quickScreens.development,
+      quickScreens.acquisition,
+      mode,
+    )
+  }
+
 
   /** Before leaving the current deal: make sure its edits reached the
    *  server. If they didn't, stay put — otherwise the retry would be
    *  superseded by the next deal's saves and the edits silently lost. */
   async function ensureSaved(): Promise<boolean> {
     const ok = await autosaverRef.current!.flush()
-    if (!ok) {
+    if (!ok && autosaverRef.current!.getState() === 'blocked') {
+      showToast({
+        kind: 'error',
+        message: "This deal's latest changes haven't been saved, so you're staying on it",
+        detail: 'It was changed in another tab or window — choose Reload or Overwrite in the banner first.',
+      })
+    } else if (!ok) {
       toastError(
         "This deal's latest changes haven't been saved yet, so you're staying on it",
         'The server did not accept the save. The app keeps retrying — try again in a moment.',
       )
     }
     return ok
+  }
+
+  useEffect(() => {
+    setIc(null)
+    if (!activeDealId) return
+    let current = true
+    fetchIc(activeDealId)
+      .then((summary) => {
+        if (current) setIc(summary)
+      })
+      .catch((err) => toastError("Couldn't load this deal's investment-committee record", err))
+    return () => {
+      current = false
+    }
+  }, [activeDealId])
+
+  /** True (after saying why) when a change would touch underwriting inputs
+   *  the investment committee has locked. */
+  function blockedByIcLock(fieldIds: string[]): boolean {
+    if (!icLocked || !fieldIds.some(isLockedField)) return false
+    showToast({
+      kind: 'error',
+      message: 'Inputs are locked for the investment committee',
+      detail: 'Reopen the deal with a reason on the IC Approval tab to change them.',
+    })
+    return true
   }
 
   // Only the most recent switch applies: picking two deals in quick
@@ -459,10 +542,8 @@ function App() {
     try {
       const deal = await fetchDeal(dealId)
       if (request !== switchRequestRef.current) return
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
       // Deal switches never re-apply URL params — those are first-load-only.
-      applyDealState(state.schema, deal)
-      setActiveDealId(deal.id)
+      activateDeal(state.schema, deal)
       setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
     } catch (err) {
       toastError("Couldn't open that deal — you're still on the current one", err)
@@ -473,10 +554,9 @@ function App() {
   // development) in inputs from birth, so server-side surfaces (share, deck,
   // portfolio, hold-sweep) agree with the form instead of splitting between
   // "missing dealType" and a silent acquisition default.
-  async function handleNewDeal(type: DealType) {
-    if (state.status !== 'ready') return
-    if (!(await ensureSaved())) return
-    setNewDealMenuOpen(false)
+  async function handleNewDeal(type: DealType): Promise<boolean> {
+    if (state.status !== 'ready') return false
+    if (!(await ensureSaved())) return false
     const label = type === 'development' ? 'Development' : 'Acquisition'
     try {
       const deal = await createDeal({
@@ -490,12 +570,11 @@ function App() {
         inputs: { dealType: type },
       })
       setDeals((prev) => [deal, ...prev])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-      applyDealState(state.schema, deal)
-      setActiveDealId(deal.id)
+      activateDeal(state.schema, deal)
     } catch (err) {
       toastError("Couldn't create the deal", err)
     }
+    return true
   }
 
   // Assign a dealflow to an untyped (legacy) deal. The active deal routes
@@ -503,20 +582,16 @@ function App() {
   // inactive deal merges server-side directly.
   async function handleSetDealType(dealId: string, type: DealType) {
     if (dealId === activeDealId) {
+      // dealType is an underwriting input: an IC-locked deal refuses it
+      // (scheduling the save anyway would just retry a 409 forever).
+      if (blockedByIcLock(['dealType'])) return
       handleFieldChange('dealType', type)
       // Save it explicitly: the form may already show this type as its
       // default, in which case the change is a no-op for autosave and the
       // deal would stay untyped on the server. And update the pipeline's
       // deal list, which the form change alone doesn't touch — otherwise the
       // deal stayed under "untyped" and the click looked like it did nothing.
-      autosaverRef.current!.schedule({
-        dealId,
-        inputs: serializeDealInputs(
-          { ...formValuesRef.current, dealType: type },
-          quickScreenInputs,
-          acquisitionQuickScreenInputs,
-        ),
-      })
+      autosaverRef.current!.schedule({ dealId, inputs: currentInputsBlob({ dealType: type }) })
       setDeals((prev) =>
         prev.map((d) => (d.id === dealId ? { ...d, inputs: { ...d.inputs, dealType: type } } : d)),
       )
@@ -549,54 +624,207 @@ function App() {
     setOmWizardOpen(false)
     if (!(await ensureSaved())) return
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal)
-    setActiveDealId(deal.id)
+    activateDeal(state.schema, deal)
     setTab('dashboard')
   }
 
-  async function handleRenameDeal(name: string) {
-    if (!activeDealId || !name.trim()) {
-      setRenamingName(null)
-      return
-    }
+  async function handleRenameDeal(name: string): Promise<boolean> {
+    if (!activeDealId) return true
     try {
-      const updated = await updateDeal(activeDealId, { name: name.trim() })
+      // Let a save in progress land first: this write moves the deal's
+      // ETag, and an overlapping autosave would 412 against it.
+      await autosaverRef.current!.flush()
+      const updated = await updateDeal(activeDealId, { name })
       setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-      setRenamingName(null)
+      return true
     } catch (err) {
-      // Keep the rename box open with what was typed so nothing is lost.
       toastError("Couldn't rename the deal", err)
+      return false
+    }
+  }
+
+  /** After the active deal is gone (deleted / archived): open the next one,
+   *  or seed a fresh default so the app is never dealless. */
+  async function activateNextAfterRemoval(schema: InputSchema, removedId: string, what: string) {
+    dealConcurrency.forget(removedId)
+    setRecentIds((prev) => {
+      const next = prev.filter((id) => id !== removedId)
+      safeStorage.set(RECENT_DEALS_KEY, JSON.stringify(next))
+      return next
+    })
+    try {
+      const remaining = deals.filter((d) => d.id !== removedId)
+      if (remaining.length === 0) {
+        const fresh = await createDeal({ name: 'Default Deal' })
+        setDeals([fresh])
+        activateDeal(schema, fresh)
+        return
+      }
+      const next = await fetchDeal(remaining[0].id)
+      setDeals(remaining.map((d) => (d.id === next.id ? next : d)))
+      activateDeal(schema, next)
+    } catch (err) {
+      toastError(`The deal was ${what}, but the next one could not be opened — reopen the app`, err)
     }
   }
 
   async function handleDeleteDeal() {
     if (state.status !== 'ready' || !activeDealId) return
-    const deal = deals.find((d) => d.id === activeDealId)
+    const dealId = activeDealId
+    const deal = deals.find((d) => d.id === dealId)
     if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?\n\nThis cannot be undone.`)) return
+    // A pending autosave would PUT to a deal that no longer exists (404,
+    // retried forever): drop it — and its retry timer — first.
+    const unsaved = autosaverRef.current!.hasUnsaved() ? currentInputsBlob() : null
+    autosaverRef.current!.cancel()
     try {
-      await deleteDeal(activeDealId)
+      await deleteDeal(dealId)
     } catch (err) {
+      // Nothing was removed: put the unsaved edits back in the queue.
+      if (unsaved) autosaverRef.current!.schedule({ dealId, inputs: unsaved })
       toastError("Couldn't delete the deal — nothing was removed", err)
       return
     }
+    await activateNextAfterRemoval(state.schema, dealId, 'deleted')
+  }
+
+  /** More ▾ → Duplicate…: copy the active deal (inputs, stage, tags,
+   *  template, scenarios — not its IC record) and open the copy. */
+  async function handleDuplicateDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const source = deals.find((d) => d.id === activeDealId)
+    const name = window.prompt('Name for the copy', `${source?.name ?? 'Deal'} (copy)`)
+    if (name === null) return
+    if (!(await ensureSaved())) return
     try {
-      const remaining = deals.filter((d) => d.id !== activeDealId)
-      if (remaining.length === 0) {
-        const fresh = await createDeal({ name: 'Default Deal' })
-        setDeals([fresh])
-        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
-        applyDealState(state.schema, fresh)
-        setActiveDealId(fresh.id)
+      const copy = await cloneDeal(activeDealId, name.trim() || undefined)
+      setDeals((prev) => [copy, ...prev])
+      activateDeal(state.schema, copy)
+      showToast({ kind: 'success', message: `Opened the copy "${copy.name}"` })
+    } catch (err) {
+      toastError("Couldn't duplicate the deal", err)
+    }
+  }
+
+  /** More ▾ → Archive: hide the deal from the working list (reversible from
+   *  the pipeline's archived view) and open the next one. */
+  async function handleArchiveDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const dealId = activeDealId
+    const deal = deals.find((d) => d.id === dealId)
+    if (
+      !window.confirm(
+        `Archive "${deal?.name ?? 'this deal'}"?\n\nIt leaves the deal list and pipeline; you can unarchive it from the Deals tab.`,
+      )
+    )
+      return
+    if (!(await ensureSaved())) return
+    try {
+      await archiveDeal(dealId)
+    } catch (err) {
+      toastError("Couldn't archive the deal", err)
+      return
+    }
+    autosaverRef.current!.cancel()
+    await activateNextAfterRemoval(state.schema, dealId, 'archived')
+  }
+
+  /** The header's tag chips. Tags aren't deal inputs, so this is allowed
+   *  while IC-locked. Resolves false when the save failed. */
+  async function handleTagsChange(tags: string[]): Promise<boolean> {
+    if (!activeDealId) return false
+    const dealId = activeDealId
+    // Pending edits land first (this write moves the deal's ETag).
+    if (!(await ensureSaved())) return false
+    try {
+      const updated = await updateDeal(dealId, { tags }, { ifMatch: dealConcurrency.ifMatchFor(dealId) })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+      return true
+    } catch (err) {
+      if (isConflictError(err)) {
+        dealConcurrency.markConflict({ dealId, current: err.current, etag: err.etag })
+        return false
+      }
+      toastError("Couldn't save the tags", err)
+      return false
+    }
+  }
+
+  /** Conflict banner → Reload: adopt the server's copy, dropping this
+   *  tab's unsaved edits. */
+  function handleConflictReload() {
+    if (state.status !== 'ready') return
+    const resolved = dealConcurrency.chooseReload()
+    if (!resolved) return
+    autosaverRef.current!.cancel()
+    setDeals((prev) => prev.map((d) => (d.id === resolved.dealId ? resolved.current : d)))
+    if (resolved.dealId === activeDealIdRef.current) {
+      applyDealState(state.schema, resolved.current)
+      // The other tab may have changed the IC state too.
+      fetchIc(resolved.dealId)
+        .then((summary) => {
+          if (activeDealIdRef.current === resolved.dealId) setIc(summary)
+        })
+        .catch(() => {})
+    }
+  }
+
+  /** Conflict banner → Overwrite: save this tab's version without If-Match.
+   *  Refused when the other tab has since locked the deal for the IC and
+   *  the overwrite would change locked inputs. */
+  async function handleConflictOverwrite() {
+    const pending = dealConcurrency.conflict()
+    if (!pending) return
+    try {
+      const summary = await fetchIc(pending.dealId)
+      if (pending.dealId === activeDealIdRef.current) setIc(summary)
+      const differing = changedKeys(currentInputsBlob(), pending.current.inputs)
+      if (summary.locked && differing.some(isLockedField)) {
+        showToast({
+          kind: 'error',
+          message: 'Inputs are locked for the investment committee',
+          detail: "The deal was submitted to the IC elsewhere, so your version can't overwrite it. Choose Reload.",
+        })
         return
       }
-      const next = await fetchDeal(remaining[0].id)
-      setDeals(remaining)
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, next.id)
-      applyDealState(state.schema, next)
-      setActiveDealId(next.id)
     } catch (err) {
-      toastError('The deal was deleted, but the next one could not be opened — reopen the app', err)
+      toastError("Couldn't check the deal's IC lock — nothing was overwritten", err)
+      return
+    }
+    if (dealConcurrency.chooseOverwrite() === null) return
+    if (!(await autosaverRef.current!.flush())) {
+      toastError("Couldn't overwrite the deal", 'The save will keep retrying.')
+    }
+  }
+
+  /** Agent proposal approval (AgentPage / AgentDock). Respects the IC lock,
+   *  saves pending edits first, lets the server apply the changes (history
+   *  kind "agent"), then adopts the returned deal and marks the changed
+   *  fields as agent-filled. Resolves true when applied. */
+  async function handleApproveProposal(
+    proposal: Pick<AgentProposal, 'id' | 'changes'>,
+    overrideChanges?: Record<string, unknown>,
+  ): Promise<boolean> {
+    if (state.status !== 'ready') return false
+    const changes = overrideChanges ?? proposal.changes
+    if (blockedByIcLock(Object.keys(changes))) return false
+    if (!(await ensureSaved())) return false
+    try {
+      const { deal } = await approveAgentProposal(proposal.id, overrideChanges)
+      setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
+      if (deal.id === activeDealIdRef.current) {
+        applyDealState(state.schema, deal)
+        setFormValues((prev) =>
+          recordProvenance(
+            prev,
+            sameSourceFor(Object.keys(changes), { source: 'agent', label: 'Underwriting Agent', at: new Date().toISOString() }),
+          ),
+        )
+      }
+      return true
+    } catch (err) {
+      toastError("Couldn't apply the agent's proposal", err)
+      return false
     }
   }
 
@@ -639,9 +867,7 @@ function App() {
           : `Imported "${imported.name}" with ${imported.importedScenarios} scenario(s).`,
       )
       setDeals((prev) => [imported, ...prev])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, imported.id)
-      applyDealState(state.schema, imported)
-      setActiveDealId(imported.id)
+      activateDeal(state.schema, imported)
     } catch (err) {
       setImportNotice(err instanceof Error ? err.message : 'Import failed')
       setImportPreview(null)
@@ -654,33 +880,14 @@ function App() {
    *  about or the user agreed. */
   function confirmInputChanges(next: Record<string, unknown>, what: string, replaceAll: boolean): boolean {
     if (state.status !== 'ready') return true
-    const hasValue = (v: unknown) => v !== undefined && v !== null && v !== ''
-    const overwrites = presetDiff(formValues, next).filter((row) => row.changed && hasValue(row.current))
-    const cleared = replaceAll
-      ? Object.keys(formValues).filter((id) => hasValue(formValues[id]) && !hasValue(next[id]))
-      : []
-    if (overwrites.length === 0 && cleared.length === 0) return true
-    const byId = new Map(flattenFields(state.schema).map((f) => [f.id, f]))
-    const lines = [
-      ...overwrites.map((row) => {
-        const field = byId.get(row.fieldId)
-        return `• ${field?.label ?? row.fieldId}: ${formatValue(field, row.current)} → ${formatValue(field, row.proposed)}`
-      }),
-      ...cleared.map((id) => {
-        const field = byId.get(id)
-        return `• ${field?.label ?? id}: ${formatValue(field, formValues[id])} → (cleared)`
-      }),
-    ]
-    const shown = lines.slice(0, 12).join('\n')
-    const more = lines.length > 12 ? `\n…and ${lines.length - 12} more` : ''
-    return window.confirm(
-      `${what} changes ${lines.length} value(s) already in Deal Inputs:\n\n${shown}${more}\n\nContinue?`,
-    )
+    const lines = describeInputChanges(state.schema, formValues, next, replaceAll)
+    return lines.length === 0 || window.confirm(inputChangesPrompt(what, lines))
   }
 
   /** Apply napkin values to the full form — after confirming any field that
    *  already holds a different value (it used to be overwritten silently). */
   function sendToDealInputs(patch: Record<string, unknown>) {
+    if (blockedByIcLock(Object.keys(patch))) return
     if (!confirmInputChanges(patch, 'Sending the Quick Screen', false)) return
     applyFromSource(patch, sameSourceFor(Object.keys(patch), { source: 'quickScreen', at: new Date().toISOString() }))
     setTab('dashboard')
@@ -692,6 +899,7 @@ function App() {
     // Over the schema defaults, like a deal load: a scenario saved before a
     // field existed shouldn't clear that field's default.
     const next = state.status === 'ready' ? { ...defaultValuesFor(state.schema), ...inputs } : inputs
+    if (blockedByIcLock(Object.keys(next))) return
     if (!confirmInputChanges(next, `Loading scenario "${name}"`, true)) return
     setFormValues(next)
     setLoadedScenario({ name, key: inputsKey(next) })
@@ -699,7 +907,7 @@ function App() {
   }
 
   function handleSendQuickScreenToDealInputs() {
-    sendToDealInputs(mapQuickScreenToDealInputs(quickScreenInputs, quickScreenResults))
+    sendToDealInputs(mapQuickScreenToDealInputs(quickScreens.development, quickScreens.developmentResults))
   }
 
   // Acquisition-side quick screen send (the mapped values arrive already
@@ -708,16 +916,16 @@ function App() {
     sendToDealInputs(values)
   }
 
-  function applySharedScreen(shared: SharedScreen) {
-    if (shared.development) setQuickScreenInputs(shared.development)
-    if (shared.acquisition) setAcquisitionQuickScreenInputs(shared.acquisition)
-    setQuickScreenMode(shared.mode)
-  }
-
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
-    setQuickScreenInputs(inputs)
+    quickScreens.setDevelopment(inputs)
+    // A quick-screen scenario is a development napkin: show that one.
+    quickScreens.setMode('development')
     setTab('quickscreen')
   }
+
+  // The active deal's own price / rent / cap for the comps charts' "your
+  // deal" reference line (derived; no extra requests).
+  const compsSubject = useMemo(() => compSubjectFromValues(formValues), [formValues])
 
   const visibleSections = useMemo(() => {
     if (state.status !== 'ready') return []
@@ -738,6 +946,10 @@ function App() {
     return <div className="p-8 text-slate-500">Loading…</div>
   }
 
+  if (state.status === 'auth') {
+    return <AuthGate onAuthenticated={handleAuthenticated} />
+  }
+
   if (state.status === 'error') {
     return (
       <div className="p-8">
@@ -756,17 +968,18 @@ function App() {
   }
 
   const { schema, apiOk } = state
-  const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
 
   /** A user edit: the value is now theirs, so any "filled by the app"
    *  marker on the field goes. */
   function handleFieldChange(fieldId: string, value: unknown) {
+    if (blockedByIcLock([fieldId])) return
     setFormValues((prev) => clearProvenance({ ...prev, [fieldId]: value }, fieldId))
   }
 
   /** Values the app filled in — recorded so the form can say where each
    *  came from (roadmap #14). */
   function applyFromSource(patch: Record<string, unknown>, entries: Record<string, FieldProvenance>) {
+    if (blockedByIcLock(Object.keys(patch))) return
     setFormValues((prev) => recordProvenance({ ...prev, ...patch }, entries))
   }
 
@@ -779,51 +992,24 @@ function App() {
     })
   }
 
+  const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
+  const recentDeals = recentIds
+    .filter((id) => id !== activeDealId)
+    .map((id) => deals.find((d) => d.id === id))
+    .filter((d): d is Deal => d !== undefined)
+  const agentSurface = {
+    dealId: activeDealId,
+    schema,
+    currentValues: formValues,
+    icLocked,
+    onApproveProposal: handleApproveProposal,
+  }
+
   return (
+    <>
     <Layout
       nav={
-        // Module navigation lives here: the old top tab strip was 1,298px
-        // wide in an 800px column, hiding six modules at 1440px.
-        <div className="space-y-4 pb-4">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label}>
-              {group.label && (
-                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  {group.label}
-                </div>
-              )}
-              <ul className="space-y-0.5">
-                {group.items.map(([id, label]) => (
-                  <li key={id}>
-                    <button
-                      onClick={() => setTab(id)}
-                      aria-current={tab === id ? 'page' : undefined}
-                      className={`w-full rounded px-2 py-1.5 text-left text-sm ${
-                        tab === id ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                    {id === 'dashboard' && tab === 'dashboard' && (
-                      <ul aria-label="Deal Inputs sections" className="mt-0.5 mb-1 ml-3 border-l border-slate-200 pl-2">
-                        {visibleSections.map((section) => (
-                          <li key={section.id}>
-                            <button
-                              onClick={() => goToSection(section.id)}
-                              className="w-full rounded px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100"
-                            >
-                              {section.label}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <ModuleNav tab={tab} onSelect={setTab} sections={visibleSections} onGoToSection={goToSection} />
       }
       summary={
         // The one-deal summary and Compute button don't apply on views that
@@ -860,7 +1046,7 @@ function App() {
               // read-back), labelled with its source. On the Quick Screen the
               // napkin leads — its estimates move as you edit it — and full
               // results only fill metrics the napkin can't estimate.
-              const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
+              const estimate = tab === 'quickscreen' ? quickScreens.outputs[metric.id] : undefined
               const picked = estimate === undefined ? pickMetric(metric.id, resultSets) : null
               const value = picked ? picked.value : estimate
               return {
@@ -868,10 +1054,11 @@ function App() {
                 provenance: picked ? picked.stamp.source : estimate !== undefined ? 'estimate' : 'none',
                 stale: picked ? isStale(picked.stamp, currentInputsKey, activeDealId) : false,
                 fullModelOnly:
-                  tab === 'quickscreen' && value === undefined && quickScreenFullModelOnlyIds.has(metric.id),
+                  tab === 'quickscreen' && value === undefined && quickScreens.fullModelOnlyIds.has(metric.id),
               }
             }}
-            dealType={tab === 'quickscreen' ? quickScreenMode : formValues.dealType}
+            dealType={tab === 'quickscreen' ? quickScreens.mode : formValues.dealType}
+            forSale={tab !== 'quickscreen' && isForSaleDeal(formValues)}
             irrConvention={nativeResponse?.irrConvention ?? null}
             onGoalSeek={setGoalSeekMetric}
           />
@@ -908,184 +1095,72 @@ function App() {
           the bar; z-30 sits above the statement's sticky cells (z-10) and
           below modals (z-50). */}
       <div data-app-header className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
-        <select
-          value={activeDealId ?? ''}
-          onChange={(e) => void switchDeal(e.target.value)}
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+        {isDesktop() && <UpdateBanner />}
+        <DealHeaderBar
+          deals={deals}
+          activeDealId={activeDealId}
+          values={formValues}
+          loadedScenario={
+            loadedScenario && { name: loadedScenario.name, modified: currentInputsKey !== loadedScenario.key }
+          }
+          autosaveState={autosaveState}
+          icState={ic?.state ?? null}
+          onOpenIc={() => setTab('approval')}
+          onSwitchDeal={(dealId) => void switchDeal(dealId)}
+          onRename={handleRenameDeal}
+          onNewDeal={handleNewDeal}
+          onDelete={() => void handleDeleteDeal()}
+          onExport={() => void handleExportDeal()}
+          onImportFile={handleImportFile}
+          onOpenDates={() => setDatesEditorOpen(true)}
+          untyped={activeDeal !== null && dealTypeOf(activeDeal) === null}
+          onSetType={(type) => {
+            if (activeDealId) void handleSetDealType(activeDealId, type)
+          }}
+          onDuplicate={() => void handleDuplicateDeal()}
+          onArchive={() => void handleArchiveDeal()}
+          onTagsChange={handleTagsChange}
         >
-          {deals.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-        {renamingName === null ? (
-          <button
-            onClick={() => setRenamingName(activeDeal?.name ?? '')}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            Rename
-          </button>
-        ) : (
-          <input
-            autoFocus
-            value={renamingName}
-            onChange={(e) => setRenamingName(e.target.value)}
-            onBlur={() => void handleRenameDeal(renamingName)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleRenameDeal(renamingName)
-              if (e.key === 'Escape') setRenamingName(null)
-            }}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
-          />
-        )}
-        {/* Type badge: which dealflow the active deal belongs to. */}
-        {(() => {
-          const type = dealTypeOf({ inputs: formValues })
-          if (!type) return null
-          return (
-            <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                type === 'development'
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-sky-100 text-sky-700'
-              }`}
+          {conflict && conflict.dealId === activeDealId && (
+            <div
+              role="alert"
+              className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
             >
-              {type === 'development' ? 'DEV' : 'ACQ'}
-            </span>
-          )
-        })()}
-        <div className="relative">
-          <button
-            onClick={() => setNewDealMenuOpen((v) => !v)}
-            aria-haspopup="menu"
-            aria-expanded={newDealMenuOpen}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            New Deal ▾
-          </button>
-          {newDealMenuOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1 w-36 rounded border border-slate-200 bg-white py-1 shadow-lg">
-              <button
-                onClick={() => void handleNewDeal('acquisition')}
-                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-sky-50"
-              >
-                Acquisition
-              </button>
-              <button
-                onClick={() => void handleNewDeal('development')}
-                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-orange-50"
-              >
-                Development
-              </button>
+              <span>
+                This deal was changed in another tab or window, so your latest edits weren't saved.
+              </span>
+              <span className="flex gap-2">
+                <button
+                  onClick={handleConflictReload}
+                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+                  title="Load the other version; your unsaved edits here are discarded"
+                >
+                  Reload
+                </button>
+                <button
+                  onClick={() => void handleConflictOverwrite()}
+                  className="rounded border border-amber-400 px-2 py-1 text-xs hover:bg-amber-100"
+                  title="Save your version over the other one"
+                >
+                  Overwrite
+                </button>
+              </span>
             </div>
           )}
-        </div>
-        <button
-          onClick={() => void handleDeleteDeal()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-        >
-          Delete
-        </button>
-        <button
-          onClick={() => void handleExportDeal()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Export
-        </button>
-        <button
-          onClick={() => importInputRef.current?.open()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Import
-        </button>
-        <FileChooser
-          ref={importInputRef}
-          accept="application/json,.json"
-          description="Deal export bundles"
-          hidden
-          onFiles={(files) => handleImportFile(files[0])}
-        />
-        {/* J11: date chips for the active deal + editor. */}
-        {sortByDate(readCriticalDates(formValues)).slice(0, 3).map((row) => {
-          const status = dateStatus(row.date, new Date())
-          return (
-            <span
-              key={row.id}
-              title={row.notes || row.label}
-              className={`rounded px-1.5 py-0.5 text-[11px] ${
-                status === 'overdue'
-                  ? 'bg-red-100 text-red-700'
-                  : status === 'upcoming'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-slate-100 text-slate-500'
-              }`}
-            >
-              {row.label} {row.date}
-            </span>
-          )
-        })}
-        <button
-          onClick={() => setDatesEditorOpen(true)}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Dates
-        </button>
-        {loadedScenario && (
-          <span
-            className="ml-auto rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
-            title="The Deal Inputs were loaded from this saved scenario."
-          >
-            Working from scenario “{loadedScenario.name}”
-            {inputsKey(formValues) !== loadedScenario.key && ' · modified'}
-          </span>
-        )}
-        <span
-          className={`${loadedScenario ? '' : 'ml-auto '}text-xs ${
-            autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
-          }`}
-        >
-          {AUTOSAVE_LABEL[autosaveState]}
-        </span>
-      </div>
+        </DealHeaderBar>
 
-      {importNotice && (
-        <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
-          {importNotice}
-        </div>
-      )}
-      {importPreview && (
-        <div className="mb-3 flex items-center gap-3 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-700">
-          <span>
-            Import <span className="font-semibold">{importPreview.deal.name}</span> —{' '}
-            {importPreview.scenarios.length} scenario(s), exported{' '}
-            {new Date(importPreview.exportedAt).toLocaleString()}
-            {importPreview.activeTemplate &&
-              ` · used template "${importPreview.activeTemplate.filename}" (not bundled)`}
-            ?
-          </span>
-          <button
-            onClick={() => void handleConfirmImport()}
-            className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
-          >
-            Create new deal
-          </button>
-          <button
-            onClick={() => setImportPreview(null)}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-white"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+        <DealImportNotices
+          notice={importNotice}
+          preview={importPreview}
+          onConfirm={() => void handleConfirmImport()}
+          onCancel={() => setImportPreview(null)}
+        />
 
       </div>
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
-      <div style={{ display: tab === 'pipeline' ? 'block' : 'none' }}>
+      <TabPane id="pipeline" current={tab}>
         <PipelinePage
           active={tab === 'pipeline'}
           deals={deals}
@@ -1111,15 +1186,49 @@ function App() {
               toastError(`Couldn't change the status of ${dealIds.length} deal(s) — none were changed`, err)
             }
           }}
+          onDealsChanged={(changed) => {
+            // Pipeline-side edits (bulk tags, unarchive) land in App's list
+            // too, so the header tag row and deal picker stay in step. An
+            // unarchived deal isn't in the (archived-hidden) list yet.
+            const byId = new Map(changed.map((d) => [d.id, d]))
+            setDeals((prev) => {
+              const merged = prev.map((d) => byId.get(d.id) ?? d)
+              const known = new Set(prev.map((d) => d.id))
+              return [...merged, ...changed.filter((d) => !known.has(d.id) && !d.archivedAt)]
+            })
+          }}
           onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
           onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
         />
-      </div>
+      </TabPane>
 
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
+        commands={
+          // Built only while open: every field of the schema, on every render.
+          paletteOpen
+            ? buildPaletteCommands(
+                schema,
+                formValues,
+                setTab,
+                (fieldId) => {
+                  setTab('dashboard')
+                  requestAnimationFrame(() => goToField(fieldId))
+                },
+                {
+                  compute: computeNow,
+                  newDeal: (type) => void handleNewDeal(type),
+                  newDealFromDocuments: () => setOmWizardOpen(true),
+                  exportDeal: () => void handleExportDeal(),
+                  openDates: () => setDatesEditorOpen(true),
+                  showShortcuts: () => setShortcutsOpen(true),
+                },
+                { deals: recentDeals, openDeal: (dealId) => void switchDeal(dealId) },
+              )
+            : []
+        }
         onNavigate={(item, kind) => {
           // Deals/tenants/notes deep-link to their deal's dashboard; comps
           // (global, no dealId) open the Comps tab.
@@ -1130,6 +1239,8 @@ function App() {
           }
         }}
       />
+
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
 
       {datesEditorOpen && (
         <CriticalDatesEditor
@@ -1149,7 +1260,7 @@ function App() {
         />
       )}
 
-      <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
+      <TabPane id="quickscreen" current={tab}>
         {sharedFromLink && (
           <div className="mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
             <span>
@@ -1159,7 +1270,7 @@ function App() {
             <span className="flex gap-2">
               <button
                 onClick={() => {
-                  applySharedScreen(sharedFromLink)
+                  quickScreens.applyShared(sharedFromLink)
                   setSharedFromLink(null)
                 }}
                 className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
@@ -1173,21 +1284,21 @@ function App() {
           </div>
         )}
         <QuickScreen
-          inputs={quickScreenInputs}
-          onInputsChange={setQuickScreenInputs}
-          results={quickScreenResults}
-          mode={quickScreenMode}
-          onModeChange={setQuickScreenMode}
-          acquisitionInputs={acquisitionQuickScreenInputs}
-          onAcquisitionInputsChange={setAcquisitionQuickScreenInputs}
+          inputs={quickScreens.development}
+          onInputsChange={quickScreens.setDevelopment}
+          results={quickScreens.developmentResults}
+          mode={quickScreens.mode}
+          onModeChange={quickScreens.setMode}
+          acquisitionInputs={quickScreens.acquisition}
+          onAcquisitionInputsChange={quickScreens.setAcquisition}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
-          onOpenShared={applySharedScreen}
+          onOpenShared={quickScreens.applyShared}
           dealId={activeDealId}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
+      <TabPane id="documents" current={tab}>
         <Documents
           key={dealScope}
           schema={schema}
@@ -1198,9 +1309,9 @@ function App() {
             setTab('dashboard')
           }}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
+      <TabPane id="setup" current={tab}>
         <TemplateUpload
           values={formValues}
           activeTemplate={activeTemplate}
@@ -1219,9 +1330,9 @@ function App() {
             }
           }}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+      <TabPane id="dashboard" current={tab}>
         <FileCabinet dealId={activeDealId} />
         <HistoryDrawer
           schema={schema}
@@ -1231,17 +1342,35 @@ function App() {
             setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
           }}
         />
-        <PresetsPanel
-          schema={schema}
-          values={formValues}
-          onApply={(patch, presetName) =>
-            applyFromSource(
-              patch,
-              sameSourceFor(Object.keys(patch), { source: 'preset', label: presetName, at: new Date().toISOString() }),
-            )
-          }
-        />
-        <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        {icLocked && ic && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <span>
+              {ic.state === 'approved'
+                ? 'Approved by the investment committee'
+                : ic.state === 'rejected'
+                  ? 'Rejected by the investment committee'
+                  : 'With the investment committee'}
+              {' '}— these inputs are locked so they match the version the committee saw.
+            </span>
+            <button onClick={() => setTab('approval')} className="text-xs font-medium underline">
+              Open IC Approval
+            </button>
+          </div>
+        )}
+        {/* A disabled fieldset makes every control inside read-only. */}
+        <fieldset disabled={icLocked} className="min-w-0">
+          <PresetsPanel
+            schema={schema}
+            values={formValues}
+            onApply={(patch, presetName) =>
+              applyFromSource(
+                patch,
+                sameSourceFor(Object.keys(patch), { source: 'preset', label: presetName, at: new Date().toISOString() }),
+              )
+            }
+          />
+          <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        </fieldset>
         <GeneratePanel
           key={dealScope}
           schema={schema}
@@ -1258,9 +1387,9 @@ function App() {
           failure={results.failure}
           onCompute={computeNow}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
+      <TabPane id="cashflow" current={tab}>
         <CashFlowTab
           key={dealScope}
           statement={nativeResponse?.statement ?? null}
@@ -1269,9 +1398,9 @@ function App() {
           stale={nativeStale}
           onRecompute={computeNow}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>
+      <TabPane id="sensitivity" current={tab}>
         <SensitivityPanel
           key={dealScope}
           schema={schema}
@@ -1281,13 +1410,13 @@ function App() {
           baseValues={formValues}
           dealId={activeDealId}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
+      <TabPane id="risk" current={tab}>
         <RiskPanel key={dealScope} schema={schema} values={formValues} dealId={activeDealId} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>
+      <TabPane id="scenarios" current={tab}>
         <ScenariosPanel
           schema={schema}
           template={activeTemplate}
@@ -1301,20 +1430,53 @@ function App() {
           onLoadScenario={loadScenario}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'portfolio' ? 'block' : 'none' }}>
+      <TabPane id="approval" current={tab}>
+        <IcApprovalPage
+          dealId={activeDealId}
+          schema={schema}
+          values={formValues}
+          currentOutputs={latestOutputs}
+          summary={ic}
+          onBeforeStep={ensureSaved}
+          onSummary={setIc}
+        />
+      </TabPane>
+
+      <TabPane id="portfolio" current={tab}>
         <PortfolioPage active={tab === 'portfolio'} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+      <TabPane id="settings" current={tab}>
         <SettingsPage active={tab === 'settings'} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
-        <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
-      </div>
+      <TabPane id="comps" current={tab}>
+        <CompsPage
+          dealMarket={typeof formValues.market === 'string' ? formValues.market : ''}
+          subject={compsSubject}
+        />
+      </TabPane>
+
+      <TabPane id="compare" current={tab}>
+        <ComparePage
+          schema={schema}
+          deals={deals}
+          active={tab === 'compare'}
+          onOpenDeal={(dealId) => switchDeal(dealId).then(() => setTab('dashboard'))}
+        />
+      </TabPane>
+
+      <TabPane id="agent" current={tab}>
+        <AgentPage key={dealScope} {...agentSurface} />
+      </TabPane>
     </Layout>
+
+    {/* The agent dock floats outside Layout's columns so it survives every
+        tab switch; rendered only past boot and the token gate. */}
+    <AgentDock {...agentSurface} hidden={tab === 'agent'} />
+    </>
   )
 }
 

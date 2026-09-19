@@ -8,56 +8,129 @@ assumptions against public data, and render an IC memo.
 **Stack:** React / TypeScript / Vite / Tailwind (`frontend/`), FastAPI /
 SQLAlchemy / SQLite / openpyxl (`backend/`).
 
-## Desktop app (macOS)
+## Desktop app (macOS and Windows)
 
-**CRE Underwriting.app** runs the whole dashboard as a normal Mac app. You
-don't need a terminal or a browser tab.
+**CRE Underwriting** runs the whole dashboard as a normal desktop app on a
+Mac or a Windows PC. You don't need a terminal or a browser tab.
 
-### Before you start: two things to know
+### Install on Windows (10 and 11, 64-bit)
 
-1. **The first launch needs one extra click.** The app isn't signed by Apple
-   yet, so macOS blocks the first double-click.
-   - **macOS 15 (Sequoia) and later:** double-click the app and choose
-     **Done** on the warning. Open **System Settings → Privacy & Security**,
-     scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
-     and confirm.
-   - **macOS 14 and earlier:** right-click (or Control-click) the app,
-     choose **Open**, then click **Open** again.
+1. Download `CRE-Underwriting-Setup-<version>.exe` from the
+   [Releases page](https://github.com/ajvalencia-hub/cre-underwriting-dashboard/releases).
+2. Double-click it. It installs just for you, so no administrator password
+   is needed. It adds a Start-menu entry and, if you leave the box ticked,
+   a desktop shortcut. Leave **Launch CRE Underwriting** ticked on the last
+   page to start it straight away.
+3. Later, open it from the **Start menu → CRE Underwriting**. To quit, close
+   the window.
 
-   From then on, a normal double-click works.
-2. **Install LibreOffice (free) if you use your own Excel template.**
-   [Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
-   drag it to Applications, then restart CRE Underwriting. **It's the only
-   way the app can recalculate your workbook and show *your template's*
-   results.** It's also needed for template-verified sensitivity runs and
-   for the IC memo as PDF. Without it:
-   - generated workbooks are still correct when you open them in Excel,
-     because Excel recalculates on open;
-   - the built-in engine (Compute), the Excel model export, the .docx memo
-     and the decks all work normally;
-   - **Settings → External tools** shows whether LibreOffice was found.
+**First launch: "Windows protected your PC".** The installer isn't
+code-signed yet, so Microsoft Defender SmartScreen may warn you. Click
+**More info**, then **Run anyway**. You only need to do this once per
+download.
 
-   OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
-   (`brew install tesseract poppler`). It's optional; text PDFs, Excel and
-   CSV work without it.
+**The window needs the Microsoft Edge WebView2 Runtime.** Windows 11 and
+up-to-date Windows 10 already have it. If it's missing, the installer offers
+to download it from Microsoft, and the app explains how to get it rather
+than failing.
 
-### Install and run
+**No installer?** `CRE-Underwriting-windows-portable.zip` holds the same app.
+Unzip it anywhere and run `CRE Underwriting.exe` from the folder.
 
-Unzip `CRE-Underwriting-mac.zip` and drag **CRE Underwriting** into
-Applications. Double-click it to start; quit it with ⌘Q or by closing the
-window.
+### Install on macOS (12 or later)
 
-- **Your data** (deals, templates, documents, daily backups) is stored in
-  `~/Library/Application Support/CRE Underwriting/`. Logs are in
-  `~/Library/Logs/CRE Underwriting/`. Replacing the app with a newer build
-  keeps your data.
+1. Download `CRE-Underwriting-mac.dmg` from the
+   [Releases page](https://github.com/ajvalencia-hub/cre-underwriting-dashboard/releases).
+2. Open it and drag **CRE Underwriting** onto the **Applications** folder
+   shown next to it. Then eject the disk image.
+3. Open it from **Applications** (or Launchpad or Spotlight). Quit with ⌘Q
+   or by closing the window.
+
+**First launch needs one extra click.** The app isn't signed by Apple yet,
+so macOS blocks the first double-click.
+- **macOS 15 (Sequoia) and later:** double-click the app and choose
+  **Done** on the warning. Open **System Settings → Privacy & Security**,
+  scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
+  and confirm.
+- **macOS 14 and earlier:** right-click (or Control-click) the app, choose
+  **Open**, then click **Open** again.
+
+From then on, a normal double-click works. `CRE-Underwriting-mac.zip` holds
+the same app if you prefer a zip: unzip it and drag the app into
+Applications.
+
+### Optional: LibreOffice and OCR
+
+**Install LibreOffice (free) if you use your own Excel template.**
+[Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
+install it with the default options, then restart CRE Underwriting. **It's
+the only way the app can recalculate your workbook and show *your
+template's* results.** It's also needed for template-verified sensitivity
+runs and for the IC memo as PDF. Without it:
+- generated workbooks are still correct when you open them in Excel,
+  because Excel recalculates on open;
+- the built-in engine (Compute), the Excel model export, the .docx memo and
+  the decks all work normally;
+- **Settings → External tools** shows whether LibreOffice was found, and
+  lets you point at a non-standard install folder.
+
+OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
+(macOS: `brew install tesseract poppler`; Windows: the
+[Tesseract installer](https://github.com/UB-Mannheim/tesseract/wiki) and
+`winget install oschwartz10612.Poppler`). It's optional; text PDFs, Excel
+and CSV work without it. The app finds the standard install locations on
+both systems.
+
+### Where your data lives
+
+| | macOS | Windows |
+|---|---|---|
+| Deals, templates, documents, daily backups | `~/Library/Application Support/CRE Underwriting/` | `%LOCALAPPDATA%\CRE Underwriting\data\` |
+| Logs | `~/Library/Logs/CRE Underwriting/` | `%LOCALAPPDATA%\CRE Underwriting\logs\` |
+| Optional API keys | macOS Keychain | Windows Credential Manager |
+
+- Installing a newer version over the old one keeps your data.
 - **Optional API keys** (FRED, Census, HUD, BEA, BLS, Anthropic): enter them
-  in **Settings → Integrations**. They're stored in your macOS Keychain.
-- **Files** open and save through the standard Mac dialogs.
+  in **Settings → Integrations**. They're stored in the Keychain or
+  Credential Manager, never in a file.
+- **Files** open and save through the standard system dialogs.
 - The app runs its own private server on a random local port that only its
-  window can use. Quitting the app stops the server.
+  window can use. Quitting the app stops the server. Only one copy runs at a
+  time; opening it again just says it's already open.
 
-### Building the app
+### Uninstall
+
+- **Windows:** **Settings → Apps → Installed apps → CRE Underwriting →
+  Uninstall** (or *Add or remove programs*). This removes the program only.
+  Your data folder stays, so a reinstall picks it up again. Delete
+  `%LOCALAPPDATA%\CRE Underwriting` yourself if you no longer need it.
+- **macOS:** drag **CRE Underwriting** from Applications to the Trash. Your
+  data stays in `~/Library/Application Support/CRE Underwriting/` until you
+  delete that folder.
+
+### Build from source: Windows
+
+```powershell
+winget install Python.Python.3.12 OpenJS.NodeJS.LTS
+py -3.12 -m venv desktop\.venv
+desktop\.venv\Scripts\python -m pip install -r backend\requirements.txt -r desktop\requirements.txt
+winget install JRSoftware.InnoSetup      # optional: builds the installer
+powershell -ExecutionPolicy Bypass -File desktop\build_windows.ps1
+```
+
+This produces `desktop\dist\CRE Underwriting\CRE Underwriting.exe`,
+`desktop\dist\CRE-Underwriting-windows-portable.zip` and, with Inno Setup
+installed, `desktop\dist\CRE-Underwriting-Setup-<version>.exe`
+(`desktop\windows\installer.iss`). Without Inno Setup the script says how
+to install it and skips that step. `-SkipFrontend` reuses an existing
+`frontend\dist`. The script runs the shell tests first and `--self-test`
+inside the finished app before packaging.
+
+Unsigned, the installer triggers the SmartScreen prompt above. Signing it
+takes a code-signing certificate (an OV/EV certificate or Azure Trusted
+Signing). Sign `CRE Underwriting.exe` and the setup `.exe` with `signtool`.
+
+### Build from source: macOS
 
 ```bash
 brew install node python@3.12
@@ -66,19 +139,75 @@ desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirement
 desktop/build_mac.sh
 ```
 
-This produces `desktop/dist/CRE Underwriting.app` and
-`desktop/dist/CRE-Underwriting-mac.zip` (about 62 MB) for the architecture
-you build on. The build runs `--self-test` inside the finished app before
-zipping. The self-test checks compute, the Excel export, the decks, the
-memo with charts, PDF reading and the Keychain, so a bad freeze fails the
-build instead of reaching a colleague.
+This produces `desktop/dist/CRE Underwriting.app`,
+`desktop/dist/CRE-Underwriting-mac.dmg` (drag-to-Applications disk image)
+and `desktop/dist/CRE-Underwriting-mac.zip` for the architecture you build
+on.
 
-The shell's own tests (access gate, dialogs, PATH, quit cleanup) run with
-`desktop/.venv/bin/python -m pytest desktop/tests -q`, and first in every build.
+On both systems the build runs `--self-test` inside the finished app before
+packaging. The self-test checks compute, the Excel export, the decks, the
+memo with charts, PDF reading and the Keychain / Credential Manager, so a
+bad freeze fails the build instead of reaching a colleague.
+
+The shell's own tests (access gate, dialogs, PATH, data folders,
+single-instance lock, quit cleanup, WebView2 check) run first in every
+build. To run them by hand, use
+`desktop/.venv/bin/python -m pytest desktop/tests -q`, or
+`desktop\.venv\Scripts\python -m pytest desktop\tests -q` on Windows.
+
+### Signing and notarizing (macOS)
+
+Unsigned, the app opens on other Macs only via the first-launch steps
+above. To distribute it properly you need an Apple Developer account
+($99/year) and a **Developer ID Application** certificate in your login
+keychain. Then, once, store notarization credentials (an app-specific
+password from appleid.apple.com):
+
+```bash
+xcrun notarytool store-credentials cre-notary --apple-id you@example.com --team-id TEAMID --password xxxx-xxxx-xxxx-xxxx
+```
+
+and build with:
+
+```bash
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=cre-notary desktop/build_mac.sh
+```
+
+`desktop/sign_mac.sh` signs every binary with the hardened runtime
+(`desktop/entitlements.plist`), verifies the signature, reruns the
+self-test on the signed app, then notarizes and staples it. It then builds
+the DMG from the signed app, signs it, and notarizes and staples the DMG
+too. `SIGN_IDENTITY=-` makes a local ad-hoc signature to test the hardened
+runtime without an account (not distributable).
+
+### Publishing an update
+
+The app checks GitHub Releases for this repository at launch (at most once
+a day; Settings → Updates turns it off or checks now) and offers a newer
+version's download. A Windows copy gets the setup `.exe`, and a Mac gets the
+DMG (or the zip). It sends nothing but its version in the User-Agent and
+never installs anything itself. To publish one:
+
+1. Bump `VERSION` in `desktop/cre_desktop/version.py` (e.g. `1.1.0`).
+2. Build on each OS (signed, ideally): `desktop/build_mac.sh` and
+   `desktop\build_windows.ps1`. The CI `desktop-app` and
+   `desktop-app-windows` jobs also build both and keep them as artifacts.
+3. Publish a release tagged with the same version and the files attached:
+
+```bash
+gh release create v1.1.0 desktop/dist/CRE-Underwriting-mac.dmg desktop/dist/CRE-Underwriting-mac.zip \
+  "desktop/dist/CRE-Underwriting-Setup-1.1.0.exe" desktop/dist/CRE-Underwriting-windows-portable.zip \
+  --title "CRE Underwriting 1.1.0" --notes "What changed"
+```
+
+Earlier versions then show a banner with Download, What's new and Not now.
 
 To run the desktop shell from source without building, first run
 `npm run build` in `frontend/`, then run
-`desktop/.venv/bin/python desktop/launcher.py`.
+`desktop/.venv/bin/python desktop/launcher.py`, or
+`desktop\.venv\Scripts\python desktop\launcher.py` on Windows. Set
+`CRE_DESKTOP_DATA_DIR` to a scratch folder to keep a test run's data out of
+your real data folder.
 
 The browser workflow below (uvicorn + `npm run dev`) is unchanged.
 
@@ -210,8 +339,16 @@ value-add multifamily fixture):
 - **Workflow.** An **OM-to-deal wizard** (upload → confirm types → extract →
   the existing review gate → a new deal with provenance rows; resumable
   draft), **critical dates** (deadline strip + header chips + share),
-  a **file cabinet + notes** timeline per deal, **global search** (Cmd+K over
-  deals / tenants / comps / notes), a **full 8-slide IC deck**, a
+  a **build-to-sell model** for single-family and townhome developments
+  (site work, per-home construction, closings at the absorption pace, a
+  revolving loan repaid from closings; margin, peak equity, sellout), a
+  **hotel operating model** (keys × ADR × occupancy, F&B and other
+  revenue, departmental / undistributed / franchise / management / FF&E
+  costs, GOP and NOI after FF&E), an **investment-committee sign-off** (submit with the computed version,
+  approvals by name, reasons to reject / return / reopen, locked inputs while
+  under review), a **file cabinet + notes** timeline per deal, a **command palette** (Cmd+K:
+  run Compute and other actions, jump to any tab or Deal Inputs field, and
+  search deals / tenants / comps / notes), a **full 8-slide IC deck**, a
   **portfolio roll-up** (equity-weighted blended returns, exposure and
   concentration, CSV), and **Docker packaging with automated SQLite backups**
   (see the Docker quickstart below).
@@ -220,21 +357,196 @@ The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
 
+### Charts
+
+Graphs appear where they help read the numbers. Every chart has a
+**Show table** toggle, hover details, keyboard navigation, and follows the
+light / dark theme.
+
+- **Cash Flow:** NOI vs debt service vs cash flow by year, DSCR by year
+  (1.25x line), loan balance, cumulative cash flow with the payback year;
+  hold-period IRR and equity multiple; lease expirations; renovation
+  progress.
+- **Quick Screen:** development cost build-up; where an acquisition's NOI
+  goes (debt service vs cash flow).
+- **Sensitivity:** one line per output for single-driver runs; the
+  two-driver grid is a colour-blind-safe heat map.
+- **Risk:** P50 / tail-probability tiles, the IRR distribution split at the
+  hurdle, and the chance of reaching each IRR.
+- **Scenarios / Compare:** side-by-side bars per metric family, one colour
+  per scenario or deal.
+- **Portfolio:** equity, IRR and multiple tiles; IRR vs equity by dealflow;
+  exposure by market and asset class.
+- **Deals:** a collapsible overview of equity by stage per board.
+- **Comps:** distributions of price, rent and cap rate with the median and
+  your deal marked.
+- **Deal Inputs:** the floating-rate index path with cap / floor.
+
+### Added by the Run 6 port
+
+- **Compare tab (Portfolio group):** pick 2–4 deals (archived ones are excluded) and see their outputs side by side.
+  - Each deal is computed from its saved inputs, and recomputed automatically after it's edited.
+  - Rows are filtered by dealflow: "n/a" means the metric doesn't apply to that deal type. Untyped or incomplete deals show "not computable" with the reason.
+  - The best value is highlighted where "better" is unambiguous.
+  - Export CSV works in the browser and uses the native Save dialog in the desktop app. The selection is remembered.
+- **Underwriting Agent tab (This deal group) + floating Agent dock:** chat about the open deal with a provider picker, one-click plays ("Screen this deal", …) and a list of tool calls per answer.
+  - Figures that no tool call backs up are flagged "Unverified".
+  - The agent only *proposes* input changes. Each proposal is a card with a before/after diff and an engine preview, plus Approve & apply or Reject.
+  - Approving respects the IC lock (it's disabled, with the reason, while locked), saves pending edits first, records a history entry ("Agent-applied") and marks the fields as agent-filled.
+  - The dock stays open across tabs and closes with Escape. It shares the conversation with the tab.
+- **Tags:** add or remove tags from the deal header's chip row.
+  - The pipeline shows tag chips per deal and has an AND tag filter.
+  - Bulk "Add tag" / "Remove tag" work on the selection. Tags also appear in the pipeline CSV.
+- **Archive / duplicate:** "More ▾ → Duplicate… / Archive" in the deal header.
+  - Archived deals leave the working list.
+  - The pipeline's "Show archived" lists them dimmed, each with Unarchive.
+- **Pipeline sort and filter:** every column header is sortable (Deal, Market, Stage, Last touched, Staleness and the metric columns such as IRR, equity and yield), with ascending/descending shown by `aria-sort`.
+  - Filters by stage, staleness (fresh / stale / critical) and tag.
+  - Saved views capture the sort, direction, filters and visible columns; older saved views load unchanged.
+- **Settings:**
+  - Each backup snapshot now has a **Download** of its database file.
+  - **Workflow:** default type for New Deal (ask / acquisition / development).
+  - **Security:** Sign out, shown only when the server requires an access token (`CRE_API_TOKEN`, browser/Docker mode; never in the desktop app).
+- **Token prompt:** when the server sets `CRE_API_TOKEN`, the browser app asks for the token before loading (and again after a 401 or Sign out). The desktop app never shows it, because its launcher already protects the API.
+- **Tests:** `npm run e2e` now also runs `e2e/agent.spec.ts` (scripted, network-free agent provider) and `e2e/features.spec.ts`. Spec files run serially (`workers: 1`) against one scratch database and a scratch storage root.
+
+## Underwriting Agent
+
+The Underwriting Agent is a chat assistant for the active deal. It has
+two entry points, the **Agent** tab (under *This deal* in the left rail)
+and the floating **Agent** dock at the bottom right. The dock stays open
+across tabs, and Escape closes it. Both show the same conversation, with
+one thread per deal.
+
+### What it can do
+
+It answers questions about the deal by calling the dashboard's own tools,
+never from memory:
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `get_deal`, `list_scenarios`, `get_scenario` | read | Reads the current deal's inputs, status and saved scenarios. Always scoped to the active deal. |
+| `compute` | read | Runs the built-in pro-forma engine on a full input map. |
+| `solve` | read | Goal-seek: finds the value of one numeric input that hits a target output metric. It uses the same solver as the sidebar's Goal Seek. `values` defaults to the deal's inputs. |
+| `run_tornado`, `run_sensitivity` | read | Perturbation (tornado) and grid sensitivity. |
+| `get_market_context`, `list_comps`, `get_schema` | read | Market data, saved comps, and the field registry. |
+| `propose_input_changes`, `propose_scenario` | **write (proposal only)** | Produces a proposal to review, with a computed preview. The agent never applies it. |
+
+Inputs are checked the same way everywhere. If a value fails the engine's
+input validation, for example text in a numeric field, the tool returns an
+error naming the field instead of a result. The agent sees that error and
+can correct the value.
+
+The suggestion chips run canned workflows with a restricted set of tools:
+
+- "Screen this deal"
+- "What's driving the levered IRR?"
+- "Stress-test this deal"
+- "What exit cap gets me to a 15% IRR?"
+
+### Proposals: approve or reject
+
+When the agent recommends a change, it creates a *proposal card* showing a
+before/after diff and preview metrics. It doesn't edit anything itself.
+
+**Approve & apply** merges the change into the deal on the server and
+records it in *Input history* as **Agent-applied**, restorable like any
+other snapshot. Every other pending proposal on that deal is then marked
+*stale*, because its preview no longer matches the inputs. The same rules
+apply as to any other edit:
+
+- **IC lock:** while the deal is submitted to, approved or rejected by the
+  investment committee, approval is refused and nothing is written. The
+  proposal stays pending. Reopen the deal on the IC Approval tab first.
+- **Validation:** a value that fails the engine's input validation is
+  refused with the field named.
+
+**Reject** takes an optional note, which is added to the thread.
+
+### Grounding guarantee
+
+After every turn, the server cross-checks each number in the reply against
+the numbers returned by that turn's tool calls. That covers dollar
+amounts, percentages, multiples and figures like "DSCR is 1.4". Any number
+that doesn't trace back to a tool result appears under an amber
+**Unverified** banner. It is flagged, not hidden. Each reply also lists its
+tool calls; expand *N tool call(s)* to see them.
+
+### Providers and configuration
+
+Set these in `backend/.env` (see `.env.example`). In the desktop app, paste the
+keys into the OpenAI and Anthropic rows under **Settings → Integrations**.
+They're stored in the Keychain and take effect after a restart.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_PROVIDER` | `anthropic` | Provider for a new thread: `anthropic` or `openai`. |
+| `ANTHROPIC_API_KEY` | — | Shared with document classification and extraction. |
+| `ANTHROPIC_AGENT_MODEL` | `claude-sonnet-5` | Model for the Anthropic provider. |
+| `OPENAI_API_KEY` | — | Used only by the agent. |
+| `OPENAI_AGENT_MODEL` | `gpt-5.1` | Model for the OpenAI provider. |
+
+Both providers are billed API usage. Without a key, the provider reports
+itself as *unavailable* in the chat; nothing else in the app is affected.
+
+You can switch the provider per thread from the picker at the top of the
+chat. The change applies to the next message, with no restart. The picker
+greys out a provider whose key isn't configured.
+
+### Cost and tokens
+
+The Agent tab header shows the thread's cumulative token count. Hover over
+it for the input/output split and the provider. The same totals are logged
+for each turn under the `app.agent` logger, along with tool calls,
+proposals and unverified claims.
+
+### Limits
+
+Each turn is capped at 25 tool calls, 15 compute-family calls and 60
+seconds. A turn that hits a cap ends with an explicit "Stopped early" note.
+
+### Limitations
+
+- Replies aren't streamed. A reply appears when the whole turn finishes.
+- Threads are single-user and per deal. There's no way to reset or delete
+  a thread in the UI yet.
+- The agent only sees what its tools return. It doesn't read uploaded
+  documents directly; use the Documents extraction flow for those.
+- The grounding check is numeric. It can't verify qualitative claims.
+- Scenario proposals (`propose_scenario`) can be reviewed and approved like
+  input changes. However, approving one applies the changes to the deal's
+  inputs; it doesn't save a separate named scenario.
+- Switching providers only affects future turns. The history is kept as
+  it was.
+
+### Testing without a model
+
+The Playwright suite runs the backend with `AGENT_PROVIDER=scripted`. This
+deterministic stub exercises the real tool loop, proposal approval and the
+unverified-claim check without network access. It isn't selectable in the
+UI. The backend tests (`backend/tests/test_agent_*.py`) mock the provider
+at the runner boundary.
+
 ## API surface
 
 | Area | Endpoints |
 |---|---|
-| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`), `GET .../{id}/export`, `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
-| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
+| Deals | `GET /api/deals[?includeArchived=true&tag=<t>&fields=summary]` (archived hidden by default; `fields=summary` = slim rows with a `summary` block, no inputs), `POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`, `tags`; every single-deal response carries `ETag`; PUT honors optional `If-Match` -> 412 `{detail, current}`), `POST .../{id}/archive`, `POST .../{id}/unarchive`, `POST .../{id}/clone` (optional `{name}`), `POST /api/deals/bulk-tags` (`{dealIds, add, remove}`), `GET .../{id}/export` (bundle carries `deal.tags`; schemaVersion stays 1), `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/ic-deck.pptx[?scenario_id=]` (scenario must belong to the deal), `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached; `irrDiagnostics` when the multi-root IRR warning fires), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado`, `POST /api/compute/monte-carlo` (bounded pool: 429 + `Retry-After` when saturated; seed 0..2^32-1), `GET/DELETE /api/compute/monte-carlo/{jobId}` (poll / cancel -> `cancelling`, then `cancelled`) |
 | Templates & mapping | `/api/templates*`, `/api/mappings*` |
 | Generate | `POST /api/generate` (xlsx download, X-Generation-* headers), `POST /api/generate/model` (formula-live native Excel model) |
 | Sensitivity | `POST /api/sensitivity` (mode: native \| template) |
-| Documents & extraction | `/api/documents*`, `/api/extraction*` (results carry reviewable `unitMixProposal` / `commercialLeaseProposal`) |
+| Documents & extraction | `/api/documents*` (upload: .pdf, .xlsx, .csv; legacy .xls refused with guidance), `/api/extraction*` (results carry reviewable `unitMixProposal` / `commercialLeaseProposal`) |
 | Scenarios | `/api/scenarios*`, `PUT .../{id}/sensitivity`, `POST .../{id}/memo[?format=pdf]` |
-| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` |
-| Comps | `GET/POST /api/comps/{sale\|rent}`, `PUT/DELETE .../{id}`, `POST /api/comps/import` (preview without mapping; insert with) |
+| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` — all rate-limited per route (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60, 0 = off; 429 + `Retry-After`) |
+| Comps | `GET/POST /api/comps/{sale\|rent}[?market=]` (literal, two-way market match), `PUT/DELETE .../{id}`, `POST /api/comps/import` (preview without mapping; insert with), `POST /api/comps/import/file` (5 MB, chunked), `GET /api/comps/{kind}/map` (rate-limited) |
 | Property tax | `POST /api/property-tax/lookup`, `GET /api/property-tax/counties` |
 | Presets | `GET/POST /api/presets`, `PUT/DELETE .../{id}`, `GET /api/presets/fields` |
+| File cabinet | `GET/POST /api/deals/{id}/attachments`, `GET .../attachments/{docId}/download[?inline=true]` (images/PDF only inline, sandbox CSP; SVG always a download), `GET .../attachments/{docId}/preview`, `DELETE .../attachments/{docId}` (the deal's own attachments only), `/api/deals/{id}/notes*` |
+| Admin | `GET /api/admin/integrations` (flags only, incl. `OPENAI_API_KEY`), `GET /api/admin/tools`, `GET /api/admin/backups`, `POST /api/admin/backups/run`, `POST /api/admin/backups/restore`, `GET /api/admin/backups/{kind}/{name}/download` (SQLite snapshot; any kind) |
+| Search | `GET /api/search?q=` (facets `acq:` / `dev:` / `tag:<t>`, composable; archived deals excluded) |
+| Underwriting Agent | `GET /api/agent/threads/{dealId}`, `POST /api/agent/threads/{dealId}/messages` (one full turn; `content` or `playId`), `PUT /api/agent/threads/{dealId}/provider`, `GET /api/agent/plays`, `GET /api/agent/providers`, `POST /api/agent/proposals/{id}/approve` (input validation 422, IC lock 409), `POST /api/agent/proposals/{id}/reject` |
+| Auth (optional) | `GET /api/auth/status`, `POST /api/auth/login` (sets the HttpOnly session cookie), `POST /api/auth/logout` — active only when `CRE_API_TOKEN` is set |
 | Ops | `GET /api/health`, `POST /api/client-errors` (error-boundary sink); every response carries `X-Request-ID` |
 | Schema | `GET /api/schema` |
 
@@ -343,6 +655,10 @@ cd backend
 UPDATE_GOLDEN=1 pytest tests/test_extraction_golden.py   # regenerate goldens (prints diff otherwise)
 UPDATE_BASELINE=1 pytest tests/regression        # Run-3 payload baseline (EXPANSION only, never to absorb behavior changes)
 
+# Lint and type checks (dev tools: pip install -r requirements-dev.txt)
+.venv/Scripts/ruff check app tests                # config in backend/pyproject.toml
+.venv/Scripts/mypy                                # modules on the ratchet list are skipped until cleaned
+
 cd frontend
 npm test && npm run build && npm run lint
 npm run e2e     # Playwright smoke: boots a scratch-DB backend + Vite, one happy path
@@ -356,9 +672,13 @@ percent ±1bp, multiples ±0.001, IRR ±2bp). Drop real firm templates into
 `backend/tests/parity/corpus/dropin/` (gitignored) to check them ad hoc.
 
 CI (`.github/workflows/ci.yml`) runs the full backend suite (with
-LibreOffice + Tesseract installed), the parity CLI, the frontend
-build/lint/test gates, a Playwright e2e job, and a Docker job (`docker
-compose config` + image build) on every push/PR.
+LibreOffice + Tesseract installed), the parity CLI, ruff and mypy, the
+frontend build/lint/test gates, the API-types check, a Playwright e2e job,
+and a Docker job (`docker compose config` + image build) on every push/PR.
+Pull requests and main also build the desktop apps (macOS: `.app`, DMG and
+zip; Windows: installer and portable zip), run their self-tests, and keep
+them as build artifacts for a week. The desktop shell tests run on both
+macOS and Windows on every push.
 
 ## Run 5 defaults-compatibility statement
 
@@ -378,4 +698,5 @@ algebra and the complete Excel-export refusal list.
   BEFORE/AFTER algebra for the Run-5 value-add + capital-stack features and
   the complete Excel-export refusal list).
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module map, engine block order, test tiers and compatibility rules.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).

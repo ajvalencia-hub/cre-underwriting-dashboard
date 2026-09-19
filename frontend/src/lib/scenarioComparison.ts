@@ -57,53 +57,9 @@ function valuesDiffer(values: unknown[]): boolean {
   return values.some((v) => JSON.stringify(v ?? null) !== first)
 }
 
-/** Direction of "good" per output metric. Metrics where better is genuinely
- *  ambiguous (leverage level, going-in cap — a buyer wants it high, a seller
- *  low) are omitted and never highlighted. */
-export const METRIC_DIRECTION: Record<string, 'up' | 'down'> = {
-  unleveredIrr: 'up',
-  leveredIrr: 'up',
-  lpIrr: 'up',
-  gpIrr: 'up',
-  equityMultiple: 'up',
-  unleveredEquityMultiple: 'up',
-  lpEquityMultiple: 'up',
-  moic: 'up',
-  avgCashOnCash: 'up',
-  cashOnCashYear1: 'up',
-  stabilizedCashOnCash: 'up',
-  annualizedReturn: 'up',
-  paybackPeriodYears: 'down',
-  yieldOnCost: 'up',
-  developmentSpreadBps: 'up',
-  breakEvenOccupancy: 'down',
-  terminalValue: 'up',
-  netSaleProceeds: 'up',
-  totalProfit: 'up',
-  npv: 'up',
-  profitabilityIndex: 'up',
-  minDscr: 'up',
-  avgDscr: 'up',
-  debtYield: 'up',
-  breakEvenRatio: 'down',
-  interestCoverageRatio: 'up',
-}
-
-/** Index of the best value across scenarios, or null when the metric has no
- *  unambiguous direction, fewer than 2 numeric values, or a tie. */
-export function bestValueIndex(metricId: string, values: (number | null | undefined)[]): number | null {
-  const direction = METRIC_DIRECTION[metricId]
-  if (!direction) return null
-  const numeric = values
-    .map((v, i) => ({ v, i }))
-    .filter((e): e is { v: number; i: number } => typeof e.v === 'number' && Number.isFinite(e.v))
-  if (numeric.length < 2) return null
-  const best = numeric.reduce((a, b) =>
-    direction === 'up' ? (b.v > a.v ? b : a) : (b.v < a.v ? b : a),
-  )
-  const tied = numeric.filter((e) => e.v === best.v)
-  return tied.length > 1 ? null : best.i
-}
+// The direction-aware best-value highlight lives with the Compare page's
+// math (one table for both views); re-exported here for existing callers.
+export { METRIC_DIRECTION, bestValueIndex } from './compareMath'
 
 // ---------------------------------------------------------------- tornado
 
@@ -113,11 +69,17 @@ export interface TornadoBar {
   low: number | null
   high: number | null
   impact: number
+  inert?: boolean
+  reason?: string | null
 }
 
 export interface TornadoGeometry {
   key: string
   label: string
+  /** Run 6: true when the engine reports the driver cannot move this deal
+   *  shape — rendered as a muted bar with the reason, not a silent zero. */
+  inert: boolean
+  reason?: string
   /** bar extents as fractions of chart width, 0.5 = the base value */
   x0: number
   x1: number
@@ -149,6 +111,8 @@ export function tornadoGeometry(
     return {
       key: b.key,
       label: b.label,
+      inert: b.inert === true,
+      reason: b.reason ?? undefined,
       x0: toX(Math.min(lo, hi)),
       x1: toX(Math.max(lo, hi)),
       lowX: toX(lo),

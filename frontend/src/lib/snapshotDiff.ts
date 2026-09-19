@@ -48,6 +48,7 @@ const TABLE_ROW_KEYS: Record<string, string | null> = {
   unitMix: 'unitType',
   commercialLeases: 'suiteId',
   opexLineItems: 'category',
+  marketLeasingProfiles: 'profileName',
   waterfallTiers: null,
 }
 

@@ -1,10 +1,11 @@
 """Admin surface: backups (J16) + integration status (Settings page)."""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.services import backup_service
 from app.api_models import BackupListingOut, ExternalToolsOut, IntegrationStatusOut
+from app.services import backup_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -28,7 +29,9 @@ def integration_status():
         ("BLS_API_KEY", "BLS", config.BLS_API_KEY,
          "Employment trends (also works unauthenticated at low volume)."),
         ("ANTHROPIC_API_KEY", "Anthropic", config.ANTHROPIC_API_KEY,
-         "LLM fallback for document classification and extraction."),
+         "LLM fallback for document classification and extraction; Underwriting Agent (Anthropic provider)."),
+        ("OPENAI_API_KEY", "OpenAI", config.OPENAI_API_KEY,
+         "Underwriting Agent (OpenAI provider)."),
     ]
     return [
         {"envVar": env_var, "label": label, "configured": bool(value), "purpose": purpose}
@@ -95,3 +98,22 @@ def restore_backup(payload: RestoreRequest):
         "preRestoreSnapshot": manifest.get("preRestoreSnapshot"),
         "note": "Restart the backend so the restored database is loaded.",
     }
+
+
+@router.get("/backups/{kind}/{name}/download")
+def download_backup(kind: str, name: str):
+    """Download a snapshot's SQLite file (offsite copy / migration). Same
+    validated resolver as restore (backup_service.snapshot_path), so only a
+    known kind plus a well-formed snapshot name inside the backups root is
+    reachable: malformed -> 400, well-formed but absent -> 404."""
+    try:
+        db_file = backup_service.snapshot_db_file(kind, name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not db_file.is_file():
+        raise HTTPException(404, f"No DB snapshot at {kind}/{name}")
+    return FileResponse(
+        db_file,
+        media_type="application/vnd.sqlite3",
+        filename=f"cre-backup-{kind}-{name}.sqlite3",
+    )

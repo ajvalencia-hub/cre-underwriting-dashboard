@@ -16,13 +16,24 @@ from app.services.extraction import (
     cross_validation,
     excel_extractor,
     llm_extraction,
+    operating_statement_parser,
     pdf_extractor,
     rent_roll_parser,
     t12_parser,
 )
 
 _MIN_DETERMINISTIC_ROWS = 2
-_MULTIFAMILY_UNIT_TYPE_RE = re.compile(r"\d\s*(bd|bed|br)\b", re.IGNORECASE)
+_MIN_OPSTMT_MATCHES = 3
+# A hyphen between the digit and "bed" ("1-Bed", "2-Bed 2-Bath Loft") is at
+# least as common as a plain space in real rent rolls — [\s-]* (not \s*)
+# covers both, plus the no-separator case ("1BR").
+_MULTIFAMILY_UNIT_TYPE_RE = re.compile(r"\d[\s-]*(bd|bed|br)\b", re.IGNORECASE)
+# "Studio" units carry no bed-count digit at all — that's correct, not a
+# gap in _MULTIFAMILY_UNIT_TYPE_RE — but on a studio-heavy property (this
+# regression's own fixture is 63% studios) excluding them from the
+# match-ratio numerator can keep a 100% residential rent roll under the
+# >0.5 threshold even once every non-studio label matches correctly.
+_STUDIO_UNIT_TYPE_RE = re.compile(r"\bstudio\b", re.IGNORECASE)
 
 
 def _allowed_fields() -> list[dict]:
@@ -233,12 +244,28 @@ def _extract_narrative(doc: Document, text: str, warnings: list[str]) -> dict:
     }
 
 
+_MULTIFAMILY_UNIT_ID_RE = re.compile(r"^\s*unit\s*#?\s*\d", re.IGNORECASE)
+
+
 def _looks_multifamily(rows: list[dict]) -> bool:
     typed = [r for r in rows if r.get("unitType")]
-    if not typed:
+    if typed:
+        matches = sum(
+            1 for r in typed
+            if _MULTIFAMILY_UNIT_TYPE_RE.search(str(r["unitType"]))
+            or _STUDIO_UNIT_TYPE_RE.search(str(r["unitType"]))
+        )
+        if matches / len(typed) > 0.5:
+            return True
+    # No usable unitType column — a common shape for small/simple rent rolls
+    # (bed/bath is implied by SF, never labeled). Fall back to structural
+    # signals: apartment-style "Unit N" ids and/or a generic "Residential"
+    # tenant placeholder (vs. a company/lessee name on a commercial roll).
+    if not rows:
         return False
-    matches = sum(1 for r in typed if _MULTIFAMILY_UNIT_TYPE_RE.search(str(r["unitType"])))
-    return matches / len(typed) > 0.5
+    residential_tenant = sum(1 for r in rows if str(r.get("tenant") or "").strip().lower() == "residential")
+    unit_n_id = sum(1 for r in rows if r.get("unit") and _MULTIFAMILY_UNIT_ID_RE.match(str(r["unit"])))
+    return residential_tenant / len(rows) > 0.5 or unit_n_id / len(rows) > 0.5
 
 
 def _field_entry(value, source_ref, confidence, source, raw_text=None, notes=None) -> dict:
@@ -389,7 +416,7 @@ def _aggregate_to_fields(merged: dict) -> dict:
 
 
 def run_extraction(documents: list[Document]) -> dict:
-    merged = {"scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": []}
+    merged: dict[str, list] = {"scalarExtractions": [], "rentRollRows": [], "t12LineItems": [], "unmatchedExtractions": [], "warnings": []}
 
     for doc in documents:
         grid, text, doc_warnings = _load_grid_and_text(doc)
@@ -400,6 +427,33 @@ def run_extraction(documents: list[Document]) -> dict:
             result = _extract_t12(doc, grid, text, doc_warnings)
         else:
             result = _extract_narrative(doc, text, doc_warnings)
+
+        # A spreadsheet can carry income-statement content even when it's
+        # classified rent_roll (or vice versa) — brokers routinely stack a
+        # rent roll and a simple "label: value" income statement in one
+        # sheet. Opportunistically look for that shape on every grid,
+        # independent of the doc's classified type, and merge in whatever it
+        # finds (never overwriting a scalar the primary parser already
+        # produced for this document).
+        if grid and doc.document_type != "t12_operating_statement":
+            opstmt = operating_statement_parser.parse_label_value_pairs(
+                grid["headers"], grid["rows"], doc.filename, grid["sheet"]
+            )
+            if opstmt["matchedRows"] >= _MIN_OPSTMT_MATCHES:
+                existing_ids = {s["fieldId"] for s in result["scalarExtractions"]}
+                for s in opstmt["scalars"]:
+                    if s["fieldId"] in existing_ids:
+                        continue
+                    result["scalarExtractions"].append(
+                        {
+                            "fieldId": s["fieldId"],
+                            "value": s["value"],
+                            "sourceRef": s["sourceRef"],
+                            "confidence": opstmt["confidence"],
+                            "source": "deterministic",
+                            "rawText": s["rawText"],
+                        }
+                    )
 
         for key in ("scalarExtractions", "rentRollRows", "t12LineItems", "unmatchedExtractions"):
             merged[key].extend(result[key])

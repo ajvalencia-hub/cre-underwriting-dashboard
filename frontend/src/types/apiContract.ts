@@ -27,7 +27,7 @@ import type {
   TornadoResponse,
 } from '../lib/api'
 import type { MappingPreviewRow } from './mappingPreview'
-import type { Deal } from './deal'
+import type { Deal, DealSummaryRow } from './deal'
 import type { DocumentSummary } from './document'
 import type { ExtractionResult } from './extraction'
 import type { AutoMatchResult, MappingEntry, MappingProfile } from './mapping'
@@ -73,4 +73,7 @@ export type ApiContract = [
   Check<Fits<Schemas['CompMapPointOut'], CompMapPoint>>,
   Check<Fits<Schemas['MonteCarloJobOut'], MonteCarloJobStatus>>,
   Check<Fits<Schemas['MarketRatesOut'], MarketRates>>,
+  Check<Fits<Schemas['DealSummaryOut'], DealSummaryRow>>,
+  Check<Fits<Schemas['BulkTagsOut'], { updated: Deal[]; missing: string[] }>>,
+  Check<Fits<Schemas['TornadoBarOut'], TornadoResponse['bars'][number]>>,
 ]

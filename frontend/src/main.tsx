@@ -9,7 +9,13 @@ import { initTheme } from './lib/uiPrefs.ts'
 import { whenDesktopReady } from './lib/platform.ts'
 
 // Apply the stored theme before first paint (no light flash on dark setups).
-initTheme()
+// This runs outside the ErrorBoundary: a storage/matchMedia failure must
+// degrade to the default theme, never a blank page.
+try {
+  initTheme()
+} catch {
+  // default (light) theme
+}
 
 // Safety net: an action whose failure isn't handled where it happens still
 // tells the user something didn't finish, instead of failing silently.

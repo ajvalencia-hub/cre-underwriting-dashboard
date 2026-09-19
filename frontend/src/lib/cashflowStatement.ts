@@ -65,6 +65,28 @@ export interface Statement {
   breakEvens?: {
     years: { year: number; occupancy: number | null; rentFactor: number | null; notes: string[] }[]
   }
+  /** Roadmap #25: present only for hotels (operating months, close = 0). */
+  hotel?: {
+    keys: number
+    roomsRevenue: number[]
+    fnbRevenue: number[]
+    otherRevenue: number[]
+    gop: number[]
+    revenueLinkedOpex: number[]
+  }
+  /** Roadmap #26: present only for build-to-sell deals (close = index 0). */
+  forSale?: {
+    homes: number
+    closings: number[]
+    grossSales: number[]
+    sellingCosts: number[]
+    netSales: number[]
+    land: number[]
+    siteWork: number[]
+    vertical: number[]
+    developerFee: number[]
+    loanRepayments: number[]
+  }
   /** J2: present only when loss-to-lease burn-off is active. */
   lossToLease?: { marketGpr: number[]; lossToLease: number[] }
   renovation?: {
@@ -98,9 +120,39 @@ const CATEGORY_LABELS: Record<string, string> = {
   reservesUnderwritten: 'Replacement reserves (underwritten)',
   managementFeeFixed: 'Management fee (fixed $)',
   otherOpex: 'Other opex',
+  hotelDepartmental: 'Departmental expenses',
+  hotelUndistributed: 'Undistributed operating expenses',
+  franchiseFee: 'Franchise fee',
+  ffeReserve: 'FF&E reserve',
+}
+
+/** Roadmap #26: a build-to-sell deal has no operations — its statement is
+ *  sales, the build budget, the loan and the equity flows. */
+function forSaleRows(): StatementRow[] {
+  const sale = (pick: (f: NonNullable<Statement['forSale']>) => number[]) => (s: Statement) =>
+    s.forSale ? pick(s.forSale) : []
+  return [
+    { key: 'forSale.gross', label: 'Gross home sales', kind: 'flow', series: sale((f) => f.grossSales) },
+    { key: 'forSale.selling', label: 'Less: selling costs', kind: 'flow', series: sale((f) => f.sellingCosts), indent: true },
+    { key: 'forSale.net', label: 'Net sales', kind: 'flow', series: sale((f) => f.netSales) },
+    { key: 'forSale.land', label: 'Land', kind: 'flow', series: sale((f) => f.land), indent: true },
+    { key: 'forSale.site', label: 'Site work (hard, soft, contingency)', kind: 'flow', series: sale((f) => f.siteWork), indent: true },
+    { key: 'forSale.vertical', label: 'Home construction', kind: 'flow', series: sale((f) => f.vertical), indent: true },
+    { key: 'forSale.fee', label: 'Developer fee', kind: 'flow', series: sale((f) => f.developerFee), indent: true },
+    { key: 'costs', label: 'Project costs', kind: 'flow', series: (s) => s.costs },
+    { key: 'debtDraws', label: 'Loan draws', kind: 'flow', series: (s) => s.debtDraws },
+    { key: 'interest', label: 'Interest', kind: 'flow', series: (s) => s.interest, indent: true },
+    { key: 'principal', label: 'Loan repaid from closings', kind: 'flow', series: (s) => s.principal, indent: true },
+    { key: 'loanBalance', label: 'Loan balance (end)', kind: 'balance', series: (s) => s.loanBalance },
+    { key: 'unlevered', label: 'Unlevered cash flow', kind: 'flow', series: (s) => s.unlevered },
+    { key: 'levered', label: 'Levered cash flow', kind: 'flow', series: (s) => s.levered },
+    { key: 'lpDistributions', label: 'LP cash flow', kind: 'flow', series: (s) => s.lpDistributions, indent: true },
+    { key: 'gpDistributions', label: 'GP cash flow', kind: 'flow', series: (s) => s.gpDistributions, indent: true },
+  ]
 }
 
 export function statementRows(statement: Statement): StatementRow[] {
+  if (statement.forSale) return forSaleRows()
   const rows: StatementRow[] = []
   if (statement.lossToLease) {
     // J2: the revenue build — GPR at market, less LTL, = scheduled rent.
@@ -115,18 +167,31 @@ export function statementRows(statement: Statement): StatementRow[] {
       },
     )
   }
-  rows.push(
-    {
-      key: 'gpr',
-      label: statement.lossToLease ? 'Scheduled rent' : 'Gross potential rent',
-      kind: 'flow',
-      series: (s) => s.gpr,
-    },
-    { key: 'vacancyLoss', label: 'Less: vacancy', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
-    { key: 'creditLoss', label: 'Less: credit loss', kind: 'flow', series: (s) => s.creditLoss, indent: true },
-    { key: 'otherIncome', label: 'Other income', kind: 'flow', series: (s) => s.otherIncome, indent: true },
-    { key: 'egi', label: 'Effective gross income', kind: 'flow', series: (s) => s.egi },
-  )
+  if (statement.hotel) {
+    // Roadmap #25: the hotel revenue build (USALI summary), same vectors.
+    rows.push(
+      { key: 'gpr', label: 'Potential rooms revenue (100% occupied)', kind: 'flow', series: (s) => s.gpr },
+      { key: 'vacancyLoss', label: 'Less: unsold room-nights', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
+      { key: 'hotel.rooms', label: 'Rooms revenue', kind: 'flow', series: (s) => s.hotel?.roomsRevenue ?? [] },
+      { key: 'hotel.fnb', label: 'Food & beverage revenue', kind: 'flow', series: (s) => s.hotel?.fnbRevenue ?? [], indent: true },
+      { key: 'hotel.other', label: 'Other revenue', kind: 'flow', series: (s) => s.hotel?.otherRevenue ?? [], indent: true },
+      { key: 'egi', label: 'Total revenue', kind: 'flow', series: (s) => s.egi },
+      { key: 'hotel.gop', label: 'Gross operating profit (after departmental and undistributed)', kind: 'flow', series: (s) => s.hotel?.gop ?? [] },
+    )
+  } else {
+    rows.push(
+      {
+        key: 'gpr',
+        label: statement.lossToLease ? 'Scheduled rent' : 'Gross potential rent',
+        kind: 'flow',
+        series: (s) => s.gpr,
+      },
+      { key: 'vacancyLoss', label: 'Less: vacancy', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
+      { key: 'creditLoss', label: 'Less: credit loss', kind: 'flow', series: (s) => s.creditLoss, indent: true },
+      { key: 'otherIncome', label: 'Other income', kind: 'flow', series: (s) => s.otherIncome, indent: true },
+      { key: 'egi', label: 'Effective gross income', kind: 'flow', series: (s) => s.egi },
+    )
+  }
   for (const category of Object.keys(statement.fixedOpexByCategory)) {
     rows.push({
       key: `opex.${category}`,

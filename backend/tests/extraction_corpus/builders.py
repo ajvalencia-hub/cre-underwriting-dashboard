@@ -17,8 +17,8 @@ wild baked in on purpose:
 import openpyxl
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 MONTH_HEADERS = [
     "Jan 2026", "Feb 2026", "Mar 2026", "Apr 2026", "May 2026", "Jun 2026",
@@ -103,6 +103,72 @@ def build_realpage_rent_roll(path) -> None:
     ]
     for row in rows:
         ws.append(row)
+    wb.save(path)
+
+
+def build_studio_heavy_rent_roll_with_tenant_id(path) -> None:
+    """Regression fixture (post-M audit): a studio-majority multifamily roll
+    with BOTH a "Tenant ID" and a "Resident Name" column, and hyphenated
+    unit-type labels ("1-Bed 1-Bath", "2-Bed 2-Bath") — the exact shape that
+    slipped through three separate bugs on a real 64-unit deal:
+    (1) _MULTIFAMILY_UNIT_TYPE_RE missed the hyphen, routing the whole roll
+        down the commercial-lease path; (2) even fixed, a studio-majority
+        mix (studios carry no bed-count digit at all, by design) still fell
+        under the >0.5 match-ratio threshold until studios counted too;
+        (3) the "tenant" field bound to Tenant ID (a number) instead of
+        Resident Name, silently defeating the "VACANT" vacancy marker this
+        fixture puts in Resident Name specifically, not Tenant ID."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rent Roll"
+    headers = ["Unit", "Unit Type", "Sq Ft", "Tenant ID", "Resident Name", "Lease Start", "Lease End", "Market Rent", "RC (Rent)"]  # noqa: E501
+    ws.append(headers)
+    rows = [
+        ["S-101", "Studio", 480, "1001", "Ada Lovelace", "2024-01-01", "2026-12-31", 1550, 1500],
+        ["S-102", "Studio", 480, "1002", "Grace Hopper", "2024-02-01", "2026-01-31", 1550, 1500],
+        ["S-103", "Studio", 480, "1003", "Alan Turing", "2024-03-01", "2026-02-28", 1550, 1500],
+        ["S-104", "Studio", 480, None, "VACANT", None, None, 1550, 1400],
+        ["L-201", "1-Bed 1-Bath", 625, "1004", "Katherine Johnson", "2024-04-01", "2027-03-31", 1776, 1673],
+        ["T-301", "2-Bed 2-Bath", 1000, "1005", "Dorothy Vaughan", "2024-05-01", "2027-04-30", 2300, 2225],
+    ]
+    for row in rows:
+        ws.append(row)
+    wb.save(path)
+
+
+def build_property_management_t12_with_banner_row(path) -> None:
+    """Regression fixture (post-M audit): an AppFolio-style cash-basis T-12
+    with (a) several single-cell metadata/title rows before the real header
+    row, (b) a MERGED single-row banner ("Owner's Actuals", A1:P1-style)
+    immediately above the real month-header row — scoring higher than a
+    bare title row but, before the parse_numeric fix below, tying the real
+    header row's score because parse_numeric("JUN 25") used to silently
+    return 25.0 (stripping the letters) instead of None, making the
+    header-row-guesser's text/number cell scoring blind to every month
+    header — and (c) account-code-prefixed line-item labels ("411010 Rental
+    Income"), which must still classify correctly once the real header row
+    is found."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Profit & Loss 12 Month Recap"])
+    ws.append(["Monthly recap from 06/01/25 to 05/31/26"])
+    ws.append(["Cash Basis"])
+    ws.append(["Property: TEST HOLDINGS"])
+    ws.append([])
+    banner_row = 6
+    ws.cell(row=banner_row, column=1, value="Owner's Actuals")
+    ws.merge_cells(start_row=banner_row, start_column=1, end_row=banner_row, end_column=13)
+    ws.append([""] + MONTH_HEADERS + ["TOTAL"])
+    ws.append(["Income"])
+    ws.append(["411010 Rental Income"] + [50_000] * 12 + [600_000])
+    ws.append(["421120 Water Charge collected"] + [1_000] * 12 + [12_000])
+    ws.append(["Total Income"] + [51_000] * 12 + [612_000])
+    ws.append(["Expense"])
+    ws.append(["501510 Exp:Prop-Taxes-Paid"] + [2_000] * 12 + [24_000])
+    ws.append(["502832 Electricity - Common Area"] + [500] * 12 + [6_000])
+    ws.append(["Total Expense"] + [2_500] * 12 + [30_000])
+    ws.append(["NET INCOME"] + [48_500] * 12 + [582_000])
     wb.save(path)
 
 
@@ -206,6 +272,90 @@ def build_stacking_plan_pdf(path) -> None:
             Table(rows, style=grid_style),
         ]
     )
+
+
+def build_combined_rent_roll_and_income_statement(path) -> None:
+    """A small broker workbook shaped exactly like a real-world failure mode
+    (traced from an actual deal package): ONE sheet stacking a rent roll —
+    with NO Unit Type column at all, "Unit N" ids, and vacant units marked
+    only in the unit LABEL ("Unit 3 - Vacant") while the tenant column still
+    carries a generic "Residential" placeholder — directly above a simple
+    two-column "label: value" income statement with a CURRENT IN-PLACE
+    section and a PRO-FORMA section repeating several of the same expense
+    labels at different amounts, plus an "Asking Price:" aside sharing a row
+    with an unrelated expense line. Exercises: rent-roll table-boundary
+    detection (the income-statement rows below must not become phantom
+    units), vacant-by-label inference, the no-unit-type multifamily
+    fallback, SF-based unit-mix grouping, and the label/value
+    operating-statement parser's section-priority + same-bucket summing."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Unit #", "Tenant", "SF", "Monthly Rent"])
+    ws.append(["Unit 1", "Residential", 400, 1200])
+    ws.append(["Unit 2", "Residential", 400, 1250])
+    ws.append(["Unit 3 - Vacant", "Residential", 400, None])
+    ws.append(["Unit 4", "Residential", 600, 1600])
+    ws.append(["TOTAL:", None, 1800, 4050])
+    ws.append(["AVERAGE:", None, 450, None])
+    ws.append([])
+    ws.append(["Notes"])
+    ws.append(["Figures are approximate."])
+    ws.append([])
+    ws.append(["CURRENT IN-PLACE"])
+    ws.append(["Gross Annual Income", 61200])
+    ws.append(["Property Taxes", 8000, None, "Asking Price:", 900000])
+    ws.append(["Electric", 600])
+    ws.append(["Water/Sewer", 900])
+    ws.append(["IN-PLACE NET OPERATING INCOME:", 43700])
+    ws.append([])
+    ws.append(["PRO-FORMA"])
+    ws.append(["Gross Annual Income", 76800])
+    ws.append(["Property Taxes", 8200])
+    ws.append(["Electric", 600])
+    ws.append(["Water/Sewer", 900])
+    ws.append(["PRO FORMA NET OPERATING INCOME: ", 58900])
+    ws.append(["PRO-FORMA NOI @ 100% OCCUPANCY w/ 3rd Party Management: ", 61000])
+    wb.save(path)
+
+
+def build_marketing_om_without_literal_phrase_pdf(path) -> None:
+    """Real-world OM failure mode (traced from an actual broker package):
+    a multi-page marketing deck that never once uses the phrase "offering
+    memorandum" anywhere in its text — the cover/highlights/zoning/photo
+    pages are the ONLY content, no financials at all. Generic real-estate
+    boilerplate ("Unit Count: 12", "Bldg Area: 5,677 SF") on the fact-sheet
+    page is exactly the kind of scattered wording that used to outscore the
+    real OM-specific vocabulary and get this misclassified as a rent roll."""
+    styles = getSampleStyleSheet()
+    footer = "Jane Broker, Senior Commercial Advisor  |  555-0100  |  Acme Commercial Advisors LLC"
+
+    def page(*paragraphs):
+        return [Paragraph(p, styles["Normal"]) for p in paragraphs] + [
+            Paragraph(footer, styles["Normal"]),
+            PageBreak(),
+        ]
+
+    flow = []
+    flow += page("Maple Court Apartments", "123 Maple St, Springfield")
+    flow += page(
+        "Investment Highlights",
+        "Stabilized 12-Unit Multifamily Asset offering reliable cash flow.",
+        "Unit Count: 12", "Bldg Area: 5,677 SF", "Lot Size: 10,395 SF",
+    )
+    flow += page(
+        "Zoning", "Subject Zoning: T5-R", "Max. Density: 15 units",
+        "Max. Height: 5 stories", "Allowable Uses: Multi-family",
+    )
+    flow += page("Bird's Eye View", "Unit Mix diagram — see site plan.")
+    flow += page("Building Photos")
+    flow += page("Exterior Photos")
+    flow += page("Interior Photos")
+    flow += page("Neighborhood Map", "Prime location near transit and retail.")
+    flow += page(footer)  # 9th page, keeps page_count comfortably >= 8
+
+    doc = SimpleDocTemplate(str(path), pagesize=letter)
+    doc.build(flow)
 
 
 def build_broker_om_pdf(path) -> None:

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import {
   attachmentDownloadUrl,
   createNote,
+  deleteAttachment,
   deleteNote,
   fetchAttachmentPreview,
   fetchAttachments,
@@ -17,10 +18,13 @@ import { toastError } from '../lib/toast'
 
 const TYPE_ICONS: Record<string, string> = {
   pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
-  png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', webp: '🖼',
+  png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', webp: '🖼', svg: '🖼',
   docx: '📝', doc: '📝', pptx: '📽',
 }
 
+// Inline-previewable images. SVG is deliberately absent: the server always
+// serves SVG attachments as downloads (never inline — an SVG can carry
+// script), so it gets the download link only, no <img> preview.
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
 
 function fmtSize(bytes: number | null): string {
@@ -129,6 +133,20 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
     }
   }
 
+  // Run 6: the deal's own uploads can be removed; extraction sources belong to
+  // the provenance trail and have no delete control (the API 404s them).
+  async function handleDeleteAttachment(att: DealAttachment) {
+    if (!dealId || att.source !== 'attachment') return
+    if (!window.confirm(`Delete the attachment "${att.filename}"? This cannot be undone.`)) return
+    try {
+      await deleteAttachment(dealId, att.id)
+      setAttachments((prev) => prev.filter((a) => a.id !== att.id))
+      if (preview?.id === att.id) setPreview(null)
+    } catch (err) {
+      toastError("Couldn't delete the attachment", err)
+    }
+  }
+
   async function addNote() {
     if (!noteDraft.trim() || !dealId) return
     try {
@@ -197,6 +215,15 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                   >
                     download
                   </ServerFileLink>
+                  {att.source === 'attachment' && (
+                    <button
+                      onClick={() => void handleDeleteAttachment(att)}
+                      aria-label={`Delete attachment ${att.filename}`}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      delete
+                    </button>
+                  )}
                 </div>
                 {preview?.id === att.id && (
                   <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-2">
@@ -225,6 +252,7 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
               placeholder="Add a note… (**bold**, *italic*)"
+              aria-label="New note"
               rows={2}
               className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
             />

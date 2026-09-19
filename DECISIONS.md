@@ -3,6 +3,441 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Charts across the app, and the desktop app on Windows (post-Run 6)
+
+- **Charts are hand-rolled SVG on one small in-house kit**
+  (`frontend/src/components/charts/`: line, bar, scatter, strip/dot plot,
+  stat tiles, shared frame). Rejected: a chart library — it would add a
+  large dependency to the desktop bundle for a dozen chart types, and the
+  app already drew its own SVG charts; one kit keeps them consistent.
+- **Colour is computed, not eyeballed.** The palette is the dataviz
+  reference instance (categorical slots in a fixed, colour-blind-checked
+  order; sequential, diverging and status ramps), validated with the
+  palette script against the app's own cards (#ffffff light, #1e293b
+  dark). One dark step was lifted (green #008300 -> #008a00) to clear 3:1
+  on the dark card. Tokens live once in `index.css` (`--viz-*`, under
+  `:root` and `.dark`); components never hard-code hex.
+- **Every chart ships with a table view, a hover tooltip, one keyboard tab
+  stop with arrow-key navigation, and an empty state** — so identity is
+  never colour-alone and the numbers stay readable where contrast warns.
+- **One y-axis per chart.** The hold sweep's dual-axis plot became two
+  charts (IRR %, equity multiple x); mixed-unit comparisons (Scenarios,
+  Compare) are split by metric family.
+- **Colour follows the entity**: a deal or scenario keeps its slot while it
+  stays selected, shared between the chart and the table header.
+- **Skipped on purpose**: sources & uses (the statement has only total
+  costs — rebuilding the split would duplicate engine math in the
+  browser), IC approval (a history reads better as a list), sidebar
+  sparklines.
+- **Windows desktop app**: the same PyInstaller shell, with a platform
+  layer (`desktop/cre_desktop/osutil.py`) for the single-instance lock,
+  quit cleanup, relaunch and reveal-in-Explorer; data in
+  `%LOCALAPPDATA%\CRE Underwriting`; keys in Windows Credential Manager;
+  a WebView2 check that explains instead of failing. Installer: Inno Setup,
+  per-user (no admin prompt), Start-menu and desktop shortcuts, launch on
+  finish, uninstall keeps the deal data. Rejected: MSIX (needs signing to
+  install at all) and a single-file exe (slow start: it unpacks ~200 MB on
+  every launch). The installer is compiled in CI; macOS gains a
+  drag-to-Applications DMG.
+
+## Run 6 port onto later-items — frontend
+
+Run 6's frontend work was ported into this line's structure (left-rail
+navigation, split App modules, generated API types, IC lock, desktop
+app). Dropped in favour of this line's versions: Run 6's toast module,
+field-id helper, tablist roving and Ctrl/Cmd+1..9 tab keys (the rail is
+not a tablist and the palette jumps to tabs), and its last-tab store.
+Optimistic-concurrency checks (If-Match) run in the browser only — this
+line's desktop plan declined cross-window protection for the app.
+
+### Panels
+
+- **CompsPage market filter** is *derived*, not synced by an effect: `typedFilter: string | null`,
+  `marketFilter = typedFilter ?? dealMarket`. Null = follow the deal; typing sets it; "Use deal
+  market (X)" resets to null. Avoids Run 6's setState-in-effect and a stale-filter flash on deal switch.
+  Latest-wins via `createLatestGuard` in a ref (covers kind toggles and typing). Delete uses inline
+  `window.confirm` (target convention; no confirmAction lib).
+- **outputVisibility**: added `grossMarginPct` and `selloutYears` to DEVELOPMENT_ONLY (for_sale.applies
+  requires dealType=development). `peakEquity` left visible (generic concept; deals.py reads it for all
+  deals). Filter applies to the sidebar *detail* list only; headline sets already type-aware.
+- **RiskPanel**: 'cancelled' poll status -> neutral notice "Run cancelled." (not an error). Timeout also
+  fires best-effort `cancelMonteCarlo`. Poll/start errors go through `friendlyEngineError`. Seed error
+  tied with `aria-describedby`.
+- **Tornado inert**: `TornadoBar.reason` widened to `string | null` (api.ts type); geometry normalises null
+  to undefined. Inert bars: opacity 0.45, `<title>` tooltip, "inert — reason" text, and the ↓/↑ value
+  labels are hidden (they would overlap the reason at the base line). Test lives in a NEW file
+  `lib/tornadoInert.test.ts` so F3's `scenarioComparison.test.ts` stays untouched.
+- **ScenariosPanel memo**: `orderedOutputs` memo keyed on `compared[0].inputs` (+schema.outputs,
+  showAllMetrics); dropped the eslint-disable on `comparisonRows` by keying on memoised `compared`.
+  Tornado error also uses `friendlyEngineError`.
+- **CashFlowTab year headers** were already `<button aria-expanded>` inside `<th>` on target; only added
+  `scope="col"` and `aria-hidden` on the arrow (kept th onClick for the wider mouse target — the button
+  stops propagation).
+- **QS sensitivity grid**: cell content is now a full-cell `<button>` (td `p-0`, button `block w-full
+  p-1.5`) so visuals/click area are unchanged; metric toggles get `aria-pressed`; component wrapped in
+  `memo`.
+- **SheetPicker**: cells get `role=button`/`tabIndex=0`/Enter+Space **only while picking** (otherwise the
+  grid would add hundreds of tab stops); "Go to cell" remains the fast path.
+- **GeneratePanel**: `errorParts` keeps ApiError.missing (ResultsStatus-style links) but the message goes
+  through `friendlyEngineError`. irrDiagnostics: small amber "X IRR shown a%; other roots: …" line under
+  the existing warnings list (the engine's multi-root warning already lists roots; this line separates
+  the reported root from the others). Reported IRR untouched.
+- **FileCabinet**: delete only when `source === 'attachment'`; SVG never gets an inline `<img>` preview
+  (IMAGE_EXTS already excluded svg on target — documented + svg icon added).
+- **Documents**: `.xls` dropped from accept (server refuses legacy BIFF).
+- **DealInputForm**: one guarded `fetchMarketRates` per mount, passed to RatesHint/SofrSeed as props.
+  `buildingRsf` needs no form code (schema-driven, commercial_rent_roll section) — pinned by
+  `lib/buildingRsfSchema.test.ts`.
+- **IcApprovalPage**: switched its hand try/catch storage to `safeStorage` (behaviour identical).
+- **NOT done (G1 file)**: Load-in-Quick-Screen switching the napkin mode — the handler is
+  `handleLoadQuickScreenScenario` in App.tsx; ScenariosPanel only calls the prop. G1 should add
+  `quickScreens.setMode('development')` there.
+- Skipped per plan: memo(TemplateUpload); loanPayoff row (no vector on this line); Sensitivity
+  `data-heat-cell` set only on cells that have a point (empty cells have no pastel background).
+
+### Pipeline, Settings, Compare, Agent UI, e2e
+
+- **Agent thread sharing without a `controller` prop.** The dock and the Agent tab each call `useAgentThread(dealId)`. They are never visible together (the dock returns null while `tab === 'agent'`), and every mutation (send, play, reject, provider switch, approve via App) dispatches `cre:agent-thread-changed` with the deal id; the other instance re-reads the thread. So App needs no extra wiring. `AgentSurfaceProps` is unchanged.
+- **Approve goes through App only.** `useAgentThread` has no approve. The surfaces call `onApproveProposal(proposal)` (IC lock, save flush, provenance 'agent'), then announce the thread change. Reject calls `rejectAgentProposal` directly (errors go to `toastError`). Approve is disabled when `icLocked && kind === 'input_changes'`, with an inline reason (a note on the card and a banner on the tab).
+- **Proposal diff.** This reuses the target's `diffSnapshots` + `SnapshotDiffView`, so the proposal diff reads like History. The engine preview comes through `proposalPreview()`, and its warnings are merged with the proposal warnings. The status badge uses `PROPOSAL_STATUS_LABELS` ("Pending review" / "Approved" …).
+- **Provider picker.** If the thread's provider isn't user-selectable (the e2e `scripted` stub), it is shown as the current option instead of silently showing the first provider.
+- **Dock.** It sits at z-40, bottom-right, and its open flag is stored under the `cre.agentDockOpen` key through safeStorage. Escape closes it only when focus is inside the dock or on the body, so Escape in the palette or a modal stays with that surface. It carries `data-no-print`.
+- **Compare.** It computes from App's `deals` prop (saved inputs hydrated over the schema defaults via `hydrateDealState`) and does not refetch. The cache is keyed by `id + updatedAt`, so a deal that autosaves recomputes automatically. Latest-wins uses a generation ref that Recompute bumps. An earlier `createLatestGuard().next()` inside a `useState` initializer broke under StrictMode, where initializers run twice. Untyped deals show "not computable" with the reason. Engine errors go through `friendlyEngineError`.
+  - Rows use F2's `lib/outputVisibility.ts` (it was present, so it is imported rather than duplicated). Metrics that no computed deal produced (for-sale or hotel metrics on a rental comparison) are dropped.
+  - CSV export uses `saveOutput(textBlob(...))`, which works in the desktop app. Clicking a column header opens that deal (`onOpenDeal`).
+- **`METRIC_DIRECTION` / `bestValueIndex`** moved into `compareMath.ts` and are re-exported from `scenarioComparison.ts`; `tornadoGeometry` is untouched. I added directions for the target-only outputs: `trendedYieldOnCost`, `grossMarginPct`, `minMonthlyDscr`, `stressedDscr`, `goingInDebtYield` (up) and `prepaymentCost` (down). This affects the Scenarios best-value highlight as well. It is display only, not [FIN].
+- **Pipeline.**
+  - **`pipelineViews.ts`:** Run 6's rewrite, extended with the target's metric columns as sort keys (`totalCost`, `equity`, `leveredIrr`, `equityMultiple`, `yield`; nulls always sort last; they default to descending) and an optional `columns` field in saved views. `normalizeView` upgrades old `{name, marketFilter, sortKey, showTerminal}` views and drops unknown stages and staleness values. `applyView` keeps its old signature.
+  - **Staleness column:** the badge moved out of "Last touched" into its own sortable column.
+  - **Bulk tags / unarchive:** the page calls `bulkUpdateDealTags` / `unarchiveDeal` itself and overlays the returned copies on App's list (by `updatedAt`) until App catches up. It also emits the new optional prop `onDealsChanged(deals)` for App to upsert.
+  - **Show archived:** fetches `fetchDeals({includeArchived:true})` locally and refetches when App's list changes. Archived rows appear dimmed on their board (untyped ones in the untyped box) with an Unarchive button. They are not counted, not selectable and excluded from bulk actions. The view filters apply to them too.
+  - **Tag filter:** AND semantics, with a case-insensitive pressed state.
+  - **Storage:** all storage access (columns, views) goes through safeStorage.
+- **Settings.**
+  - **Backup download:** `ServerFileLink` + `backupDownloadUrl` on every snapshot row with `hasDb`, for every kind (daily / weekly / pre_restore / pre_migration).
+  - **WORKFLOW section:** a "Default type for New Deal" setting (ask / acquisition / development). The new `lib/newDealPrefs.ts` holds it under the `cre.newDealType` key and exports `defaultNewDealType()`, which returns null for ask. Run 6's `workflowPrefs` last-tab half was not ported, because navigation.ts already has it under the same key.
+  - **SECURITY section:** a "Sign out" button, shown only when `fetchAuthStatus().required` and not in the desktop app. It calls `logout()` then dispatches `UNAUTHORIZED_EVENT`.
+  - **Other:** theme is read through safeStorage, and the page is wrapped in `memo`.
+- **e2e.**
+  - **playwright.config:** kept the target's scratch-DB pinning, and added `workers: 1`, `AGENT_PROVIDER=scripted` and `CRE_STORAGE_ROOT=<.e2e-scratch>/storage` (new). The settings spec runs "Back up now", which would otherwise write into, and rotate, the developer's real `backend/storage/backups`.
+  - **Specs:** agent.spec (3 tests: approve → History "Agent-applied"; unverified-claim gate; dock shares the conversation and closes on Escape) and features.spec (4 tests: settings / portfolio / risk; compare; tags; pipeline sort, bulk tags and archive).
+  - **Selectors and data:** the specs use the target's selectors (rail buttons without numbers, the `select` deal picker). Deals come from `analytic_acquisition.json` via the API (`_comment` stripped) and are deleted afterwards. Tags keep their case ("Core Plus").
+
+## Underwriting Agent (Run 6 port onto later-items)
+
+Ported from `run6-desktop-audit` (6e54b93). The backend is
+`routers/agent.py` and `services/agent/**`, the tests are
+`tests/test_agent_*.py`, and the frontend is ported separately. The notes
+below cover the agent's design and how it was adapted to this branch's
+IC lock, input validation and API contract.
+
+- **Write tools take no `db` parameter, by construction.**
+  `propose_input_changes` and `propose_scenario` (`services/agent/tools/
+  write_tools.py`) take plain dicts and return a `Proposal` dataclass.
+  Nothing in the module imports a Session or an ORM class, so whatever a
+  manipulated model passes, a write tool can't reach `Deal.inputs`. Only
+  the runner persists a proposal, as its own `agent_proposals` row with
+  status `pending`. Applying it is a separate request that a person makes:
+  `POST /api/agent/proposals/{id}/approve`. `test_agent_tools.py`, which
+  `test_agent_security.py` re-asserts, fails the build if any registered
+  write tool gains a `db` or `Session` parameter. Rejected: a dry-run flag
+  on tools that can also write, because one forgotten flag is a silent
+  mutation. Also rejected: relying on the system prompt, because a prompt
+  is advice and a signature is a guarantee.
+- **Approval goes through the IC lock and input validation.**
+  `approve_proposal` runs two gates before it writes anything, including
+  `deal_history.record_snapshot(kind="agent")`:
+  1. `proforma.input_validation.validate_inputs` on the changes being
+     applied. `overrideChanges` come straight from the client, so they are
+     re-checked. A failure returns 422 with the compute routes' body,
+     `{"detail", "missing"}`.
+  2. `ic_workflow.check_input_change(db, deal, merged)`, the same check
+     `PUT /api/deals/{id}` and history restore run. A lock returns 409
+     `{"detail"}`.
+
+  The proposal stays `pending` after either refusal, so it can still be
+  approved once the deal is reopened. An approval that changes only
+  `UNLOCKED_KEYS`, or nothing, passes the lock, following the same rule
+  as the deal PUT. Tests are in `test_agent_target_port.py`: 409 with no
+  write, approve after reopen, 422 with no write. Rejected: letting
+  approval bypass the lock as an "explicit human action". The IC lock
+  exists precisely so that what the committee signed off on is what the
+  deal says, whichever edit path is used.
+- **Invalid inputs come back as tool errors, never a 500.** The engine
+  raises `InsufficientInputsError` for any input that fails validation, and
+  each tool handles it as follows:
+  - `compute`, `solve`, `run_tornado` and `run_sensitivity` return
+    `{"error", "missing"}`.
+  - `solve` and `run_sensitivity` validate their values up front. Without
+    that, the goal-seek scan and the sensitivity grid would absorb the
+    error at each point and report a misleading "no crossing" or a grid of
+    identical warnings.
+  - Write tools screen each change: an unknown field, a non-number in a
+    numeric field (the engine's full `NUMERIC_TYPES`, including `multiple`
+    and `years`) or an off-list option is dropped with a warning.
+    Whatever is left then passes `validate_inputs`. An error there, such
+    as a non-numeric table cell, raises `ProposalValidationError`. The
+    runner turns that into a tool error `{"error", "invalid"}` and creates
+    no proposal row, so the model sees the named fields and can retry.
+- **Anti-hallucination is enforced structurally, not by prompt**
+  (`provenance.py`). After every turn, the server extracts every numeric
+  claim in the reply: `$` amounts, `%`, `x` multiples and bare figures of
+  the "DSCR is 1.4" kind. It matches each one, within kind-specific
+  tolerances, against every number in this turn's tool-call arguments and
+  results. Unmatched figures are persisted as `unverifiedClaims`, and the
+  UI shows them as an amber "Unverified" banner. Numbers inside quoted
+  spans are masked. Prior turns' tool results are not replayed, so a figure
+  is grounded only by a fresh call. The extraction is generic, so the
+  engine's new outputs (`goingInDebtYield`, `prepaymentCost`, maturity
+  refinance, hotel and build-to-sell results) need no checker change.
+  Rejected: rewriting the flagged sentence, which hides the failure. Also
+  rejected: a second "judge" model call, which adds cost and a second thing
+  that can hallucinate.
+- **`solve` is the existing goal-seek.** The tool wraps
+  `goal_seek.run_goal_seek(values, target_input, output_metric,
+  target_value, bounds)`: a bracket scan plus bisection, with no
+  monotonicity assumption. With it come this branch's P1 stress-skip and
+  the numeric-field whitelist. `values` defaults to the thread's deal
+  inputs. "No crossing" is a typed result, `{solvedValue: null, reason}`,
+  not an error. Rejected: a second solver with different bound semantics.
+- **Settings-free configuration.** Provider, models and keys come from
+  `app.config`: `AGENT_PROVIDER`, `ANTHROPIC_AGENT_MODEL`,
+  `OPENAI_AGENT_MODEL`, `OPENAI_API_KEY` and the shared
+  `ANTHROPIC_API_KEY`. That is the same way the classifier and extraction
+  read theirs. The env var only sets a new thread's default provider. The
+  UI switches providers per thread (`PUT /api/agent/threads/{id}/provider`)
+  with no restart. The desktop app stores `OPENAI_API_KEY` in the Keychain
+  like the other keys (`desktop/cre_desktop/keys.py KNOWN_KEYS`), so it
+  takes effect on the next launch.
+- **Every agent route declares its `api_models` response model.** These
+  are `AgentThreadOut`, `AgentPlayOut`, `AgentProviderOut`,
+  `AgentThreadRefOut`, `AgentTurnOut`, `AgentApproveOut` and
+  `AgentRejectOut`, which reuses `DealOut` for the applied deal. List
+  fields on stored messages and proposals are normalized to `[]`, never
+  null, so the declared shapes always hold.
+- **Vendor-neutral providers.** The `anthropic` and `openai` adapters
+  translate one `Message`/`ToolSpec`/`ChatResult` shape. A missing key or
+  an API failure is a `stop_reason` of `unavailable`/`error`, never an
+  exception. A deterministic `scripted` provider exists only for
+  Playwright (`AGENT_PROVIDER=scripted`) and is not selectable in the UI.
+- **Prompt-injection posture.** Every tool result reaches the provider
+  inside a labelled `{"_note", "data"}` envelope. The system prompt states
+  that deal fields, comp notes and market text are data. `get_deal` and
+  `list_scenarios` are forced onto the thread's deal. API keys never enter
+  the context.
+- **Hard caps, never a silent loop.** A turn allows 25 tool calls, 15
+  compute-family calls and 60 s of wall clock. Hitting any cap ends the
+  turn with an explicit "Stopped early" message. Token usage accumulates
+  per thread and is logged per turn under `app.agent`.
+- **Plays are server-side.** `/api/agent/plays` exposes only the id and
+  label. The prompt and the restricted tool subset stay in `plays.py`.
+- **Tables.** `agent_threads`, `agent_messages`, `agent_tool_calls` and
+  `agent_proposals` are net-new, so `create_all` creates them. The
+  `kind="agent"` history snapshot is part of `SnapshotMetaOut.kind`.
+
+## Run 6 API and security port (G1)
+
+Ported from run6-desktop-audit into this branch's architecture. Target
+conventions win where the two differ; each difference is listed.
+
+- **Archive is a soft delete, separate from the IC lock**: `archived_at`
+  hides a deal from the deal list, portfolio (and its CSV), search (deals,
+  tenants, notes), `/api/deals/metrics` and `/api/ic/states`. The deal and
+  everything attached to it stay reachable by id. Archiving writes no
+  inputs, so it is allowed while the deal is IC-locked. The sign-off record
+  is untouched, and unarchiving brings the IC state back. Rejected: a
+  pipeline stage "archived" (it would lose the stage the deal was in).
+- **A clone starts a fresh record in draft**: it copies inputs (minus the
+  `_omWizard` draft), stage, tags, template/mapping selection and scenarios.
+  It does not copy notes, attachments, input history or IC events. A clone
+  of a signed-off deal is therefore editable (the what-if use case), while
+  the source stays locked. Rejected: copying IC events (the clone would be
+  born locked, and it would claim a sign-off nobody gave on it).
+- **Tags are labels, not inputs**: PUT `tags` and `POST /api/deals/bulk-tags`
+  are allowed while IC-locked. They are normalized (trimmed, deduped
+  case-insensitively, at most 20 tags of 40 characters each). The export
+  bundle carries `deal.tags` with `schemaVersion` still 1: the key is
+  additive and older bundles import with no tags. Non-text entries in a
+  bundle are dropped with an import warning.
+- **ETag / If-Match is optional and additive**: every single-deal response
+  carries an `ETag` derived from `updated_at`, normalized to naive UTC.
+  PUT honors `If-Match` in this order: 404, then 412
+  `{detail, current: DealOut}`, then the IC lock 409, then the write. `*`
+  always passes, and no header means last writer wins, exactly as before.
+  `from-extraction`, restore, archive, unarchive, clone and import carry
+  the tag too.
+- **Finalizing a wizard draft now goes through the IC lock**:
+  `POST /api/deals/from-extraction` with `dealId` writes the deal's inputs,
+  so it calls `ic_workflow.check_input_change` (409) like every other input
+  path. This closes a gap that predates the port.
+- **External-data routes are rate-limited per route, not per client**:
+  market rates, benchmarks, market context, demographics and the comps map
+  each have their own token bucket (`services/rate_limit.py`, verbatim
+  from Run 6). The bucket protects the upstream's shared quota. The limit
+  (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60, 0 = off) is read at
+  request time. Over the limit returns 429 with `Retry-After`.
+- **Monte Carlo runs on a bounded pool**: 2 workers plus 4 queued jobs.
+  Beyond that, a start returns 429 with `Retry-After: 5`. A job that raises
+  anything ends "failed" instead of hanging in "running". A seed outside
+  0..2^32-1 is a synchronous 400. `DELETE /api/compute/monte-carlo/{id}`
+  cancels the job after the trial in flight, and the poll then reports
+  "cancelled". The trial loop still sets `_skipCategoricalStress`.
+- **Missing template file on the sheet grid is a 404, not Run 6's 410**:
+  this follows this branch's existing convention (mapping preview,
+  recalc-check): "The template file for X is missing from storage —
+  upload it again." Row and column windows are clamped at both ends, and
+  so is `start_row`.
+- **File cabinet isolation**:
+  - Download and preview reach only the deal's own attachments or global
+    (extraction) documents.
+  - The provenance badge lists global documents only.
+  - The stored extension is whitelisted (`[a-z0-9]{1,10}`, else `bin`).
+  - SVG is never served inline (roadmap #3). The existing sandbox CSP now
+    applies to every inline response and to any SVG. nosniff stays global.
+  - The new `DELETE /api/deals/{id}/attachments/{docId}` deletes only the
+    deal's own attachments. It uses `document_storage.release_file`, which
+    is keyed on the stored path, instead of Run 6's hash check. It has no
+    IC lock because an attachment is not an input.
+- **Backup download reuses the restore validator**: the new
+  `backup_service.snapshot_path` does three things. It checks the kind
+  with `_check_kind`, so all four kinds work, including pre_restore and
+  pre_migration. It checks the name with `_NAME_RE`. It checks that the
+  resolved path stays inside the backups root. Malformed input returns
+  400 and a well-formed but absent snapshot returns 404. Restore uses the
+  same helper.
+- **Smaller hardening, ported as-is**:
+  - LIKE escaping (`services/sql_like`) in search and in the comps
+    list/map, which also use the two-way `market_matches`.
+  - The chunked 5 MB CSV multipart read.
+  - Comps text fields are trimmed on write.
+  - Deleting a template or mapping clears the deal selections that point at
+    it. This uses `update(Deal)` statements for mypy.
+  - A soffice timeout is now a RuntimeError, and the scratch directory is
+    cleaned up.
+  - Control characters are stripped from generated Content-Disposition
+    headers.
+  - An ic-deck `scenario_id` from another deal returns 404.
+  - Legacy `.xls` uploads are refused with re-save guidance.
+  - `.dockerignore` excludes `**/.env*` but keeps `.env.example`.
+  - `/api/admin/integrations` lists `OPENAI_API_KEY` (as a flag only).
+  - Compose passes `CRE_API_TOKEN`, the rate limit and the agent provider
+    variables.
+
+## Run 6 port onto later-items — financial engine (G2)
+
+Run 6's engine work (ffc9314, 9aebd70) was ported INTO this branch's engine,
+not copied over it. The coordinator's settled decisions for this port are the
+owner approval for each [FIN] item below; nothing else changed conventions.
+Every item has a test that fails without it (tests/test_port_g2_engine.py,
+tests/test_port_g2_analysis.py, test_statement_detail.py). **Baseline: the
+six Run-4 cases are byte-identical** (`git diff --stat` on run4_baseline shows
+only the new file); one new case was added.
+
+- **[FIN] A development sold IN its stabilization month never takes out**
+  (Run 6 B1). The perm takeout needs a month to live before exit
+  (`takeout_month < total`, was `<=`): the sale leg of the refi-vs-sale fork
+  (hold = stabilization month) repays the construction balance from proceeds
+  with no refi costs and no one-month perm schedule, so its IRR no longer
+  depends on refiCostsPct. The Excel export refuses this shape alongside
+  "sold before stabilization" (it mirrors a one-month perm). Re-verified on
+  this branch: no baseline value moves, so it ships unflagged. The maturity
+  refinance needs no change (it never fires without a takeout).
+- **Legacy stabilized NOI honors useReassessedTaxes** (B2): flat mode now
+  substitutes the H4 reassessed taxes like the expense vectors do, so sizing
+  NOI, debt yield, yield on cost and break-evens move with the toggle.
+  Toggle off is identical.
+- **[FIN] Cash-on-cash strips every capital event** (B3): cashOnCashYear1 /
+  avgCashOnCash / stabilizedCashOnCash exclude the junior-tranche payoff and
+  the escrow release at exit, and this branch's own maturity refinance's
+  net cash-out / paydown (`maturityRefinance.netToEquity`) in its month —
+  it used to inflate (or deflate) average CoC. The H3 insurance-stress
+  `leveredCfDeltaAnnual` helper applies the same strip.
+- **Development with no construction period warns** (B5), engine only. The
+  Run 6 Excel refusal is dropped: this branch's Draws sheet already mirrors
+  the shape (parity case export_development_no_build_period).
+- **Detail-mode year-1 recoveries (B7): implemented, OFF** —
+  `operations.DETAIL_MODE_YEAR1_RECOVERIES = False`, still an owner
+  question. Re-measured on this branch: flipping it moves exactly one
+  baseline value, commercial_rollover.outputs.breakEvenRatio
+  0.8428964912579363 -> 0.8777284581419397 (breakEvenOccupancy invariant;
+  the other six cases, feature_on included, are byte-identical) — the same
+  delta as on Run 6; general vacancy and leasing profiles don't touch it.
+- **Analysis callers skip the insurance-stress sub-computes** (P1): hold
+  sweep, both refi-fork legs, tornado (base + every perturbed compute),
+  native sensitivity and goal-seek scan/bisection points pass
+  `_skipCategoricalStress` (Monte Carlo already did). None of them reads
+  debt.insuranceStress (its only reader is the GeneratePanel debt card on the
+  base compute); tested that everything else in the result is identical.
+  Tornado on a detail-mode deal with an insurance line: 39 -> 13 computes
+  (2 x drivers + 1, pinned). Goal-seek's flag joins the compute-cache key, so
+  its points cache apart from full computes — accepted.
+- **Validation warnings** (never errors): lossToLeasePct with a unit-mix
+  turnover burn-off; flat replacementReserves with per-unit / PSF reserves;
+  sizingNoiBasis = in_place on a development without inPlaceNoi; exit cap
+  below 1%. None fires on any regression fixture (tested).
+- **[FIN] Building RSF for lease deals** — new rent-roll input `buildingRsf`
+  (blank = today). NNN / base-year-stop shares are sf / buildingRsf when set
+  and >= the listed SF (unlisted vacant suites' share of recoverable opex
+  stays with the owner); physical occupancy (statement row, occupancy
+  year-1/stabilized, the I3 gross-up projection) uses the same denominator.
+  Below the listed SF: ignored with a warning. Interaction with this
+  branch's features: the general-vacancy top-up stays on the BILLED potential
+  (scheduled rent + the tenants' own recoveries — unlisted suites carry no
+  modeled rent, so they neither add potential nor count as downtime); market
+  leasing profiles change each lease's rollover, never the denominator.
+  `leaseDetail.totalSf` stays the listed SF; `leaseDetail.buildingRsf` is a
+  conditional key. Lease deals were already refused by the Excel export.
+- **Renovation funded at close is displayed once**: its budget sat in both
+  `costs[0]` and `renovationCapex[0]`, breaking the levered identity at close.
+  Now renovationCapex only (sources & uses, equityFunded unchanged). No
+  baseline case has a program. The statement-identity test now asserts the
+  full identity (… − renovationCapex − juniorInterest − juniorPayoff −
+  assetMgmtFee − replacementReserves [below_noi] + escrowFlows) on the
+  feature-on fixture, below-NOI reserves and a maturity refinance (which
+  needs no extra row: net delta on debtDraws, costs on loanFees).
+- **[FIN] Junior tranche on a development that never takes out** is skipped
+  with a warning — no funding, no interest, no origination fee (it would
+  fund and repay in the exit month; the fee was its only cash effect). A deal
+  with a real takeout is unchanged.
+- **Tornado inert drivers**: each bar carries `inert` and `reason` (None when
+  live). Inert = the engine does not read the perturbed field for this
+  deal's shape: opex in expense-detail mode; rent and vacancy on a pure
+  lease deal; rent from homes x rent-per-home; hotel rent (keys x ADR x
+  occupancy) and vacancy (occupancyPct); rate in floating mode; exit cap on a
+  mixed acquisition priced by both component caps (unless a maturity
+  refinance values the new loan on the exit cap); and rent, vacancy, opex
+  and exit cap on build-to-sell deals (cost and rate stay live). Rules
+  follow the engine's own precedence (the gross-potential-rent source), not
+  the metric. Inert bars are still computed, so the zero corroborates the
+  rule and the compute count stays pinned.
+- **Several IRRs — diagnostics only**: the reported IRR is NOT re-selected
+  (this branch's decision keeps the solver root; Run 6's nearest-anchor
+  re-selection is dropped). When the existing multi-root warning fires, the
+  engine result gains a conditional `irrDiagnostics {irrMultipleRoots: true,
+  levered|unlevered: {signChanges, roots (annual -99%..300% band), reported}}`.
+  It is an engine-result key; /api/compute whitelists its keys and does not
+  expose it yet (a two-line router change for its owner).
+- **Prepayment cost in the Excel export**: the refusal is lifted — the model
+  mirrors it (exit payoff = balance x (1 + pct) in the Model exit flow and
+  Outputs!B8). New parity cases export_prepayment_acquisition and
+  export_prepayment_development recalc clean in LibreOffice.
+- **Regression baseline guard** (from Run 6): `UPDATE_BASELINE=1` refuses to
+  rewrite a case whose existing values moved (key additions only), unless
+  the owner approved it: `BASELINE_ALLOW_VALUE_CHANGES=1` (all) or a
+  comma-separated case list. New case **feature_on_value_add** (every
+  optional path on at once), its fixture re-created from Run 6 (inputs map
+  1:1; `_comment` kept — the engine ignores it) and its baseline generated
+  on this branch after the engine changes (not copied: this branch's payload
+  differs).
+- **Dropped** (this branch already decided them): the constructionFeeBasis
+  flag (superseded by the owner-approved fee on commitment / LTC on total
+  cost); Run 6's loanMaturityBehavior ignore/balloon/refinance and its
+  trailing-12 sizing, gross draw and loanPayoff row (this branch always
+  refinances on forward NOI — only the CoC strip was ported); Run 6's
+  prepaymentPenalty output and statement row (this branch reports
+  prepaymentCost); amortYears 0 = IO (already here); the B5 Excel refusal;
+  IRR root re-selection; Run 6's maturity tests.
+
 ## Engine audit fixes (post-Run 5, owner-approved)
 
 An external analyst/engineer audit found calculation defects; the owner
@@ -230,6 +665,147 @@ stated reason.
   tax, benchmarks and demographics stay undeclared: provider-dependent
   shapes. Found and fixed on the way: a stale backup-listing test fake,
   and untyped extraction results (now fully modeled).
+- **Engineering hygiene** (roadmap #32).
+  - ruff + mypy (dev-only, `backend/requirements-dev.txt`, config in
+    `backend/pyproject.toml`), run by a `backend-lint` CI job. mypy passes
+    with the pydantic plugin; the 20 modules that still had errors (the
+    engine, memo/deck/extraction services…) sit on a ratchet override —
+    entries come off as they're cleaned, never go on. Target stays Python
+    3.10: the local backend venv runs it (ruff's 3.11-only `UTC` rewrite
+    broke the suite before the target was lowered).
+  - SQLite runs in WAL with a 15 s busy timeout; backup snapshots switch
+    back to a rollback journal so each stays one file. Rejected:
+    `synchronous=NORMAL` (faster, but can drop the last commit on power
+    loss).
+  - Hypothesis perturbs the analytic deals within the schema's ranges
+    (money in cents, percentages to a millionth — subnormal values produced
+    only meaningless infinities) and found four inputs the form accepts
+    that crashed Compute: min DSCR over a loan year with no debt service,
+    100% credit loss in break-even occupancy, and fixed/floating payments
+    at a rate where 1 + r rounds to 1. All fixed with regression tests.
+    Negative exit NOI still gives a negative terminal value — left as is
+    and raised with the owner.
+  - Quick Screen and engine share cases: the vitest file writes napkin
+    results and the Send to Deal Inputs payload to
+    `backend/tests/fixtures/quick_screen_cases.json`; the backend computes
+    the same payload. Costs, loans and acquisition cap rate agree; the
+    development yield on cost does not, because the payload omits
+    operating expenses by design — a strict xfail until the owner decides.
+  - App.tsx split into navigation, a Quick Screen hook and header
+    components (1,321 → 968 lines). The deal lifecycle stays in App.
+  - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
+    on pull requests and main (not every push: several macOS minutes).
+- **Signing and notarization** (roadmap #31, part 1). `desktop/sign_mac.sh`
+  signs inside-out (every Mach-O file, then the bundle; Apple advises
+  against `--deep`) with the hardened runtime and a secure timestamp,
+  verifies, reruns the frozen self-test on the signed app, and notarizes +
+  staples when a notarytool keychain profile is given; `build_mac.sh` calls
+  it only when SIGN_IDENTITY is set. The only entitlement is
+  allow-unsigned-executable-memory (libffi closures for pyobjc/pywebview).
+  Verified with an ad-hoc signature: self-test passes and the window loads
+  and talks to the backend under the hardened runtime (ad-hoc needs
+  disable-library-validation too, since it has no Team ID; a Developer ID
+  build doesn't). Not verifiable here: notarization itself (needs the
+  owner's Apple account).
+- **Update check** (roadmap #31, part 2; owner chose it over Sparkle). The
+  desktop shell asks api.github.com for this repo's latest release
+  (User-Agent with the version, nothing else) at launch at most once a day,
+  caches the answer in desktop-settings.json, and the UI shows a
+  dismissible banner (per release tag) with Download (the zip asset, else
+  the release page) and What's new, opened in the browser. Settings →
+  Updates shows the version, a "Check now" and an off switch (off = no
+  request at all). Tags compare as vMAJOR.MINOR.PATCH against
+  cre_desktop/version.py, which the build also writes into Info.plist.
+  Network errors are reported in Settings, never in the way at launch.
+  Rejected: Sparkle (native framework, appcast hosting, update signing
+  keys) and in-app installation.
+- **[FIN] Build-to-sell homes** (roadmap #26): its own cash flow
+  (services/proforma/for_sale.py) for single-family / townhouse
+  developments with "Model as For-Sale" on and a sale price entered —
+  without a price the deal keeps computing as a rental, so no existing deal
+  changes silently. Land at close; site work (hard on the S-curve, soft
+  straight-line, contingency) over the construction months; homes close at
+  the absorption pace from month S + homeBuildMonths, each home's
+  construction (plus contingency) spent evenly over the build months ending
+  at its closing; prices grow annually from the first closing; selling
+  costs = cost of sale %. Developer fee = % of each month's non-land spend.
+  Financing: LTC on total cost including interest and the origination fee
+  (fixed point, as for the development loan); equity first up to its
+  share, then a revolving loan; a month's closings pay that month's costs,
+  then repay the loan, then go to equity (lenders sweep proceeds; builders
+  fund starts from closings). Outputs: IRRs, multiples, profit, gross
+  margin (profit before financing / net revenue), peak equity (the deepest
+  cumulative equity position) and sellout period; no NOI, exit cap or hold,
+  so the hold sweep and Excel export decline these deals. The statement
+  identity (levered = noi − debt service + draws − costs − fees + sale
+  proceeds) still holds, with debt service = interest + loan repaid from
+  closings. Single-family / townhouse rentals (for-sale off) now compute
+  GPR from homes × monthly rent when both are entered. Rejected:
+  presale deposits and release-price schedules (inputs don't exist yet),
+  and a separate horizontal-development loan.
+- **[FIN] Hotel operations** (roadmap #25), USALI summary level, for
+  deals whose property type is Hotel (a lease rent roll, if entered, still
+  takes precedence; a hotel component of a mixed-use deal warns that it's
+  ignored). Rooms revenue = keys × ADR × occupancy × 365/12 a month (a flat
+  month length, like the rest of the engine's monthly math); F&B and other
+  revenue are annual at stabilized occupancy and scale with occupancy in a
+  ramp; ADR and ancillary revenue grow at the rent growth rate from
+  opening. Departmental and undistributed expenses, the management fee and
+  the FF&E reserve are shares of total revenue; the franchise fee is a
+  share of rooms revenue (how brands charge); fixed charges are the usual
+  expense inputs, with a warning if operating lines (payroll, utilities…)
+  are entered on top of the ratios, or reserves on top of FF&E. NOI is
+  after FF&E (the lender/appraiser convention), so value and sizing use it.
+  Statement identities hold: GPR = rooms revenue at 100% occupancy, vacancy
+  = unsold room-nights, other income = F&B + other, EGI = total revenue.
+  Credit loss isn't applied and the general management fee is ignored
+  (warned). Break-evens treat revenue-linked costs as variable (the
+  fixed-opex formula would put a hotel's break-even far too high); revenue
+  is linear in occupancy, so the stabilized break-even is exact:
+  o* = (fixed + debt service) / ((revenue − revenue-linked costs) / o).
+  The Excel export refuses hotels. Rejected: day-count-exact months (would
+  make hotel months differ from every other asset's), and departmental
+  ratios per department (the inputs are one ratio each).
+- **[FIN] Market leasing profiles** (roadmap #27). ARGUS-style market
+  leasing assumptions per space type: a `marketLeasingProfiles` table whose
+  rows may override any deal-level rollover input (market rent and growth,
+  renewal probability, downtime, new term, free rent, TI, LC, renewal
+  spread); a blank cell keeps the deal's value, so a profile can differ in
+  one assumption only. A lease opts in through its Leasing Profile column
+  (matched case- and space-insensitively; an unknown name warns and uses
+  the deal assumptions). Everything downstream of the rollover — the
+  probability-weighted timeline, leasing capital, and the gross-up
+  occupancy projection — reads the lease's own assumptions. Deals without
+  profiles are byte-identical (regression baseline; the per-lease drill-down
+  gains a `leasingProfile` key only when one is set). The Excel export
+  already refuses lease-level deals. Rejected: a select column of profile
+  names (schema options are static) and per-profile general vacancy (it's
+  a property-level haircut, as in ARGUS).
+- **Investment-committee sign-off** (roadmap #28; owner chose local
+  sign-off over accounts and logins). An append-only IcEvent log per deal
+  (submit, approve, reject, return, reopen, comment: who, when, why); the
+  state is derived from it. A submit computes the deal and stores those
+  inputs and outputs, so an approval signs a specific version; a deal that
+  can't compute can't be submitted. N distinct approvers (case- and
+  space-insensitive names) approve a submission. While submitted, approved
+  or rejected, the server refuses underwriting-input changes (409), and the
+  UI makes none (a disabled fieldset, and guards on presets, goal seek,
+  scenario loads, extraction and Quick Screen sends) so autosave never
+  loops on a refusal; each IC step saves pending edits first. The Quick
+  Screen napkins, critical dates and provenance stay editable. The log is
+  exported/imported with the deal. Rejected: a lock that also froze the
+  napkin (it shares the inputs blob, but isn't underwriting); making
+  "rejected" editable without a reopen (the reason trail would have gaps).
+- **Owner decisions, 2026-09-19** (raised by the #32 tests):
+  - Quick Screen → Send to Deal Inputs now carries the napkin's operating
+    expenses as one Opex Detail row (category other, annual dollars, note
+    "Operating expenses (Quick Screen estimate)") and credit loss 0. It
+    carried none, so Compute ran with no opex. Annual dollars rather than
+    % of EGI: the engine reports every % of EGI row as the management fee.
+  - **[FIN]** A negative capitalized sale price floors at $0 with a warning
+    (engine and export).
+  - **[FIN]** Amortization of 0 years = interest-only everywhere (the payment
+    function used to repay the loan in month 1).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
