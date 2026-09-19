@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, String
+from sqlalchemy import JSON, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -206,4 +206,28 @@ class ExtractionResult(Base):
     warnings: Mapped[list] = mapped_column(JSON, default=list)
     confirmed_values: Mapped[dict] = mapped_column(JSON, default=dict)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class IcEvent(Base):
+    """Roadmap #28: one step in a deal's investment-committee sign-off —
+    submit, approve, reject, return, reopen or comment — with who (a typed
+    name; the app has no logins), why, and when. A submit also stores the
+    inputs and computed outputs it put in front of the committee, which is
+    the version an approval signs off on. The deal's IC state is derived
+    from these rows (services/ic_workflow.py)."""
+
+    __tablename__ = "ic_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String, index=True)
+    # Order within the deal's log (timestamps can tie).
+    seq: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String)
+    actor: Mapped[str] = mapped_column(String)
+    comment: Mapped[str] = mapped_column(String, default="")
+    # submit only: approvals needed, and the snapshot under review
+    required_approvals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    outputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

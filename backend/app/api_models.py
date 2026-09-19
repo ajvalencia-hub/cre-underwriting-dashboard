@@ -357,3 +357,37 @@ class MonteCarloJobOut(ApiModel):
 class MarketRatesOut(ApiModel):
     dataSource: str
     rates: dict[str, float | None]
+
+
+# ---- investment committee (roadmap #28) ------------------------------------
+IcState = Literal["draft", "submitted", "approved", "rejected"]
+IcKind = Literal["submit", "approve", "reject", "return", "reopen", "comment"]
+
+
+class IcEventOut(ApiModel):
+    id: str
+    kind: IcKind
+    actor: str
+    comment: str
+    requiredApprovals: int | None
+    hasSnapshot: bool
+    createdAt: str
+
+
+class IcSubmissionOut(ApiModel):
+    eventId: str
+    submittedBy: str
+    submittedAt: str
+    inputs: dict[str, Any]
+    outputs: dict[str, Any]
+    # False once the deal was returned or reopened after this submission.
+    current: bool
+
+
+class IcSummaryOut(ApiModel):
+    state: IcState
+    locked: bool
+    requiredApprovals: int | None
+    approvers: list[str]
+    lastSubmission: IcSubmissionOut | None
+    events: list[IcEventOut]

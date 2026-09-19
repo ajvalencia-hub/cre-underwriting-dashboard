@@ -19,6 +19,7 @@ from app.routers import (
     extraction,
     file_cabinet,
     generate,
+    ic,
     mappings,
     market_context,
     market_rates,
@@ -101,6 +102,7 @@ app.add_middleware(
 
 app.include_router(schema.router)
 app.include_router(deals.router)
+app.include_router(ic.router)
 app.include_router(file_cabinet.router)
 app.include_router(compute.router)
 app.include_router(templates.router)

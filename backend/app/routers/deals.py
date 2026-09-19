@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 from app.database import get_db
-from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
+from app.models import Deal, DealSnapshot, IcEvent, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
-from app.services import deal_history, deck_service, document_storage, share_html
+from app.services import deal_history, deck_service, document_storage, ic_workflow, share_html
 from app.services.proforma import engine
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -194,6 +194,10 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
             raise HTTPException(400, "Deal name cannot be empty")
         deal.name = name
     if "inputs" in provided and payload.inputs is not None:
+        try:
+            ic_workflow.check_input_change(db, deal, payload.inputs)
+        except ic_workflow.IcError as exc:
+            raise HTTPException(409, str(exc)) from None
         deal_history.record_snapshot(db, deal, payload.inputs)
         deal.inputs = payload.inputs
     if "status" in provided and payload.status is not None:
@@ -336,6 +340,10 @@ def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_d
     snapshot = db.get(DealSnapshot, snapshot_id)
     if snapshot is None or snapshot.deal_id != deal_id:
         raise HTTPException(404, "Snapshot not found")
+    try:
+        ic_workflow.check_input_change(db, deal, snapshot.inputs)
+    except ic_workflow.IcError as exc:
+        raise HTTPException(409, str(exc)) from None
     deal_history.record_snapshot(db, deal, snapshot.inputs, kind="restore")
     deal.inputs = snapshot.inputs
     db.commit()
@@ -527,6 +535,11 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
             {"filename": a.filename, "fileHash": a.file_hash, "fileExt": a.file_ext}
             for a in attachments
         ],
+        # Roadmap #28: the sign-off record travels with the deal.
+        "icEvents": [
+            {**ic_workflow.event_out(e), "inputs": e.inputs, "outputs": e.outputs}
+            for e in ic_workflow.events_for(db, deal_id)
+        ],
         "scenarios": [
             {
                 "scenarioName": s.scenario_name,
@@ -638,6 +651,14 @@ def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
             "files are not embedded; transfer and re-upload them to this deal."
         )
 
+    ic_count = _import_ic_events(db, deal.id, bundle.get("icEvents"))
+    if ic_count:
+        state = ic_workflow.derive(ic_workflow.events_for(db, deal.id))["state"]
+        warnings.append(
+            f"Imported {ic_count} investment-committee step(s); the deal is {state}"
+            + (" and its inputs are locked." if state in ic_workflow.LOCKED_STATES else ".")
+        )
+
     db.commit()
     db.refresh(deal)
     out = _to_out(deal)
@@ -665,6 +686,7 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     db.execute(delete(Scenario).where(Scenario.deal_id == deal_id))
     db.execute(delete(DealSnapshot).where(DealSnapshot.deal_id == deal_id))
     db.execute(delete(DealNote).where(DealNote.deal_id == deal_id))
+    db.execute(delete(IcEvent).where(IcEvent.deal_id == deal_id))
     attachments = db.execute(
         select(Document).where(Document.deal_id == deal_id)
     ).scalars().all()
@@ -675,3 +697,30 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     db.delete(deal)
     db.commit()
     return {"deleted": True}
+
+
+def _import_ic_events(db: Session, deal_id: str, rows) -> int:
+    """Copy a bundle's IC log as recorded (who, when, what they saw); only
+    well-formed rows of known kinds are kept."""
+    count = 0
+    for row in rows if isinstance(rows, list) else []:
+        if not (isinstance(row, dict) and row.get("kind") in ic_workflow.KINDS and str(row.get("actor") or "").strip()):
+            continue
+        try:
+            created = datetime.fromisoformat(str(row.get("createdAt")))
+        except ValueError:
+            created = datetime.now(timezone.utc)
+        count += 1
+        db.add(IcEvent(
+            deal_id=deal_id,
+            seq=count,
+            kind=row["kind"],
+            actor=str(row["actor"]),
+            comment=str(row.get("comment") or ""),
+            required_approvals=row.get("requiredApprovals") if isinstance(row.get("requiredApprovals"), int) else None,
+            inputs=row.get("inputs") if isinstance(row.get("inputs"), dict) else None,
+            outputs=row.get("outputs") if isinstance(row.get("outputs"), dict) else None,
+            created_at=created,
+        ))
+    db.flush()
+    return count

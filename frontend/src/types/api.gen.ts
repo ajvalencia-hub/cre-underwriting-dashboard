@@ -665,6 +665,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deals/{deal_id}/ic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ic */
+        get: operations["get_ic_api_deals__deal_id__ic_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deals/{deal_id}/ic-deck.pptx": {
         parameters: {
             query?: never;
@@ -682,6 +699,23 @@ export interface paths {
         get: operations["deal_ic_deck_api_deals__deal_id__ic_deck_pptx_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deals/{deal_id}/ic/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Ic Step */
+        post: operations["add_ic_step_api_deals__deal_id__ic_events_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -929,6 +963,26 @@ export interface paths {
         };
         /** Health */
         get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ic/states": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ic States
+         * @description Each deal's IC state other than draft (the pipeline's IC column).
+         */
+        get: operations["ic_states_api_ic_states_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2192,6 +2246,81 @@ export interface components {
             netProceeds: number | null;
             /** Unleveredirr */
             unleveredIrr: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** IcEventOut */
+        IcEventOut: {
+            /** Actor */
+            actor: string;
+            /** Comment */
+            comment: string;
+            /** Createdat */
+            createdAt: string;
+            /** Hassnapshot */
+            hasSnapshot: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "submit" | "approve" | "reject" | "return" | "reopen" | "comment";
+            /** Requiredapprovals */
+            requiredApprovals: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** IcStepIn */
+        IcStepIn: {
+            /** Actor */
+            actor: string;
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "submit" | "approve" | "reject" | "return" | "reopen" | "comment";
+            /** Requiredapprovals */
+            requiredApprovals?: number | null;
+        };
+        /** IcSubmissionOut */
+        IcSubmissionOut: {
+            /** Current */
+            current: boolean;
+            /** Eventid */
+            eventId: string;
+            /** Inputs */
+            inputs: Record<string, unknown>;
+            /** Outputs */
+            outputs: Record<string, unknown>;
+            /** Submittedat */
+            submittedAt: string;
+            /** Submittedby */
+            submittedBy: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** IcSummaryOut */
+        IcSummaryOut: {
+            /** Approvers */
+            approvers: string[];
+            /** Events */
+            events: components["schemas"]["IcEventOut"][];
+            lastSubmission: components["schemas"]["IcSubmissionOut"] | null;
+            /** Locked */
+            locked: boolean;
+            /** Requiredapprovals */
+            requiredApprovals: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "draft" | "submitted" | "approved" | "rejected";
         } & {
             [key: string]: unknown;
         };
@@ -4322,6 +4451,37 @@ export interface operations {
             };
         };
     };
+    get_ic_api_deals__deal_id__ic_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcSummaryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     deal_ic_deck_api_deals__deal_id__ic_deck_pptx_get: {
         parameters: {
             query?: {
@@ -4342,6 +4502,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_ic_step_api_deals__deal_id__ic_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IcStepIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IcSummaryOut"];
                 };
             };
             /** @description Validation Error */
@@ -4853,6 +5048,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    ic_states_api_ic_states_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: "draft" | "submitted" | "approved" | "rejected";
+                    };
                 };
             };
         };
