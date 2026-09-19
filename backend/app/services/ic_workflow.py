@@ -24,7 +24,9 @@ from app.services.proforma import engine
 KINDS = ("submit", "approve", "reject", "return", "reopen", "comment")
 LOCKED_STATES = ("submitted", "approved", "rejected")
 # Keys of Deal.inputs that are not underwriting inputs.
-UNLOCKED_KEYS = frozenset({"quickScreen", "acquisitionQuickScreen", "criticalDates", "_provenance"})
+UNLOCKED_KEYS = frozenset({
+    "quickScreen", "acquisitionQuickScreen", "quickScreenMode", "criticalDates", "_provenance",
+})
 # Needs a reason: saying no, sending back, or unlocking a decided deal.
 REASON_REQUIRED = frozenset({"reject", "return", "reopen", "comment"})
 MAX_REQUIRED_APPROVALS = 9

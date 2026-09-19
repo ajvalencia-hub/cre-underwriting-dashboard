@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react'
 import { openExternal, type UpdateCheckResult } from '../lib/platform'
 import { checkForUpdates, dismissTag, dismissedTag, showUpdateBanner } from '../lib/updateCheck'
+import { safeStorage } from '../lib/safeStorage'
 
-function storage(): Storage | null {
-  try {
-    return window.localStorage
-  } catch {
-    return null
-  }
-}
+// safeStorage never throws (private mode, blocked storage).
+const storage = () => safeStorage
 
 /** Roadmap #31: desktop only — at launch (at most once a day, if enabled
  *  in Settings) ask GitHub for a newer release and offer the download. The

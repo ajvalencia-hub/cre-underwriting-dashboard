@@ -116,3 +116,91 @@ html, body, #root {
 @layer utilities {
   .text-slate-400 { color: #667587; }
 }
+
+/* Run 6 audit — utilities that were in use but unmapped ---------------- */
+
+/* Active-tab underline and the sensitivity grid's center cell used the
+   primary slate-900 border, invisible on the slate-900 page. */
+.dark .border-slate-900 { border-color: #e2e8f0; }
+.dark .border-b-slate-900 { border-bottom-color: #e2e8f0; }
+
+/* Hairline row separators */
+.dark .border-slate-50 { border-color: #263449; }
+.dark .divide-slate-100 > :not(:last-child) { border-color: #293548; }
+.dark .divide-slate-50 > :not(:last-child) { border-color: #263449; }
+
+/* Emphasis rows/cells that use the page background INSIDE a white card
+   rendered darker than their card; inside a card they should read lighter. */
+.dark .bg-white .bg-slate-50 { background-color: #263449; }
+.dark .bg-white .hover\:bg-slate-50:hover { background-color: #2f3e55; }
+
+/* Remaining tinted surfaces */
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.12); }
+.dark .bg-indigo-50\/50 { background-color: rgba(99, 102, 241, 0.08); }
+.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.4); }
+.dark .hover\:bg-indigo-100:hover { background-color: rgba(99, 102, 241, 0.22); }
+
+.dark .bg-violet-50 { background-color: rgba(139, 92, 246, 0.12); }
+.dark .bg-violet-50\/40 { background-color: rgba(139, 92, 246, 0.08); }
+.dark .text-violet-600 { color: #c4b5fd; }
+.dark .border-violet-100 { border-color: rgba(139, 92, 246, 0.3); }
+.dark .border-violet-300 { border-color: rgba(139, 92, 246, 0.5); }
+.dark .hover\:bg-violet-50:hover { background-color: rgba(139, 92, 246, 0.15); }
+
+.dark .bg-sky-50\/40 { background-color: rgba(14, 165, 233, 0.06); }
+.dark .border-sky-100 { border-color: rgba(14, 165, 233, 0.3); }
+.dark .border-sky-300 { border-color: rgba(14, 165, 233, 0.5); }
+.dark .text-sky-800 { color: #bae6fd; }
+.dark .text-sky-400 { color: #7dd3fc; }
+
+.dark .hover\:bg-emerald-100:hover { background-color: rgba(16, 185, 129, 0.3); }
+.dark .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.3); }
+.dark .hover\:bg-red-100:hover { background-color: rgba(239, 68, 68, 0.3); }
+.dark .hover\:bg-slate-200:hover { background-color: #3b4a61; }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.15); }
+
+.dark .border-amber-400 { border-color: #d97706; }
+.dark .border-emerald-300 { border-color: rgba(16, 185, 129, 0.5); }
+.dark .border-red-300 { border-color: rgba(239, 68, 68, 0.5); }
+.dark .bg-slate-300 { background-color: #475569; }
+
+/* Chart SVG theming: components use these classes instead of hex fills so
+   labels/backgrounds follow the theme. */
+.fill-chart-bg { fill: #f8fafc; }
+.fill-chart-label { fill: #475569; }
+.fill-chart-muted { fill: #64748b; }
+.stroke-chart-grid { stroke: #cbd5e1; }
+.dark .fill-chart-bg { fill: #1e293b; }
+.dark .fill-chart-label { fill: #cbd5e1; }
+.dark .fill-chart-muted { fill: #94a3b8; }
+.dark .stroke-chart-grid { stroke: #475569; }
+
+/* Sensitivity heat cells set an inline pastel background; keep their text
+   readable on it in dark mode (the cell's own color wins over .dark text). */
+.dark [data-heat-cell] { color: #0f172a; }
+
+/* ---------------------------------------------------------------------------
+   Accessibility: a visible keyboard focus ring everywhere (the components
+   never set focus: styles; several use outline-none). Mouse clicks are
+   unaffected thanks to :focus-visible.
+   --------------------------------------------------------------------------- */
+:where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.dark :where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline-color: #7dd3fc;
+}
+
+/* ---------------------------------------------------------------------------
+   Print: only the workflow content prints — no sidebars, nav or controls —
+   and the main pane expands to the page.
+   --------------------------------------------------------------------------- */
+@media print {
+  aside, nav, [data-no-print], .no-print { display: none !important; }
+  html, body, #root { height: auto !important; }
+  main { overflow: visible !important; padding: 0 !important; }
+  .sticky { position: static !important; }
+  body { background: #fff !important; color: #000 !important; }
+}

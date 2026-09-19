@@ -23,6 +23,7 @@ const KIND_LABELS: Record<DealSnapshotMeta['kind'], string> = {
   baseline: 'Baseline (before first edit)',
   autosave: 'Edit',
   restore: 'Restore',
+  agent: 'Agent-applied',
 }
 
 /** Input change history (H9): snapshot list with what changed, and a

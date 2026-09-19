@@ -27,4 +27,15 @@ export interface Deal {
   activeMappingProfileId: string | null
   createdAt: string
   updatedAt: string
+  /** Soft-delete marker: set = archived, hidden from the default list
+   *  (`fetchDeals({ includeArchived: true })` shows it). */
+  archivedAt?: string | null
+  /** Free-text labels (see lib/tags.ts for the rules). Optional so hand-made
+   *  Deal objects (tests, optimistic updates) needn't carry it. */
+  tags?: string[]
+}
+
+/** `GET /api/deals?fields=summary`: no inputs blob, just the headline facts. */
+export interface DealSummaryRow extends Omit<Deal, 'inputs'> {
+  summary: { dealType?: string | null; dealName?: string | null; address?: string | null; market?: string | null }
 }

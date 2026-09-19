@@ -44,7 +44,13 @@ export const STEP_BUTTON_LABELS: Record<IcStepKind, string> = {
 }
 
 /** Inputs that stay editable while the deal is locked (not underwriting). */
-const UNLOCKED_KEYS = new Set(['quickScreen', 'acquisitionQuickScreen', 'criticalDates', '_provenance'])
+const UNLOCKED_KEYS = new Set([
+  'quickScreen',
+  'acquisitionQuickScreen',
+  'quickScreenMode',
+  'criticalDates',
+  '_provenance',
+])
 
 export function isLockedField(fieldId: string): boolean {
   return !UNLOCKED_KEYS.has(fieldId)

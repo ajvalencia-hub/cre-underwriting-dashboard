@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { globalSearch, type SearchGroup, type SearchItem } from '../lib/api'
 import { searchCommands, type CommandGroup, type PaletteCommand } from '../lib/commandSearch'
 import { nextIndex } from '../lib/searchNav'
+import { createLatestGuard } from '../lib/latest'
 
 interface CommandPaletteProps {
   open: boolean
@@ -20,14 +21,16 @@ const SERVER_GROUP_LABELS: Record<SearchGroup['kind'], string> = {
 }
 
 const COMMAND_GROUP_LABELS: Record<CommandGroup, string> = {
+  recent: 'Recent deals',
   actions: 'Actions',
   tabs: 'Go to',
   fields: 'Deal Inputs fields',
 }
 
-/** Local groups lead: they answer without a round trip. */
-const COMMAND_GROUP_ORDER: CommandGroup[] = ['actions', 'fields', 'tabs']
-const COMMAND_LIMITS: Partial<Record<CommandGroup, number>> = { actions: 6, fields: 8, tabs: 6 }
+/** Local groups lead: they answer without a round trip. Recent deals first
+ *  so an empty ⌘K is a quick deal switcher. */
+const COMMAND_GROUP_ORDER: CommandGroup[] = ['recent', 'actions', 'fields', 'tabs']
+const COMMAND_LIMITS: Partial<Record<CommandGroup, number>> = { recent: 5, actions: 6, fields: 8, tabs: 6 }
 
 const DEBOUNCE_MS = 180
 
@@ -47,6 +50,9 @@ export default function CommandPalette({ open, onClose, commands, onNavigate }: 
   const [groups, setGroups] = useState<SearchGroup[]>([])
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Latest-wins: an in-flight search for an older query can resolve after a
+  // newer one — only the newest request may set results.
+  const searchGuard = useRef(createLatestGuard())
 
   useEffect(() => {
     if (open) {
@@ -57,18 +63,31 @@ export default function CommandPalette({ open, onClose, commands, onNavigate }: 
   }, [open])
 
   useEffect(() => {
-    if (!open) return
+    const guard = searchGuard.current
+    if (!open) {
+      guard.invalidate()
+      return
+    }
     const q = query.trim()
     if (q.length < 2) {
+      guard.invalidate()
       setGroups([])
       return
     }
     const handle = setTimeout(() => {
+      const token = guard.next()
       globalSearch(q)
-        .then((res) => setGroups(res.groups))
-        .catch(() => setGroups([]))
+        .then((res) => {
+          if (guard.isCurrent(token)) setGroups(res.groups)
+        })
+        .catch(() => {
+          if (guard.isCurrent(token)) setGroups([])
+        })
     }, DEBOUNCE_MS)
-    return () => clearTimeout(handle)
+    return () => {
+      clearTimeout(handle)
+      guard.invalidate()
+    }
   }, [query, open])
 
   const sections = useMemo(() => {
@@ -194,7 +213,7 @@ export default function CommandPalette({ open, onClose, commands, onNavigate }: 
         </div>
         <div className="border-t border-slate-100 px-4 py-1.5 text-[10px] text-slate-500">
           ↑↓ navigate · ↵ run or open · esc close · prefix <code>acq:</code> / <code>dev:</code> to filter
-          one dealflow
+          one dealflow, <code>tag:</code> to find tagged deals
         </div>
       </div>
     </div>

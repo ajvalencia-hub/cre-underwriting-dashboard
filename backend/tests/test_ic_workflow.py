@@ -76,6 +76,9 @@ def test_the_napkin_and_dates_stay_editable_while_locked(client):
     _step(client, deal_id, "submit")
     edited = dict(_DEAL, quickScreen={"rent": 2_000}, criticalDates=[{"label": "Closing", "date": "2026-12-01"}])
     assert client.put(f"/api/deals/{deal_id}", json={"inputs": edited}).status_code == 200
+    # Which napkin is showing is a view choice, not an underwriting input.
+    switched = dict(edited, quickScreenMode="acquisition", acquisitionQuickScreen={"price": 1})
+    assert client.put(f"/api/deals/{deal_id}", json={"inputs": switched}).status_code == 200
 
 
 def test_a_deal_that_cannot_compute_cannot_be_submitted(client):

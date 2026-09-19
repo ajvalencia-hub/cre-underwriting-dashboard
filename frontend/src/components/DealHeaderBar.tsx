@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import FileChooser, { type FileChooserHandle } from './FileChooser'
+import TagEditor from './TagEditor'
 import type { AutosaveState } from '../lib/dealPersistence'
 import { dateStatus, readCriticalDates, sortByDate } from '../lib/criticalDates'
 import { dealTypeOf, type DealType } from '../lib/dealStages'
@@ -13,6 +14,7 @@ const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
   saving: 'Saving…',
   saved: 'Saved',
   error: 'Not saved — retrying automatically',
+  blocked: 'Not saved — changed elsewhere',
 }
 
 interface Props {
@@ -35,6 +37,39 @@ interface Props {
   onExport: () => void
   onImportFile: (file: File) => void
   onOpenDates: () => void
+  /** The server's copy of the deal has no dealType (a legacy deal). */
+  untyped: boolean
+  /** Assign a dealflow to an untyped deal (the "Untyped — set type" chip). */
+  onSetType: (type: DealType) => void
+  /** More ▾ → Duplicate… (App asks for the name). */
+  onDuplicate: () => void
+  /** More ▾ → Archive (App confirms, then opens another deal). */
+  onArchive: () => void
+  /** The tag chip row under the deal picker; the parent persists. */
+  onTagsChange: (tags: string[]) => Promise<boolean>
+  /** Rendered under the header row (e.g. the edit-conflict banner). */
+  children?: ReactNode
+}
+
+const MENU_ITEM = 'block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50'
+
+/** Close an open popover on Escape or a mousedown outside `ref`. */
+function useDismiss(open: boolean, ref: RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) close()
+    }
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [open, ref, close])
 }
 
 /** The active deal's header: picker, rename, type badge, New Deal menu,
@@ -55,21 +90,28 @@ export default function DealHeaderBar({
   onExport,
   onImportFile,
   onOpenDates,
+  onSetType,
+  onDuplicate,
+  onArchive,
+  onTagsChange,
+  untyped,
+  children,
 }: Props) {
   const [renamingName, setRenamingName] = useState<string | null>(null)
   const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const importInputRef = useRef<FileChooserHandle>(null)
+  const newDealMenuRef = useRef<HTMLDivElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
   const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
-  const type = dealTypeOf({ inputs: values })
+  // The form shows the schema's default type even for a deal the server
+  // stores untyped — the chip below, not a badge, is what's true then.
+  const type = untyped ? null : dealTypeOf({ inputs: values })
 
-  useEffect(() => {
-    if (!newDealMenuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setNewDealMenuOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [newDealMenuOpen])
+  const closeNewDealMenu = useCallback(() => setNewDealMenuOpen(false), [])
+  const closeMoreMenu = useCallback(() => setMoreMenuOpen(false), [])
+  useDismiss(newDealMenuOpen, newDealMenuRef, closeNewDealMenu)
+  useDismiss(moreMenuOpen, moreMenuRef, closeMoreMenu)
 
   async function commitRename(name: string) {
     if (!name.trim()) {
@@ -85,7 +127,8 @@ export default function DealHeaderBar({
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="mb-4">
+    <div className="flex flex-wrap items-center gap-2">
       <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
       <select
         value={activeDealId ?? ''}
@@ -128,6 +171,31 @@ export default function DealHeaderBar({
           {type === 'development' ? 'DEV' : 'ACQ'}
         </span>
       )}
+      {/* An untyped (legacy) deal can't compute — say so and offer the fix. */}
+      {untyped && activeDeal && (
+        <span
+          role="group"
+          aria-label="Untyped deal — set its type"
+          className="flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800"
+        >
+          <span className="font-semibold">Untyped — set type:</span>
+          <button
+            onClick={() => onSetType('acquisition')}
+            aria-label="Set type: Acquisition"
+            className="rounded px-1 font-medium underline hover:bg-amber-100"
+          >
+            Acquisition
+          </button>
+          <span aria-hidden>·</span>
+          <button
+            onClick={() => onSetType('development')}
+            aria-label="Set type: Development"
+            className="rounded px-1 font-medium underline hover:bg-amber-100"
+          >
+            Development
+          </button>
+        </span>
+      )}
       {icState && icState !== 'draft' && (
         <button
           onClick={onOpenIc}
@@ -137,7 +205,7 @@ export default function DealHeaderBar({
           {IC_STATE_LABELS[icState]}
         </button>
       )}
-      <div className="relative">
+      <div className="relative" ref={newDealMenuRef}>
         <button
           onClick={() => setNewDealMenuOpen((v) => !v)}
           aria-haspopup="menu"
@@ -181,6 +249,40 @@ export default function DealHeaderBar({
       >
         Import
       </button>
+      <div className="relative" ref={moreMenuRef}>
+        <button
+          onClick={() => setMoreMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={moreMenuOpen}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          More ▾
+        </button>
+        {moreMenuOpen && (
+          <div role="menu" className="absolute left-0 top-full z-40 mt-1 w-40 rounded border border-slate-200 bg-white py-1 shadow-lg">
+            <button
+              role="menuitem"
+              onClick={() => {
+                setMoreMenuOpen(false)
+                onDuplicate()
+              }}
+              className={MENU_ITEM}
+            >
+              Duplicate…
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => {
+                setMoreMenuOpen(false)
+                onArchive()
+              }}
+              className={MENU_ITEM}
+            >
+              Archive
+            </button>
+          </div>
+        )}
+      </div>
       <FileChooser
         ref={importInputRef}
         accept="application/json,.json"
@@ -226,11 +328,18 @@ export default function DealHeaderBar({
       )}
       <span
         className={`${loadedScenario ? '' : 'ml-auto '}text-xs ${
-          autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
+          autosaveState === 'error' || autosaveState === 'blocked' ? 'text-red-500' : 'text-slate-400'
         }`}
       >
         {AUTOSAVE_LABEL[autosaveState]}
       </span>
+    </div>
+      {activeDeal && (
+        <div className="mt-1.5">
+          <TagEditor key={activeDeal.id} tags={activeDeal.tags ?? []} onChange={onTagsChange} />
+        </div>
+      )}
+      {children}
     </div>
   )
 }

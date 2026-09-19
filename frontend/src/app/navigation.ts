@@ -1,6 +1,8 @@
 // Module navigation: the tabs, how the left rail groups them, and the
 // remembered last tab. Split out of App.tsx (roadmap #32).
 
+import { safeStorage } from '../lib/safeStorage'
+
 export const TABS = [
   'pipeline',
   'quickscreen',
@@ -12,14 +14,16 @@ export const TABS = [
   'risk',
   'scenarios',
   'approval',
+  'agent',
   'comps',
+  'compare',
   'portfolio',
   'settings',
 ] as const
 export type Tab = (typeof TABS)[number]
 
 /** Views that span many deals — no one-deal summary panel beside them. */
-export const MULTI_DEAL_TABS: ReadonlySet<Tab> = new Set<Tab>(['pipeline', 'portfolio', 'comps', 'settings'])
+export const MULTI_DEAL_TABS: ReadonlySet<Tab> = new Set<Tab>(['pipeline', 'portfolio', 'comps', 'compare', 'settings'])
 
 // Left-rail module navigation. Grouped (workflow steps under "This deal"),
 // no step numbers — "0." / "5b." implied a strict order that doesn't exist.
@@ -30,6 +34,7 @@ export const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string
       ['pipeline', 'Deals'],
       ['portfolio', 'Portfolio'],
       ['comps', 'Comps'],
+      ['compare', 'Compare'],
     ],
   },
   {
@@ -44,6 +49,7 @@ export const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string
       ['risk', 'Risk'],
       ['scenarios', 'Scenarios'],
       ['approval', 'IC Approval'],
+      ['agent', 'Agent'],
     ],
   },
   { label: '', items: [['settings', 'Settings']] },
@@ -54,18 +60,19 @@ export const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string
 const LAST_TAB_KEY = 'cre.lastTab'
 
 export function loadLastTab(): Tab {
-  try {
-    const stored = localStorage.getItem(LAST_TAB_KEY)
-    return (TABS as readonly string[]).includes(stored ?? '') ? (stored as Tab) : 'quickscreen'
-  } catch {
-    return 'quickscreen'
-  }
+  const stored = safeStorage.get(LAST_TAB_KEY)
+  return (TABS as readonly string[]).includes(stored ?? '') ? (stored as Tab) : 'quickscreen'
 }
 
 export function rememberTab(tab: Tab): void {
-  try {
-    localStorage.setItem(LAST_TAB_KEY, tab)
-  } catch {
-    // storage unavailable — not remembering the tab is harmless
+  // Storage unavailable — not remembering the tab is harmless.
+  safeStorage.set(LAST_TAB_KEY, tab)
+}
+
+/** The rail label of a tab (PanelBoundary names, palette titles). */
+export function tabLabel(tab: Tab): string {
+  for (const group of NAV_GROUPS) {
+    for (const [id, label] of group.items) if (id === tab) return label
   }
+  return tab
 }

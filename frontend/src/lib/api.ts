@@ -2,14 +2,24 @@ import type { Statement } from './cashflowStatement'
 import type { InputSchema } from '../types/schema'
 import type { SheetGrid, TemplateSummary } from '../types/template'
 import type { AutoMatchResult, MappingProfile, MappingsById } from '../types/mapping'
-import type { Deal } from '../types/deal'
+import type { Deal, DealStatus, DealSummaryRow } from '../types/deal'
 import type { Scenario } from '../types/scenario'
 import type { MarketContext } from '../types/marketContext'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
 import type { MappingPreviewRow } from '../types/mappingPreview'
+import type {
+  AgentApproveResult,
+  AgentPlay,
+  AgentProviderInfo,
+  AgentRejectResult,
+  AgentThreadRef,
+  AgentThreadState,
+  AgentTurnResult,
+} from '../types/agent'
 import { isDesktop } from './platform'
+import { createSaveConcurrency } from './dealPersistence'
 import type { components } from '../types/api.gen'
 
 const API_BASE = '/api'
@@ -47,7 +57,25 @@ export function describeValidationDetail(detail: ValidationIssue[]): string {
   return `Some values weren't accepted — ${parts.join('; ')}${more}`
 }
 
-export async function apiError(res: Response): Promise<ApiError> {
+/** Fired on any 401 (browser mode only) so App shows the token gate
+ *  (components/AuthGate.tsx). Listen with
+ *  `window.addEventListener(UNAUTHORIZED_EVENT, …)`. Never fired in the
+ *  desktop app: the launcher's per-launch token already protects the API. */
+export const UNAUTHORIZED_EVENT = 'cre:unauthorized'
+
+function notifyUnauthorized(): void {
+  if (isDesktop()) return
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  }
+}
+
+/** Build the ApiError for a failed response — the single choke point every
+ *  helper (and fetchServerFile) goes through, so a 401 anywhere raises the
+ *  token gate. `notify: false` for the login form, where a 401 just means
+ *  "wrong token". */
+export async function apiError(res: Response, options: { notify?: boolean } = {}): Promise<ApiError> {
+  if (res.status === 401 && options.notify !== false) notifyUnauthorized()
   const requestId = res.headers.get('X-Request-ID')
   let message = res.status >= 500
     ? `The server hit an unexpected error (${res.status}). Your inputs are unchanged — try again, and if it persists, report request ${requestId ?? 'id unavailable'}.`
@@ -126,6 +154,108 @@ async function del(path: string): Promise<void> {
   if (!res.ok) {
     throw await apiError(res)
   }
+}
+
+// ---- Optimistic concurrency on deals (Run 6 wave 2, browser mode only) ----
+
+/** One ETag per deal, recorded from EVERY single-deal response (GET, PUT,
+ *  create, archive/unarchive, clone, restore, import, from-extraction) so an
+ *  If-Match always reflects the last copy this tab has seen. App owns the
+ *  conflict decisions (Reload / Overwrite); this layer only records. */
+export const dealConcurrency = createSaveConcurrency<Deal>()
+
+/** If-Match is sent only in browser mode: the desktop app is one window,
+ *  and its owner declined cross-window protection there. */
+export function concurrencyEnabled(): boolean {
+  return !isDesktop()
+}
+
+/** 412 from `PUT /api/deals/{id}` with a stale If-Match. The server's
+ *  current copy rides in the body so the UI can offer Reload without
+ *  another round trip. */
+export class ConflictError extends ApiError {
+  readonly current: Deal
+  readonly etag: string | null
+
+  constructor(message: string, current: Deal, etag: string | null, requestId: string | null = null) {
+    super(message, 412, [], requestId)
+    this.name = 'ConflictError'
+    this.current = current
+    this.etag = etag
+  }
+}
+
+export function isConflictError(err: unknown): err is ConflictError {
+  return err instanceof ConflictError
+}
+
+/** Parse a single-deal body AND record its ETag (an absent header clears
+ *  the stored one, so a server without ETags never gets an If-Match). */
+async function dealJson<T extends Deal>(res: Response): Promise<T> {
+  const deal = (await res.json()) as T
+  dealConcurrency.recordEtag(deal.id, res.headers.get('ETag'))
+  return deal
+}
+
+async function getDeal<T extends Deal = Deal>(path: string): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`)
+  if (!res.ok) throw await apiError(res)
+  return dealJson<T>(res)
+}
+
+async function sendDeal<T extends Deal = Deal>(
+  path: string,
+  body: unknown,
+  method: 'POST' | 'PUT',
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
+  const res = await apiFetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    body: JSON.stringify(body),
+  })
+  if (res.status === 412) {
+    const requestId = res.headers.get('X-Request-ID')
+    let detail = 'This deal was changed in another tab or window.'
+    let current: Deal | null = null
+    try {
+      const payload = (await res.clone().json()) as { detail?: unknown; current?: Deal }
+      if (typeof payload.detail === 'string') detail = payload.detail
+      if (payload.current && typeof payload.current === 'object') current = payload.current
+    } catch {
+      // body wasn't JSON — fall through to a plain ApiError
+    }
+    if (current) throw new ConflictError(detail, current, res.headers.get('ETag'), requestId)
+    throw await apiError(res)
+  }
+  if (!res.ok) throw await apiError(res)
+  return dealJson<T>(res)
+}
+
+// ---- Token session (CRE_API_TOKEN; browser/Docker mode) ----
+
+export type AuthStatus = components['schemas']['AuthStatusOut']
+
+export function fetchAuthStatus() {
+  return getJson<AuthStatus>('/auth/status')
+}
+
+/** A wrong token rejects with ApiError(401) WITHOUT re-raising the gate —
+ *  it's an inline form error. */
+export async function login(token: string): Promise<AuthStatus> {
+  const res = await apiFetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!res.ok) throw await apiError(res, { notify: false })
+  return res.json() as Promise<AuthStatus>
+}
+
+/** Clears the session cookie. Callers then dispatch UNAUTHORIZED_EVENT (or
+ *  reload) to show the gate. */
+export function logout() {
+  return postJson<AuthStatus>('/auth/logout', {}, 'POST')
 }
 
 export function fetchHealth() {
@@ -371,6 +501,23 @@ export interface ComputeResponse {
   statement?: Statement
   /** J3: present only for deals with GP fee streams. */
   gpEconomics?: GpEconomics
+  /** Present only when a cash-flow series has several IRRs. Additive: the
+   *  reported IRR in `outputs` is unchanged; this lists the other roots. */
+  irrDiagnostics?: IrrDiagnostics
+}
+
+export interface IrrSeriesDiagnostics {
+  signChanges: number
+  /** Annual IRRs within the plausible band (fractions, e.g. 0.12). */
+  roots: number[]
+  /** The IRR the outputs report for this series. */
+  reported: number | null
+}
+
+export interface IrrDiagnostics {
+  irrMultipleRoots: true
+  unlevered?: IrrSeriesDiagnostics
+  levered?: IrrSeriesDiagnostics
 }
 
 export function computeNative(
@@ -449,7 +596,7 @@ export interface MonteCarloResult {
 }
 
 export interface MonteCarloJobStatus {
-  status: 'running' | 'done' | 'failed'
+  status: 'running' | 'done' | 'failed' | 'cancelled'
   completed: number
   n: number
   result?: MonteCarloResult
@@ -469,6 +616,19 @@ export function startMonteCarlo(payload: {
 
 export function pollMonteCarlo(jobId: string) {
   return getJson<MonteCarloJobStatus>(`/compute/monte-carlo/${jobId}`)
+}
+
+/** Ask the server to stop a run (`DELETE /compute/monte-carlo/{id}`).
+ *  Never throws: resolves false when the job is already gone, the server is
+ *  unreachable or refused — the panel stops polling either way. */
+export async function cancelMonteCarlo(jobId: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${API_BASE}/compute/monte-carlo/${jobId}`, { method: 'DELETE' })
+    if (res.status === 401) notifyUnauthorized()
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export function saveScenarioMonteCarlo(scenarioId: string, monteCarlo: MonteCarloResult) {
@@ -579,7 +739,8 @@ export function fetchDemographics(market: string, submarket = '', address = '') 
 
 export interface DealSnapshotMeta {
   id: string
-  kind: 'baseline' | 'autosave' | 'restore'
+  /** 'agent' = applied from an approved Underwriting Agent proposal. */
+  kind: 'baseline' | 'autosave' | 'restore' | 'agent'
   changedPaths: string[]
   createdAt: string
   updatedAt: string
@@ -596,7 +757,7 @@ export function fetchDealSnapshot(dealId: string, snapshotId: string) {
 }
 
 export function restoreDealSnapshot(dealId: string, snapshotId: string) {
-  return postJson<Deal>(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
+  return sendDeal(`/deals/${dealId}/history/${snapshotId}/restore`, {}, 'POST')
 }
 
 export interface AssumptionPreset {
@@ -712,40 +873,99 @@ export function importCompsCsv(payload: {
   return postJson<CompsImportResult>('/comps/import', payload, 'POST')
 }
 
-export function fetchDeals() {
-  return getJson<Deal[]>('/deals')
+export interface FetchDealsOptions {
+  /** Include archived deals (hidden by default). */
+  includeArchived?: boolean
+  /** Only deals carrying this tag (case-insensitive, server-side). */
+  tag?: string
+}
+
+function dealListQuery(options: FetchDealsOptions & { fields?: 'summary' | 'full' }): string {
+  const params = new URLSearchParams()
+  if (options.includeArchived) params.set('includeArchived', 'true')
+  if (options.tag?.trim()) params.set('tag', options.tag.trim())
+  if (options.fields === 'summary') params.set('fields', 'summary')
+  const qs = params.toString()
+  return `/deals${qs ? `?${qs}` : ''}`
+}
+
+/** The deal list, newest first. `fields: 'summary'` returns the slim
+ *  pipeline shape (no inputs blob) — see fetchDealSummaries. */
+export function fetchDeals(options?: FetchDealsOptions & { fields?: 'full' }): Promise<Deal[]>
+export function fetchDeals(options: FetchDealsOptions & { fields: 'summary' }): Promise<DealSummaryRow[]>
+export function fetchDeals(
+  options: FetchDealsOptions & { fields?: 'summary' | 'full' } = {},
+): Promise<Deal[] | DealSummaryRow[]> {
+  return getJson<Deal[] | DealSummaryRow[]>(dealListQuery(options))
+}
+
+/** `GET /deals?fields=summary`: headline facts only (no inputs). */
+export function fetchDealSummaries(options: FetchDealsOptions = {}) {
+  return fetchDeals({ ...options, fields: 'summary' })
 }
 
 export function fetchDeal(dealId: string) {
-  return getJson<Deal>(`/deals/${dealId}`)
+  return getDeal(`/deals/${dealId}`)
 }
 
 export function createDeal(payload: { name: string; inputs?: Record<string, unknown> }) {
-  return postJson<Deal>('/deals', payload, 'POST')
+  return sendDeal('/deals', payload, 'POST')
 }
 
-export function updateDeal(
-  dealId: string,
-  payload: {
-    name?: string
-    inputs?: Record<string, unknown>
-    status?: import('../types/deal').DealStatus
-    activeTemplateId?: string | null
-    activeMappingProfileId?: string | null
-  },
-) {
-  return postJson<Deal>(`/deals/${dealId}`, payload, 'PUT')
+// ---- Archive / unarchive / clone ----
+
+/** Soft-delete: hidden from the default list; `unarchiveDeal` brings it back. */
+export function archiveDeal(dealId: string) {
+  return sendDeal(`/deals/${dealId}/archive`, {}, 'POST')
 }
 
-export function bulkUpdateDealStatus(
-  dealIds: string[],
-  status: import('../types/deal').DealStatus,
-) {
+export function unarchiveDeal(dealId: string) {
+  return sendDeal(`/deals/${dealId}/unarchive`, {}, 'POST')
+}
+
+/** Copy a deal (inputs, stage, tags, template selection, scenarios — never
+ *  its IC record). `name` defaults server-side to "<name> (copy)". */
+export function cloneDeal(dealId: string, name?: string) {
+  return sendDeal(`/deals/${dealId}/clone`, name ? { name } : {}, 'POST')
+}
+
+export interface DealUpdatePayload {
+  name?: string
+  inputs?: Record<string, unknown>
+  status?: DealStatus
+  activeTemplateId?: string | null
+  activeMappingProfileId?: string | null
+  /** Replaces the tag list (normalized server-side; see lib/tags.ts). Tags
+   *  aren't deal inputs, so they're writable while IC-locked. */
+  tags?: string[]
+}
+
+export interface UpdateDealOptions {
+  /** Send `If-Match` (use `dealConcurrency.ifMatchFor(id)`). Ignored in the
+   *  desktop app. A stale value rejects with ConflictError (412, carrying
+   *  the server's `current` deal). Absent = unconditional (last write wins). */
+  ifMatch?: string
+}
+
+export function updateDeal(dealId: string, payload: DealUpdatePayload, options: UpdateDealOptions = {}) {
+  const headers: Record<string, string> =
+    options.ifMatch && concurrencyEnabled() ? { 'If-Match': options.ifMatch } : {}
+  return sendDeal(`/deals/${dealId}`, payload, 'PUT', headers)
+}
+
+export function bulkUpdateDealStatus(dealIds: string[], status: DealStatus) {
   return postJson<{ updated: Deal[]; missing: string[] }>(
     '/deals/bulk-status',
     { dealIds, status },
     'POST',
   )
+}
+
+/** Add and/or remove tags across many deals in one write (422 if a result
+ *  would break the caps — then nothing changes). Unknown ids come back in
+ *  `missing`. */
+export function bulkUpdateDealTags(dealIds: string[], add: string[], remove: string[] = []) {
+  return postJson<{ updated: Deal[]; missing: string[] }>('/deals/bulk-tags', { dealIds, add, remove }, 'POST')
 }
 
 export async function exportBatchDeck(
@@ -862,6 +1082,12 @@ export function fetchBackups() {
 
 export function runBackupNow() {
   return postJson<{ created: string; kind: string }>('/admin/backups/run', {}, 'POST')
+}
+
+/** A snapshot's SQLite file. Render it through components/ServerFileLink
+ *  (never a plain <a>: in the desktop app that navigates the window). */
+export function backupDownloadUrl(kind: BackupKind, name: string) {
+  return `${API_BASE}/admin/backups/${encodeURIComponent(kind)}/${encodeURIComponent(name)}/download`
 }
 
 export function restoreBackup(kind: BackupKind, name: string) {
@@ -991,6 +1217,12 @@ export function attachmentDownloadUrl(dealId: string, documentId: string, inline
   return `${API_BASE}/deals/${dealId}/attachments/${documentId}/download${inline ? '?inline=true' : ''}`
 }
 
+/** Remove one of the deal's OWN attachments (source 'attachment'; an
+ *  extraction document 404s). Not a deal input — no IC-lock check. */
+export function deleteAttachment(dealId: string, documentId: string) {
+  return del(`/deals/${dealId}/attachments/${documentId}`)
+}
+
 export function fetchAttachmentPreview(dealId: string, documentId: string) {
   return getJson<{ kind: 'text' | 'none'; text?: string; note?: string }>(
     `/deals/${dealId}/attachments/${documentId}/preview`,
@@ -1022,7 +1254,7 @@ export function createDealFromExtraction(payload: {
   acknowledgeFailures?: boolean
   dealId?: string
 }) {
-  return postJson<Deal>('/deals/from-extraction', payload, 'POST')
+  return sendDeal('/deals/from-extraction', payload, 'POST')
 }
 
 export function confirmExtraction(resultId: string, confirmedValues: Record<string, unknown>) {
@@ -1076,7 +1308,7 @@ export interface DealImportResponse extends Deal {
 }
 
 export function importDeal(bundle: DealExportBundle) {
-  return postJson<DealImportResponse>('/deals/import', { bundle }, 'POST')
+  return sendDeal<DealImportResponse>('/deals/import', { bundle }, 'POST')
 }
 
 export interface HoldSweepRow {
@@ -1114,7 +1346,17 @@ export function fetchHoldSweep(values: Record<string, unknown>) {
 export interface TornadoResponse {
   metric: string
   base: number
-  bars: { key: string; label: string; low: number | null; high: number | null; impact: number }[]
+  bars: {
+    key: string
+    label: string
+    low: number | null
+    high: number | null
+    impact: number
+    /** True when the driver can't move the metric on this deal (e.g. a
+     *  rent-growth bar on a for-sale deal); `reason` says why. */
+    inert?: boolean
+    reason?: string | null
+  }[]
 }
 
 export function fetchTornado(values: Record<string, unknown>, metric: string) {
@@ -1141,4 +1383,50 @@ export function addIcStep(
 
 export function fetchIcStates() {
   return getJson<Record<string, IcState>>('/ic/states')
+}
+
+// ---- Underwriting Agent (one thread per deal). Proposals are applied by the
+// server on approve (IC lock + validation there), never client-side. Types
+// alias the generated schemas (types/agent.ts). ----
+
+export function fetchAgentThread(dealId: string) {
+  return getJson<AgentThreadState>(`/agent/threads/${dealId}`)
+}
+
+/** Send a message, or run a canned play (`playId` wins over `content`). */
+export function postAgentMessage(dealId: string, content: string, playId?: string) {
+  return postJson<AgentTurnResult>(`/agent/threads/${dealId}/messages`, playId ? { playId } : { content }, 'POST')
+}
+
+export function fetchAgentPlays() {
+  return getJson<AgentPlay[]>('/agent/plays')
+}
+
+export function fetchAgentProviders() {
+  return getJson<AgentProviderInfo[]>('/agent/providers')
+}
+
+export function setAgentThreadProvider(dealId: string, provider: string) {
+  return postJson<AgentThreadRef>(`/agent/threads/${dealId}/provider`, { provider }, 'PUT')
+}
+
+/** Applies the proposal's changes server-side (history kind "agent").
+ *  409 = IC-locked (the proposal stays pending), 422 = invalid values
+ *  (ApiError.missing lists them). The returned `deal` is the new server
+ *  copy — the caller adopts it via its apply-deal path. */
+export async function approveAgentProposal(proposalId: string, overrideChanges?: Record<string, unknown>) {
+  const result = await postJson<AgentApproveResult>(
+    `/agent/proposals/${proposalId}/approve`,
+    { overrideChanges: overrideChanges ?? null },
+    'POST',
+  )
+  // The approve route sends no ETag header; drop the now-stale one so the
+  // next autosave doesn't 412 against our own approval (its PUT response
+  // records a fresh ETag).
+  dealConcurrency.recordEtag(result.deal.id, null)
+  return result
+}
+
+export function rejectAgentProposal(proposalId: string, note = '') {
+  return postJson<AgentRejectResult>(`/agent/proposals/${proposalId}/reject`, { note }, 'POST')
 }

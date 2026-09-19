@@ -4,7 +4,8 @@
 // which beats the letters appearing in order ("dscr" in "Min DSCR", "ltc"
 // in "LTV or LTC").
 
-export type CommandGroup = 'actions' | 'tabs' | 'fields'
+/** 'recent' = recently opened deals (lib/recentDeals.ts). */
+export type CommandGroup = 'recent' | 'actions' | 'tabs' | 'fields'
 
 export interface PaletteCommand {
   id: string

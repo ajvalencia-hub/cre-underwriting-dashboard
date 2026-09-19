@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import DealInputForm from './components/DealInputForm'
 import GeneratePanel from './components/GeneratePanel'
 import Layout from './components/Layout'
@@ -16,9 +16,16 @@ import SensitivityPanel from './pages/SensitivityPanel'
 import SettingsPage from './pages/SettingsPage'
 import TemplateUpload from './pages/TemplateUpload'
 import {
+  ApiError,
+  UNAUTHORIZED_EVENT,
+  approveAgentProposal,
+  archiveDeal,
+  cloneDeal,
   createDeal,
+  dealConcurrency,
   deleteDeal,
   exportDeal,
+  fetchAuthStatus,
   fetchDeal,
   fetchDeals,
   bulkUpdateDealStatus,
@@ -26,6 +33,7 @@ import {
   fetchInputSchema,
   fetchTemplate,
   importDeal,
+  isConflictError,
   updateDeal,
   fetchIc,
   type DealExportBundle,
@@ -35,10 +43,23 @@ import {
   ACTIVE_DEAL_STORAGE_KEY,
   createAutosaver,
   hydrateDealState,
+  modeToPersist,
   serializeDealInputs,
   type Autosaver,
   type AutosaveState,
+  type QuickScreenMode,
+  type SaveConflict,
 } from './lib/dealPersistence'
+import { safeStorage } from './lib/safeStorage'
+import { RECENT_DEALS_KEY, loadRecent, recordRecent } from './lib/recentDeals'
+import { dealTypeOf } from './lib/dealStages'
+import AuthGate from './components/AuthGate'
+import PanelBoundary from './components/PanelBoundary'
+import ShortcutsDialog from './components/ShortcutsDialog'
+import AgentDock from './components/AgentDock'
+import ComparePage from './pages/ComparePage'
+import AgentPage from './pages/AgentPage'
+import type { AgentProposal } from './types/agent'
 import { defaultValuesFor, flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
 import { mapQuickScreenToDealInputs, type QuickScreenInputs } from './lib/quickScreenMath'
@@ -64,7 +85,7 @@ import type { DealType } from './lib/dealStages'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 import { clearProvenance, recordProvenance, sameSourceFor, type FieldProvenance } from './lib/provenance'
-import { MULTI_DEAL_TABS, loadLastTab, rememberTab, type Tab } from './app/navigation'
+import { MULTI_DEAL_TABS, loadLastTab, rememberTab, tabLabel, type Tab } from './app/navigation'
 import ModuleNav from './components/ModuleNav'
 import DealHeaderBar from './components/DealHeaderBar'
 import DealImportNotices from './components/DealImportNotices'
@@ -77,9 +98,39 @@ import IcApprovalPage from './pages/IcApprovalPage'
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
+  // The server wants an API token and this browser has no session
+  // (never in the desktop app — its launcher token protects the API).
+  | { status: 'auth' }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
 const HEALTH_POLL_MS = 30_000
+
+/** Thrown by the autosave's save function instead of hitting the network
+ *  while an edit conflict (412) waits for the user's Reload / Overwrite. */
+class SaveParkedError extends Error {
+  constructor() {
+    super('Save paused: this deal was changed elsewhere')
+    this.name = 'SaveParkedError'
+  }
+}
+
+/** Keys of `a` and `b` whose values differ (JSON comparison). */
+function changedKeys(a: Record<string, unknown>, b: Record<string, unknown>): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...keys].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]))
+}
+
+/** One tab's content. All tabs stay mounted (in-progress state survives
+ *  switching) — only visibility toggles. Each sits in its own error
+ *  boundary, so one crashing panel doesn't take down the header, the
+ *  sidebar or the other tabs. */
+function TabPane({ id, current, children }: { id: Tab; current: Tab; children: ReactNode }) {
+  return (
+    <div style={{ display: current === id ? 'block' : 'none' }}>
+      <PanelBoundary name={tabLabel(id)}>{children}</PanelBoundary>
+    </div>
+  )
+}
 
 function blockedByUnparsedEntry(): boolean {
   if (!focusUnparsedEntry()) return false
@@ -124,6 +175,12 @@ function App() {
   const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
   const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // Recently opened deal ids, newest first (the palette's "Recent deals").
+  const [recentIds, setRecentIds] = useState<string[]>(() => loadRecent(safeStorage))
+  // A 412 on autosave (browser mode): this deal changed in another tab.
+  const [conflict, setConflict] = useState<SaveConflict<Deal> | null>(() => dealConcurrency.conflict())
+  useEffect(() => dealConcurrency.subscribe(setConflict), [])
 
   const activeDealIdRef = useRef<string | null>(null)
   // Computed results (engine + Excel read-back), each stamped with the deal
@@ -133,11 +190,31 @@ function App() {
   // JSON of the state as last hydrated/saved — suppresses the no-op autosave
   // that hydration itself would otherwise trigger.
   const lastPersistedJsonRef = useRef('')
+  // The Quick Screen mode as the server stores it for the active deal (null:
+  // never stored) — see modeToPersist.
+  const storedModeRef = useRef<QuickScreenMode | null>(null)
   const autosaverRef = useRef<Autosaver<{ dealId: string; inputs: Record<string, unknown> }> | null>(null)
   if (autosaverRef.current === null) {
-    autosaverRef.current = createAutosaver(async ({ dealId, inputs }) => {
-      await updateDeal(dealId, { inputs })
-    })
+    autosaverRef.current = createAutosaver(
+      async ({ dealId, inputs }) => {
+        // A parked conflict must not hit the network until the user picks
+        // Reload or Overwrite.
+        if (dealConcurrency.isBlocked(dealId)) throw new SaveParkedError()
+        try {
+          // If-Match (browser only — updateDeal drops it in the desktop app).
+          const updated = await updateDeal(dealId, { inputs }, { ifMatch: dealConcurrency.ifMatchFor(dealId) })
+          // Keep the list's copy current (the header's untyped chip and the
+          // pipeline read it).
+          setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+        } catch (err) {
+          if (isConflictError(err)) dealConcurrency.markConflict({ dealId, current: err.current, etag: err.etag })
+          throw err
+        }
+      },
+      2000,
+      // A 412 (or a parked save) never enters the retry loop: retrying can't fix it.
+      { shouldRetry: (err) => !(isConflictError(err) || err instanceof SaveParkedError) },
+    )
   }
 
 
@@ -179,7 +256,8 @@ function App() {
   // Closing with edits the server hasn't accepted loses them: ask first.
   // Browser: the standard leave-page prompt. Desktop: the window's quit
   // confirmation (Cmd+Q / close button), switched on through the bridge.
-  const hasUnsavedWork = autosaveState === 'pending' || autosaveState === 'saving' || autosaveState === 'error'
+  const hasUnsavedWork =
+    autosaveState === 'pending' || autosaveState === 'saving' || autosaveState === 'error' || autosaveState === 'blocked'
   useEffect(() => {
     reportUnsavedToShell(hasUnsavedWork)
     if (!hasUnsavedWork) return
@@ -188,8 +266,18 @@ function App() {
       // Kick off the save; if it lands before the user answers, nothing is lost.
       void autosaverRef.current!.flush()
     }
+    // The tab went to the background (switched away, minimized, a phone
+    // locking): save now rather than after the debounce — a hidden tab may
+    // be discarded without a beforeunload.
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') void autosaverRef.current!.flush()
+    }
     window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [hasUnsavedWork])
 
   function applyDealState(schema: InputSchema, deal: Deal) {
@@ -197,6 +285,9 @@ function App() {
     setFormValues(hydrated.formValues)
     quickScreens.setDevelopment(hydrated.quickScreen)
     quickScreens.setAcquisition(hydrated.acquisitionQuickScreen)
+    // The napkin the deal was last left on (development when never chosen).
+    quickScreens.setMode(hydrated.quickScreenMode ?? 'development')
+    storedModeRef.current = hydrated.quickScreenMode
     results.reset()
     setLoadedScenario(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
@@ -219,10 +310,82 @@ function App() {
         })
     }
     lastPersistedJsonRef.current = JSON.stringify(
-      serializeDealInputs(hydrated.formValues, hydrated.quickScreen, hydrated.acquisitionQuickScreen),
+      serializeDealInputs(
+        hydrated.formValues,
+        hydrated.quickScreen,
+        hydrated.acquisitionQuickScreen,
+        hydrated.quickScreenMode,
+      ),
     )
     activeDealIdRef.current = deal.id
     hydratedRef.current = true
+  }
+
+  /** Make `deal` the active deal: remember it (storage + recent list),
+   *  hydrate the form from it and drop any edit conflict left on another
+   *  deal. Every path that opens a deal goes through here. */
+  function activateDeal(schema: InputSchema, deal: Deal) {
+    const parked = dealConcurrency.conflict()
+    if (parked && parked.dealId !== deal.id) dealConcurrency.forget(parked.dealId)
+    safeStorage.set(ACTIVE_DEAL_STORAGE_KEY, deal.id)
+    setRecentIds(recordRecent(safeStorage, deal.id))
+    applyDealState(schema, deal)
+    setActiveDealId(deal.id)
+  }
+
+  // Where the app was when a 401 raised the token gate mid-session: signing
+  // in again resumes it (unsaved edits intact) instead of re-booting.
+  const resumeAfterAuthRef = useRef<LoadState | null>(null)
+
+  async function boot() {
+    setState({ status: 'loading' })
+    try {
+      // Browser/Docker mode with CRE_API_TOKEN set: ask for the token first.
+      // Never in the desktop app (its launcher token protects the API).
+      if (!isDesktop()) {
+        const auth = await fetchAuthStatus().catch(() => null)
+        if (auth?.required && !auth.authenticated) {
+          setState({ status: 'auth' })
+          return
+        }
+      }
+      const [schema, health, dealList] = await Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
+      let list = dealList
+      if (list.length === 0) {
+        list = [await createDeal({ name: 'Default Deal' })]
+      }
+      const storedId = safeStorage.get(ACTIVE_DEAL_STORAGE_KEY)
+      let active = list.find((d) => d.id === storedId) ?? list[0]
+      // A single-deal read records the deal's ETag, so the first autosave
+      // is already guarded (the list response carries none).
+      active = await fetchDeal(active.id).catch(() => active)
+      activateDeal(schema, active)
+      // A Quick Screen link is offered, never applied automatically — it
+      // used to overwrite the active deal's saved napkin on every load.
+      const shared = parseShareLink(window.location.search)
+      if (shared) {
+        const hydrated = hydrateDealState({}, active.inputs)
+        const differs =
+          (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
+          (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
+        if (differs) {
+          setSharedFromLink(shared)
+          setTab('quickscreen') // so the offer is seen
+        } else {
+          quickScreens.setMode(shared.mode)
+        }
+      }
+      const fresh = active
+      setDeals(list.map((d) => (d.id === fresh.id ? fresh : d)))
+      setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
+    } catch (err) {
+      // A 401 already raised the token gate (UNAUTHORIZED_EVENT); keep it.
+      if (err instanceof ApiError && err.status === 401 && !isDesktop()) {
+        setState({ status: 'auth' })
+        return
+      }
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   const bootStartedRef = useRef(false)
@@ -231,40 +394,35 @@ function App() {
     // would run twice and could create two "Default Deal" rows.
     if (bootStartedRef.current) return
     bootStartedRef.current = true
-    Promise.all([fetchInputSchema(), fetchHealth(), fetchDeals()])
-      .then(async ([schema, health, dealList]) => {
-        let list = dealList
-        if (list.length === 0) {
-          list = [await createDeal({ name: 'Default Deal' })]
-        }
-        const storedId = localStorage.getItem(ACTIVE_DEAL_STORAGE_KEY)
-        const active = list.find((d) => d.id === storedId) ?? list[0]
-        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, active.id)
-        applyDealState(schema, active)
-        // A Quick Screen link is offered, never applied automatically — it
-        // used to overwrite the active deal's saved napkin on every load.
-        const shared = parseShareLink(window.location.search)
-        if (shared) {
-          const hydrated = hydrateDealState({}, active.inputs)
-          const differs =
-            (shared.development && inputsKey(shared.development) !== inputsKey(hydrated.quickScreen)) ||
-            (shared.acquisition && inputsKey(shared.acquisition) !== inputsKey(hydrated.acquisitionQuickScreen))
-          if (differs) {
-            setSharedFromLink(shared)
-            setTab('quickscreen') // so the offer is seen
-          } else {
-            quickScreens.setMode(shared.mode)
-          }
-        }
-        setDeals(list)
-        setActiveDealId(active.id)
-        setState({ status: 'ready', schema, apiOk: health.status === 'ok' })
-      })
-      .catch((err: Error) => {
-        setState({ status: 'error', message: err.message })
-      })
+    void boot()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Any 401 (session expired, token rotated) shows the token gate. Browser
+  // mode only — apiError() never fires the event in the desktop app.
+  useEffect(() => {
+    function onUnauthorized() {
+      setState((prev) => {
+        if (prev.status === 'auth') return prev
+        if (prev.status === 'ready') resumeAfterAuthRef.current = prev
+        return { status: 'auth' }
+      })
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
+
+  function handleAuthenticated() {
+    const resume = resumeAfterAuthRef.current
+    resumeAfterAuthRef.current = null
+    if (resume) {
+      // Back where we were; push whatever didn't save while signed out.
+      setState(resume)
+      void autosaverRef.current!.flush()
+    } else {
+      void boot()
+    }
+  }
 
   // Keep the connection indicator honest after boot: re-check every 30s so a
   // backend that went away shows before the next action fails.
@@ -306,12 +464,25 @@ function App() {
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
     if (!hydratedRef.current || activeDealId === null) return
-    const blob = serializeDealInputs(formValues, quickScreens.development, quickScreens.acquisition)
+    const mode = modeToPersist(storedModeRef.current, quickScreens.mode, icLocked)
+    const blob = serializeDealInputs(formValues, quickScreens.development, quickScreens.acquisition, mode)
     const json = JSON.stringify(blob)
     if (json === lastPersistedJsonRef.current) return
     lastPersistedJsonRef.current = json
+    storedModeRef.current = mode
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
-  }, [formValues, quickScreens.development, quickScreens.acquisition, activeDealId])
+  }, [formValues, quickScreens.development, quickScreens.acquisition, quickScreens.mode, icLocked, activeDealId])
+
+  /** The Deal.inputs blob for what's on screen now (explicit saves). */
+  function currentInputsBlob(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    const mode = modeToPersist(storedModeRef.current, quickScreens.mode, icLocked)
+    return serializeDealInputs(
+      { ...formValuesRef.current, ...overrides },
+      quickScreens.development,
+      quickScreens.acquisition,
+      mode,
+    )
+  }
 
 
   /** Before leaving the current deal: make sure its edits reached the
@@ -319,7 +490,13 @@ function App() {
    *  superseded by the next deal's saves and the edits silently lost. */
   async function ensureSaved(): Promise<boolean> {
     const ok = await autosaverRef.current!.flush()
-    if (!ok) {
+    if (!ok && autosaverRef.current!.getState() === 'blocked') {
+      showToast({
+        kind: 'error',
+        message: "This deal's latest changes haven't been saved, so you're staying on it",
+        detail: 'It was changed in another tab or window — choose Reload or Overwrite in the banner first.',
+      })
+    } else if (!ok) {
       toastError(
         "This deal's latest changes haven't been saved yet, so you're staying on it",
         'The server did not accept the save. The app keeps retrying — try again in a moment.',
@@ -364,10 +541,8 @@ function App() {
     try {
       const deal = await fetchDeal(dealId)
       if (request !== switchRequestRef.current) return
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
       // Deal switches never re-apply URL params — those are first-load-only.
-      applyDealState(state.schema, deal)
-      setActiveDealId(deal.id)
+      activateDeal(state.schema, deal)
       setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
     } catch (err) {
       toastError("Couldn't open that deal — you're still on the current one", err)
@@ -394,9 +569,7 @@ function App() {
         inputs: { dealType: type },
       })
       setDeals((prev) => [deal, ...prev])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-      applyDealState(state.schema, deal)
-      setActiveDealId(deal.id)
+      activateDeal(state.schema, deal)
     } catch (err) {
       toastError("Couldn't create the deal", err)
     }
@@ -408,20 +581,16 @@ function App() {
   // inactive deal merges server-side directly.
   async function handleSetDealType(dealId: string, type: DealType) {
     if (dealId === activeDealId) {
+      // dealType is an underwriting input: an IC-locked deal refuses it
+      // (scheduling the save anyway would just retry a 409 forever).
+      if (blockedByIcLock(['dealType'])) return
       handleFieldChange('dealType', type)
       // Save it explicitly: the form may already show this type as its
       // default, in which case the change is a no-op for autosave and the
       // deal would stay untyped on the server. And update the pipeline's
       // deal list, which the form change alone doesn't touch — otherwise the
       // deal stayed under "untyped" and the click looked like it did nothing.
-      autosaverRef.current!.schedule({
-        dealId,
-        inputs: serializeDealInputs(
-          { ...formValuesRef.current, dealType: type },
-          quickScreens.development,
-          quickScreens.acquisition,
-        ),
-      })
+      autosaverRef.current!.schedule({ dealId, inputs: currentInputsBlob({ dealType: type }) })
       setDeals((prev) =>
         prev.map((d) => (d.id === dealId ? { ...d, inputs: { ...d.inputs, dealType: type } } : d)),
       )
@@ -454,15 +623,16 @@ function App() {
     setOmWizardOpen(false)
     if (!(await ensureSaved())) return
     setDeals((prev) => [deal, ...prev.filter((d) => d.id !== deal.id)])
-    localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, deal.id)
-    applyDealState(state.schema, deal)
-    setActiveDealId(deal.id)
+    activateDeal(state.schema, deal)
     setTab('dashboard')
   }
 
   async function handleRenameDeal(name: string): Promise<boolean> {
     if (!activeDealId) return true
     try {
+      // Let a save in progress land first: this write moves the deal's
+      // ETag, and an overlapping autosave would 412 against it.
+      await autosaverRef.current!.flush()
       const updated = await updateDeal(activeDealId, { name })
       setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
       return true
@@ -472,33 +642,188 @@ function App() {
     }
   }
 
-  async function handleDeleteDeal() {
-    if (state.status !== 'ready' || !activeDealId) return
-    const deal = deals.find((d) => d.id === activeDealId)
-    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?\n\nThis cannot be undone.`)) return
+  /** After the active deal is gone (deleted / archived): open the next one,
+   *  or seed a fresh default so the app is never dealless. */
+  async function activateNextAfterRemoval(schema: InputSchema, removedId: string, what: string) {
+    dealConcurrency.forget(removedId)
+    setRecentIds((prev) => {
+      const next = prev.filter((id) => id !== removedId)
+      safeStorage.set(RECENT_DEALS_KEY, JSON.stringify(next))
+      return next
+    })
     try {
-      await deleteDeal(activeDealId)
-    } catch (err) {
-      toastError("Couldn't delete the deal — nothing was removed", err)
-      return
-    }
-    try {
-      const remaining = deals.filter((d) => d.id !== activeDealId)
+      const remaining = deals.filter((d) => d.id !== removedId)
       if (remaining.length === 0) {
         const fresh = await createDeal({ name: 'Default Deal' })
         setDeals([fresh])
-        localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, fresh.id)
-        applyDealState(state.schema, fresh)
-        setActiveDealId(fresh.id)
+        activateDeal(schema, fresh)
         return
       }
       const next = await fetchDeal(remaining[0].id)
-      setDeals(remaining)
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, next.id)
-      applyDealState(state.schema, next)
-      setActiveDealId(next.id)
+      setDeals(remaining.map((d) => (d.id === next.id ? next : d)))
+      activateDeal(schema, next)
     } catch (err) {
-      toastError('The deal was deleted, but the next one could not be opened — reopen the app', err)
+      toastError(`The deal was ${what}, but the next one could not be opened — reopen the app`, err)
+    }
+  }
+
+  async function handleDeleteDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const dealId = activeDealId
+    const deal = deals.find((d) => d.id === dealId)
+    if (!window.confirm(`Delete "${deal?.name ?? 'this deal'}" and all its scenarios?\n\nThis cannot be undone.`)) return
+    // A pending autosave would PUT to a deal that no longer exists (404,
+    // retried forever): drop it — and its retry timer — first.
+    const unsaved = autosaverRef.current!.hasUnsaved() ? currentInputsBlob() : null
+    autosaverRef.current!.cancel()
+    try {
+      await deleteDeal(dealId)
+    } catch (err) {
+      // Nothing was removed: put the unsaved edits back in the queue.
+      if (unsaved) autosaverRef.current!.schedule({ dealId, inputs: unsaved })
+      toastError("Couldn't delete the deal — nothing was removed", err)
+      return
+    }
+    await activateNextAfterRemoval(state.schema, dealId, 'deleted')
+  }
+
+  /** More ▾ → Duplicate…: copy the active deal (inputs, stage, tags,
+   *  template, scenarios — not its IC record) and open the copy. */
+  async function handleDuplicateDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const source = deals.find((d) => d.id === activeDealId)
+    const name = window.prompt('Name for the copy', `${source?.name ?? 'Deal'} (copy)`)
+    if (name === null) return
+    if (!(await ensureSaved())) return
+    try {
+      const copy = await cloneDeal(activeDealId, name.trim() || undefined)
+      setDeals((prev) => [copy, ...prev])
+      activateDeal(state.schema, copy)
+      showToast({ kind: 'success', message: `Opened the copy "${copy.name}"` })
+    } catch (err) {
+      toastError("Couldn't duplicate the deal", err)
+    }
+  }
+
+  /** More ▾ → Archive: hide the deal from the working list (reversible from
+   *  the pipeline's archived view) and open the next one. */
+  async function handleArchiveDeal() {
+    if (state.status !== 'ready' || !activeDealId) return
+    const dealId = activeDealId
+    const deal = deals.find((d) => d.id === dealId)
+    if (
+      !window.confirm(
+        `Archive "${deal?.name ?? 'this deal'}"?\n\nIt leaves the deal list and pipeline; you can unarchive it from the Deals tab.`,
+      )
+    )
+      return
+    if (!(await ensureSaved())) return
+    try {
+      await archiveDeal(dealId)
+    } catch (err) {
+      toastError("Couldn't archive the deal", err)
+      return
+    }
+    autosaverRef.current!.cancel()
+    await activateNextAfterRemoval(state.schema, dealId, 'archived')
+  }
+
+  /** The header's tag chips. Tags aren't deal inputs, so this is allowed
+   *  while IC-locked. Resolves false when the save failed. */
+  async function handleTagsChange(tags: string[]): Promise<boolean> {
+    if (!activeDealId) return false
+    const dealId = activeDealId
+    // Pending edits land first (this write moves the deal's ETag).
+    if (!(await ensureSaved())) return false
+    try {
+      const updated = await updateDeal(dealId, { tags }, { ifMatch: dealConcurrency.ifMatchFor(dealId) })
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+      return true
+    } catch (err) {
+      if (isConflictError(err)) {
+        dealConcurrency.markConflict({ dealId, current: err.current, etag: err.etag })
+        return false
+      }
+      toastError("Couldn't save the tags", err)
+      return false
+    }
+  }
+
+  /** Conflict banner → Reload: adopt the server's copy, dropping this
+   *  tab's unsaved edits. */
+  function handleConflictReload() {
+    if (state.status !== 'ready') return
+    const resolved = dealConcurrency.chooseReload()
+    if (!resolved) return
+    autosaverRef.current!.cancel()
+    setDeals((prev) => prev.map((d) => (d.id === resolved.dealId ? resolved.current : d)))
+    if (resolved.dealId === activeDealIdRef.current) {
+      applyDealState(state.schema, resolved.current)
+      // The other tab may have changed the IC state too.
+      fetchIc(resolved.dealId)
+        .then((summary) => {
+          if (activeDealIdRef.current === resolved.dealId) setIc(summary)
+        })
+        .catch(() => {})
+    }
+  }
+
+  /** Conflict banner → Overwrite: save this tab's version without If-Match.
+   *  Refused when the other tab has since locked the deal for the IC and
+   *  the overwrite would change locked inputs. */
+  async function handleConflictOverwrite() {
+    const pending = dealConcurrency.conflict()
+    if (!pending) return
+    try {
+      const summary = await fetchIc(pending.dealId)
+      if (pending.dealId === activeDealIdRef.current) setIc(summary)
+      const differing = changedKeys(currentInputsBlob(), pending.current.inputs)
+      if (summary.locked && differing.some(isLockedField)) {
+        showToast({
+          kind: 'error',
+          message: 'Inputs are locked for the investment committee',
+          detail: "The deal was submitted to the IC elsewhere, so your version can't overwrite it. Choose Reload.",
+        })
+        return
+      }
+    } catch (err) {
+      toastError("Couldn't check the deal's IC lock — nothing was overwritten", err)
+      return
+    }
+    if (dealConcurrency.chooseOverwrite() === null) return
+    if (!(await autosaverRef.current!.flush())) {
+      toastError("Couldn't overwrite the deal", 'The save will keep retrying.')
+    }
+  }
+
+  /** Agent proposal approval (AgentPage / AgentDock). Respects the IC lock,
+   *  saves pending edits first, lets the server apply the changes (history
+   *  kind "agent"), then adopts the returned deal and marks the changed
+   *  fields as agent-filled. Resolves true when applied. */
+  async function handleApproveProposal(
+    proposal: Pick<AgentProposal, 'id' | 'changes'>,
+    overrideChanges?: Record<string, unknown>,
+  ): Promise<boolean> {
+    if (state.status !== 'ready') return false
+    const changes = overrideChanges ?? proposal.changes
+    if (blockedByIcLock(Object.keys(changes))) return false
+    if (!(await ensureSaved())) return false
+    try {
+      const { deal } = await approveAgentProposal(proposal.id, overrideChanges)
+      setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
+      if (deal.id === activeDealIdRef.current) {
+        applyDealState(state.schema, deal)
+        setFormValues((prev) =>
+          recordProvenance(
+            prev,
+            sameSourceFor(Object.keys(changes), { source: 'agent', label: 'Underwriting Agent', at: new Date().toISOString() }),
+          ),
+        )
+      }
+      return true
+    } catch (err) {
+      toastError("Couldn't apply the agent's proposal", err)
+      return false
     }
   }
 
@@ -541,9 +866,7 @@ function App() {
           : `Imported "${imported.name}" with ${imported.importedScenarios} scenario(s).`,
       )
       setDeals((prev) => [imported, ...prev])
-      localStorage.setItem(ACTIVE_DEAL_STORAGE_KEY, imported.id)
-      applyDealState(state.schema, imported)
-      setActiveDealId(imported.id)
+      activateDeal(state.schema, imported)
     } catch (err) {
       setImportNotice(err instanceof Error ? err.message : 'Import failed')
       setImportPreview(null)
@@ -594,6 +917,8 @@ function App() {
 
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
     quickScreens.setDevelopment(inputs)
+    // A quick-screen scenario is a development napkin: show that one.
+    quickScreens.setMode('development')
     setTab('quickscreen')
   }
 
@@ -614,6 +939,10 @@ function App() {
 
   if (state.status === 'loading') {
     return <div className="p-8 text-slate-500">Loading…</div>
+  }
+
+  if (state.status === 'auth') {
+    return <AuthGate onAuthenticated={handleAuthenticated} />
   }
 
   if (state.status === 'error') {
@@ -658,7 +987,21 @@ function App() {
     })
   }
 
+  const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
+  const recentDeals = recentIds
+    .filter((id) => id !== activeDealId)
+    .map((id) => deals.find((d) => d.id === id))
+    .filter((d): d is Deal => d !== undefined)
+  const agentSurface = {
+    dealId: activeDealId,
+    schema,
+    currentValues: formValues,
+    icLocked,
+    onApproveProposal: handleApproveProposal,
+  }
+
   return (
+    <>
     <Layout
       nav={
         <ModuleNav tab={tab} onSelect={setTab} sections={visibleSections} onGoToSection={goToSection} />
@@ -765,7 +1108,41 @@ function App() {
           onExport={() => void handleExportDeal()}
           onImportFile={handleImportFile}
           onOpenDates={() => setDatesEditorOpen(true)}
-        />
+          untyped={activeDeal !== null && dealTypeOf(activeDeal) === null}
+          onSetType={(type) => {
+            if (activeDealId) void handleSetDealType(activeDealId, type)
+          }}
+          onDuplicate={() => void handleDuplicateDeal()}
+          onArchive={() => void handleArchiveDeal()}
+          onTagsChange={handleTagsChange}
+        >
+          {conflict && conflict.dealId === activeDealId && (
+            <div
+              role="alert"
+              className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <span>
+                This deal was changed in another tab or window, so your latest edits weren't saved.
+              </span>
+              <span className="flex gap-2">
+                <button
+                  onClick={handleConflictReload}
+                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+                  title="Load the other version; your unsaved edits here are discarded"
+                >
+                  Reload
+                </button>
+                <button
+                  onClick={() => void handleConflictOverwrite()}
+                  className="rounded border border-amber-400 px-2 py-1 text-xs hover:bg-amber-100"
+                  title="Save your version over the other one"
+                >
+                  Overwrite
+                </button>
+              </span>
+            </div>
+          )}
+        </DealHeaderBar>
 
         <DealImportNotices
           notice={importNotice}
@@ -778,7 +1155,7 @@ function App() {
 
       {/* All tabs stay mounted so in-progress state (unsaved mapping edits, form
           values) survives switching tabs — only visibility toggles. */}
-      <div style={{ display: tab === 'pipeline' ? 'block' : 'none' }}>
+      <TabPane id="pipeline" current={tab}>
         <PipelinePage
           active={tab === 'pipeline'}
           deals={deals}
@@ -808,7 +1185,7 @@ function App() {
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
           onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
         />
-      </div>
+      </TabPane>
 
       <CommandPalette
         open={paletteOpen}
@@ -830,7 +1207,9 @@ function App() {
                   newDealFromDocuments: () => setOmWizardOpen(true),
                   exportDeal: () => void handleExportDeal(),
                   openDates: () => setDatesEditorOpen(true),
+                  showShortcuts: () => setShortcutsOpen(true),
                 },
+                { deals: recentDeals, openDeal: (dealId) => void switchDeal(dealId) },
               )
             : []
         }
@@ -844,6 +1223,8 @@ function App() {
           }
         }}
       />
+
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
 
       {datesEditorOpen && (
         <CriticalDatesEditor
@@ -863,7 +1244,7 @@ function App() {
         />
       )}
 
-      <div style={{ display: tab === 'quickscreen' ? 'block' : 'none' }}>
+      <TabPane id="quickscreen" current={tab}>
         {sharedFromLink && (
           <div className="mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
             <span>
@@ -899,9 +1280,9 @@ function App() {
           onOpenShared={quickScreens.applyShared}
           dealId={activeDealId}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'documents' ? 'block' : 'none' }}>
+      <TabPane id="documents" current={tab}>
         <Documents
           key={dealScope}
           schema={schema}
@@ -912,9 +1293,9 @@ function App() {
             setTab('dashboard')
           }}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'setup' ? 'block' : 'none' }}>
+      <TabPane id="setup" current={tab}>
         <TemplateUpload
           values={formValues}
           activeTemplate={activeTemplate}
@@ -933,9 +1314,9 @@ function App() {
             }
           }}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'dashboard' ? 'block' : 'none' }}>
+      <TabPane id="dashboard" current={tab}>
         <FileCabinet dealId={activeDealId} />
         <HistoryDrawer
           schema={schema}
@@ -990,9 +1371,9 @@ function App() {
           failure={results.failure}
           onCompute={computeNow}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'cashflow' ? 'block' : 'none' }}>
+      <TabPane id="cashflow" current={tab}>
         <CashFlowTab
           key={dealScope}
           statement={nativeResponse?.statement ?? null}
@@ -1001,9 +1382,9 @@ function App() {
           stale={nativeStale}
           onRecompute={computeNow}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'sensitivity' ? 'block' : 'none' }}>
+      <TabPane id="sensitivity" current={tab}>
         <SensitivityPanel
           key={dealScope}
           schema={schema}
@@ -1013,13 +1394,13 @@ function App() {
           baseValues={formValues}
           dealId={activeDealId}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
+      <TabPane id="risk" current={tab}>
         <RiskPanel key={dealScope} schema={schema} values={formValues} dealId={activeDealId} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'scenarios' ? 'block' : 'none' }}>
+      <TabPane id="scenarios" current={tab}>
         <ScenariosPanel
           schema={schema}
           template={activeTemplate}
@@ -1033,9 +1414,9 @@ function App() {
           onLoadScenario={loadScenario}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'approval' ? 'block' : 'none' }}>
+      <TabPane id="approval" current={tab}>
         <IcApprovalPage
           dealId={activeDealId}
           schema={schema}
@@ -1045,20 +1426,38 @@ function App() {
           onBeforeStep={ensureSaved}
           onSummary={setIc}
         />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'portfolio' ? 'block' : 'none' }}>
+      <TabPane id="portfolio" current={tab}>
         <PortfolioPage active={tab === 'portfolio'} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
+      <TabPane id="settings" current={tab}>
         <SettingsPage active={tab === 'settings'} />
-      </div>
+      </TabPane>
 
-      <div style={{ display: tab === 'comps' ? 'block' : 'none' }}>
+      <TabPane id="comps" current={tab}>
         <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
-      </div>
+      </TabPane>
+
+      <TabPane id="compare" current={tab}>
+        <ComparePage
+          schema={schema}
+          deals={deals}
+          active={tab === 'compare'}
+          onOpenDeal={(dealId) => switchDeal(dealId).then(() => setTab('dashboard'))}
+        />
+      </TabPane>
+
+      <TabPane id="agent" current={tab}>
+        <AgentPage key={dealScope} {...agentSurface} />
+      </TabPane>
     </Layout>
+
+    {/* The agent dock floats outside Layout's columns so it survives every
+        tab switch; rendered only past boot and the token gate. */}
+    <AgentDock {...agentSurface} hidden={tab === 'agent'} />
+    </>
   )
 }
 

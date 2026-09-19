@@ -156,6 +156,8 @@ export const FIELD_HELP: Record<string, string> = {
   homeBuildMonths: 'Months to build one home. Each home\'s construction cost is spent over these months, ending at its closing.',
   homePriceGrowthPct: 'Annual growth in home prices from the first closing.',
   marketLeasingProfiles: 'Rollover assumptions per space type (anchor, inline, office floor…). A lease uses the profile named in its Leasing Profile column; blank cells here keep the deal assumptions.',
+  buildingRsf:
+    "The building's total rentable SF. It's the denominator for each tenant's pro-rata share of recoveries and for occupancy. Blank = the sum of the listed leases' SF (then there's no vacant space to count).",
   renewalProbability: 'Chance a tenant renews at expiry. Rollover income blends renewal and re-let outcomes by this probability.',
   downtimeMonths: 'Months a space sits empty before a new tenant (re-let path only).',
   freeRentMonthsNew: 'Free rent for a new tenant after downtime, in months (base rent only).',
