@@ -294,6 +294,28 @@ def build_lease_income(
     occupied_sf = [0.0] * months
 
     total_sf = sum(_num(l, "sf") for l in leases)
+    # [FIN] (Run 6) buildingRsf — the pro-rata denominator for NNN /
+    # base-year shares AND the physical-occupancy basis (statement row,
+    # occupancyYear1/Stabilized, the I3 gross-up projection). Blank keeps the
+    # listed-SF denominator (the listed tenants absorb 100% of the pool). A
+    # larger building leaves the unlisted vacant suites' share of recoverable
+    # opex with the owner. Unlisted suites carry no modeled rent, so the
+    # general-vacancy top-up (leaseGeneralVacancyPct) stays on the billed
+    # potential (scheduled rent + these recoveries). Market leasing profiles
+    # change each lease's rollover, never the denominator. A value BELOW the
+    # listed SF is a data error — ignored with a warning (never a share > 1).
+    building_rsf = _num(inputs, "buildingRsf")
+    share_denominator = total_sf
+    if building_rsf > 0:
+        if building_rsf + 1e-9 >= total_sf:
+            share_denominator = building_rsf
+        else:
+            warnings.append(
+                f"buildingRsf ({building_rsf:,.0f}) is below the listed lease SF "
+                f"({total_sf:,.0f}) — ignored; pro-rata recovery shares use the "
+                "listed SF."
+            )
+            building_rsf = 0.0
     annual_recoverable = _annual_recoverable_by_calendar_year(
         recoverable_opex_monthly, expense_growth
     )
@@ -302,7 +324,9 @@ def build_lease_income(
     # the raw pool (actual expenses are what they are).
     annual_recoverable_stop = annual_recoverable
     if gross_up_to is not None and gross_up_to > 0 and variable_recoverable_monthly:
-        projected_occupancy = _occupancy_projection(leases, deal_rollover, months, total_sf, rollover_of)
+        projected_occupancy = _occupancy_projection(
+            leases, deal_rollover, months, share_denominator, rollover_of
+        )
         adjusted_pool = _grossed_up_pool(
             recoverable_opex_monthly, variable_recoverable_monthly,
             projected_occupancy, gross_up_to,
@@ -347,7 +371,7 @@ def build_lease_income(
         downtime = rollover["downtimeMonths"]
         new_term_months = rollover["newTermYears"] * 12
         sf = _num(lease, "sf")
-        share = sf / total_sf if total_sf > 0 else 0.0
+        share = sf / share_denominator if share_denominator > 0 else 0.0
         slice_scheduled = [0.0] * months
         slice_free = [0.0] * months
         slice_downtime = [0.0] * months
@@ -527,7 +551,8 @@ def build_lease_income(
 
     walt = walt_weighted / total_sf if total_sf > 0 else 0.0
     occupancy = [
-        (occupied_sf[m] / total_sf if total_sf > 0 else 0.0) for m in range(months)
+        (occupied_sf[m] / share_denominator if share_denominator > 0 else 0.0)
+        for m in range(months)
     ]
     year1 = occupancy[: min(12, months)]
     occupancy_year1 = sum(year1) / len(year1) if year1 else 0.0
@@ -558,6 +583,8 @@ def build_lease_income(
         "occupiedSf": occupied_sf,
         "occupancy": occupancy,
         "totalSf": total_sf,
+        # Run 6: the raw input when it applied (None = listed-SF denominator).
+        "buildingRsf": building_rsf if building_rsf > 0 else None,
         "walt": round(walt, 2),
         "occupancyYear1": round(occupancy_year1, 4),
         "occupancyStabilized": round(occupancy_stabilized, 4),

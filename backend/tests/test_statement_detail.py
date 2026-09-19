@@ -57,16 +57,35 @@ def _assert_identities(statement: dict) -> None:
             statement["egi"][m] - statement["opexTotal"][m], abs=1e-6
         ), f"NOI identity @ {m}"
 
-        levered = (
-            statement["noi"][m]
-            - statement["debtService"][m]
-            + statement["debtDraws"][m]
-            - statement["costs"][m]
-            - statement["loanFees"][m]
-            - statement["leasingCapital"][m]
-            + statement["saleProceedsNet"][m]
-        )
+        levered = _levered_identity(statement, m)
         assert statement["levered"][m] == pytest.approx(levered, abs=1e-6), f"levered tie @ {m}"
+
+
+# The FULL levered identity (engine.py, statement block; Run 6 port). Feature
+# rows are conditional keys — absent rows contribute zero. prepaymentCost is
+# netted inside saleProceedsNet; juniorBalance and loanBalance are balances;
+# renovation.spendSchedule is timing detail, not cash.
+_FEATURE_DEDUCTIONS = (
+    "renovationCapex", "juniorInterest", "juniorPayoff", "assetMgmtFee", "replacementReserves",
+)
+
+
+def _levered_identity(statement: dict, m: int) -> float:
+    value = (
+        statement["noi"][m]
+        - statement["debtService"][m]
+        + statement["debtDraws"][m]
+        - statement["costs"][m]
+        - statement["loanFees"][m]
+        - statement["leasingCapital"][m]
+        + statement["saleProceedsNet"][m]
+    )
+    for key in _FEATURE_DEDUCTIONS:
+        if key in statement:
+            value -= statement[key][m]
+    if "escrowFlows" in statement:
+        value += statement["escrowFlows"][m]
+    return value
 
 
 def test_acquisition_statement_identities(analytic):
@@ -77,6 +96,30 @@ def test_acquisition_statement_identities(analytic):
 def test_development_statement_identities(development):
     result = engine.compute(development)
     _assert_identities(result["statement"])
+
+
+def test_feature_on_statement_identities():
+    """Run 6 port: the full identity holds month by month with every feature
+    row present — the renovation budget funded at close is shown once (on
+    renovationCapex; it used to sit in costs[0] too, breaking the tie at
+    close by the budget)."""
+    feature_on = json.loads(
+        (Path(__file__).parent / "regression" / "fixtures" / "feature_on_value_add.json").read_text()
+    )
+    statement = engine.compute(feature_on)["statement"]
+    for key in ("renovationCapex", "juniorInterest", "juniorPayoff", "assetMgmtFee", "escrowFlows"):
+        assert key in statement, key
+    _assert_identities(statement)
+    below = engine.compute({**feature_on, "reservesConvention": "below_noi"})["statement"]
+    assert "replacementReserves" in below
+    _assert_identities(below)
+    # The target's own maturity refinance (net delta on debtDraws, costs on
+    # loanFees) ties with no extra row.
+    maturing = engine.compute(
+        {**feature_on, "reservesConvention": "below_noi", "holdPeriodYears": 7, "loanTermYears": 5}
+    )
+    assert maturing["maturityRefinance"] is not None
+    _assert_identities(maturing["statement"])
 
 
 def test_statement_totals_tie_to_scalar_outputs(analytic):

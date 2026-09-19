@@ -415,6 +415,7 @@
             { "id": "freeRentMonths", "label": "Free Rent (mo)", "type": "number" },
             { "id": "leasingProfile", "label": "Leasing Profile (blank = deal assumptions)", "type": "text" }
           ] },
+        { "id": "buildingRsf", "label": "Building RSF (blank = sum of listed lease SF; pro-rata recovery + occupancy denominator)", "type": "number", "min": 0 },
         { "id": "renewalProbability", "label": "Renewal Probability", "type": "percent", "min": 0, "max": 1, "default": 0.7 },
         { "id": "downtimeMonths", "label": "Re-let Downtime (mo)", "type": "number", "min": 0, "max": 36, "default": 6 },
         { "id": "freeRentMonthsNew", "label": "Free Rent — New Lease (mo)", "type": "number", "min": 0, "max": 24, "default": 0 },

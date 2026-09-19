@@ -187,6 +187,10 @@ def _load_cases() -> list[tuple[str, dict]]:
         ("export_negative_exit_noi", {**analytic, "insurance": 80_001}),
         # No amortization period = interest-only (owner decision 2026-09-19).
         ("export_zero_amortization", {**AMORTIZING_GROWTH_INPUTS, "amortYears": 0}),
+        # Prepayment cost at sale (Run 6 port): exit payoff x (1 + pct), on
+        # an amortizing acquisition and on a development's perm loan.
+        ("export_prepayment_acquisition", {**AMORTIZING_GROWTH_INPUTS, "prepaymentPenaltyPct": 0.02}),
+        ("export_prepayment_development", {**DEVELOPMENT_SCURVE_INPUTS, "prepaymentPenaltyPct": 0.015}),
     ]
 
 

@@ -45,6 +45,10 @@ _GOVERNING_LABELS = {
     "none": "None",
 }
 
+# Annual IRR band the irrDiagnostics block reports roots in (Run 6): anything
+# outside is not a return a deal team would act on.
+IRR_DIAGNOSTIC_BAND = (-0.99, 3.0)
+
 
 def _resolve_sizing_noi(inputs: dict, stabilized_noi: float, year1_noi: float) -> float:
     """Sizing-basis convention (see DECISIONS.md): in_place = the inPlaceNoi
@@ -262,6 +266,39 @@ def _compute(inputs: dict) -> dict:
     )
     warnings.extend(tl_warnings)
     total = timeline.total_months
+
+    # Run 6 validation warnings — cheap input-shape checks, never errors.
+    if _num(inputs, "lossToLeasePct") > 0 and any(
+        isinstance(r, dict) and _num(r, "annualTurnoverPct") > 0
+        for r in (inputs.get("unitMix") or [])
+    ):
+        warnings.append(
+            "lossToLeasePct is set alongside a unit-mix turnover burn-off "
+            "(annualTurnoverPct) — the GPR haircut and the burn-off both model "
+            "the in-place-vs-market gap; check for double counting."
+        )
+    if _num(inputs, "replacementReserves") > 0 and (
+        _num(inputs, "replacementReservesPerUnit") > 0 or _num(inputs, "replacementReservesPsf") > 0
+    ):
+        warnings.append(
+            "Flat replacementReserves (inside opex) and per-unit / PSF reserves "
+            "are both set — reserves are being charged twice."
+        )
+    if (
+        deal_type == "development"
+        and inputs.get("sizingNoiBasis") == "in_place"
+        and _num(inputs, "inPlaceNoi") <= 0
+    ):
+        warnings.append(
+            "sizingNoiBasis=in_place on a development resolves to year-1 NOI "
+            "(construction period, ~0) — the DSCR and debt-yield sizing "
+            "constraints vanish; use stabilized or underwritten."
+        )
+    if exit_cap < 0.01:
+        warnings.append(
+            f"exitCapRatePct {exit_cap:.2%} is below 1% — the terminal value "
+            "(forward NOI / cap) is implausibly large; check the input."
+        )
 
     # Operate 12 months past exit so the terminal value can be capped on
     # FORWARD 12-month NOI (institutional convention).
@@ -572,13 +609,19 @@ def _compute(inputs: dict) -> dict:
         # costs) preserve the original at-par behavior exactly.
         refi_spread = _num(inputs, "refiRateSpreadPct")
         perm_rate = interest_rate + refi_spread
-        if rate_vec is not None and takeout_month <= total:
+        if rate_vec is not None and takeout_month < total:
             # J5: the floating takeout prices at the in-force rate at the
             # takeout month plus the refi spread, and keeps floating.
             perm_rate = rate_vec[takeout_month - 1] + refi_spread
         refi_costs_pct = _num(inputs, "refiCostsPct")
 
-        if takeout_month <= total:
+        # [FIN] (Run 6, B1): the perm takeout happens only when the loan has
+        # at least one month to live BEFORE the exit settles. A deal sold IN
+        # its stabilization month (the refi-vs-sale "sale" leg sets the hold
+        # to exactly that month) never originates the perm loan — the
+        # construction balance is repaid from sale proceeds, with no refi
+        # costs and no one-month perm schedule.
+        if takeout_month < total:
             # Constraint-sized permanent takeout; the delta vs the
             # construction balance is a cash-out to equity (+) or a paydown
             # capital call (-). An all-equity build (LTC = 0) never takes on
@@ -802,7 +845,10 @@ def _compute(inputs: dict) -> dict:
             unlevered[0] -= reno_budget
             levered[0] -= reno_budget
             initial_equity += reno_budget
-            stmt_costs[0] += reno_budget
+            # Run 6: the budget is shown ONCE — on the renovationCapex row
+            # (the cash leaves at close; renovation.spendSchedule reports the
+            # timing). It also used to land in costs[0], which broke the
+            # levered statement identity at close by exactly the budget.
             stmt_equity_funded[0] += reno_budget
             reno_capex_stmt[0] = reno_budget
             sources_and_uses["uses"].append(("Renovation budget (equity escrow)", reno_budget))
@@ -870,6 +916,19 @@ def _compute(inputs: dict) -> dict:
                 "Junior tranche configured with no amount (set juniorAmount or "
                 "juniorFillToLtcPct above the senior) — ignored."
             )
+        elif deal_type == "development" and takeout_month >= total:
+            # [FIN] (Run 6): the tranche funds at the perm takeout, and this
+            # development never takes out before exit (sold before or IN its
+            # stabilization month) — it would fund and repay in the exit
+            # month, a loan that never exists. Skipped entirely: no funding,
+            # no interest and NO origination fee (a fee for a loan never made
+            # is a phantom cost). Rejected: charging the fee anyway.
+            warnings.append(
+                "Junior tranche would fund in the exit month (no permanent "
+                "takeout occurs before exit) — ignored: no tranche is funded "
+                "and no origination fee is charged."
+            )
+            junior_amount = 0.0
     if junior_kind in ("mezz", "pref_equity") and junior_amount > 0:
         junior_fee = junior_amount * _num(inputs, "juniorOriginationFeePct")
         pay_mode = inputs.get("juniorPayMode") or "current"
@@ -989,11 +1048,19 @@ def _compute(inputs: dict) -> dict:
         irr_convention = "periodic_monthly"
         irr_of = returns.periodic_irr
 
-    put("unleveredIrr", irr_of(unlevered))
+    unlevered_irr = irr_of(unlevered)
+    put("unleveredIrr", unlevered_irr)
     levered_irr = irr_of(levered)
     put("leveredIrr", levered_irr)
-    for label, flows in (("Unlevered", unlevered), ("Levered", levered)):
-        if returns.sign_changes(flows) < 2:
+    # Run 6 port: a conditional, ADDITIVE irrDiagnostics block next to the
+    # multi-root warning. The reported IRR is never re-selected (the solver's
+    # root stands — see DECISIONS.md "Several IRRs are reported").
+    irr_diagnostics: dict = {}
+    for label, flows, reported in (
+        ("Unlevered", unlevered, unlevered_irr), ("Levered", levered, levered_irr),
+    ):
+        changes = returns.sign_changes(flows)
+        if changes < 2:
             continue  # one sign change: exactly one IRR (Descartes)
         roots = returns.periodic_irr_roots(flows)
         if len(roots) > 1:
@@ -1003,6 +1070,14 @@ def _compute(inputs: dict) -> dict:
                 f"({shown}) — the IRR shown is only one of them. Judge this deal on NPV "
                 "and equity multiple instead."
             )
+            irr_diagnostics[label.lower()] = {
+                "signChanges": changes,
+                "roots": [
+                    r for r in roots
+                    if IRR_DIAGNOSTIC_BAND[0] <= r <= IRR_DIAGNOSTIC_BAND[1]
+                ],
+                "reported": reported,
+            }
 
     em = returns.equity_multiple(levered)
     put("equityMultiple", em)
@@ -1014,10 +1089,18 @@ def _compute(inputs: dict) -> dict:
 
     total_equity_in = -sum(cf for cf in levered if cf < 0)
     if total_equity_in > 0:
-        # Operating-only cash flows (exclude the exit settlement).
+        # Operating-only cash flows (exclude the exit settlement). Run 6 (B3):
+        # the junior-tranche payoff and the escrow release are capital events
+        # in the exit month too, and the maturity refinance's net cash-out /
+        # paydown is one in its month — all stripped alongside the sale.
         operating = [levered[m] for m in range(1, total + 1)]
         if total >= 1:
             operating[-1] -= net_sale_proceeds
+            operating[-1] -= escrow_amount
+            if junior_block is not None:
+                operating[-1] += junior_block["payoff"]
+        if maturity_refi is not None:
+            operating[maturity_refi["month"] - 1] -= maturity_refi["netToEquity"]
         year1_window = operating[: min(12, len(operating))]
         if year1_window:
             annualized_y1 = sum(year1_window) * (12 / len(year1_window))
@@ -1310,6 +1393,12 @@ def _compute(inputs: dict) -> dict:
     #   noi = egi - opexTotal
     #   levered = noi - debtService + debtDraws - costs - loanFees
     #             - leasingCapital + saleProceedsNet
+    #             - renovationCapex - juniorInterest - juniorPayoff
+    #             - assetMgmtFee - replacementReserves (below_noi row only)
+    #             + escrowFlows
+    #   (feature rows are conditional keys; asserted month by month in
+    #   test_statement_detail.py. prepaymentCost is netted inside
+    #   saleProceedsNet; juniorBalance / loanBalance are balances.)
     # ------------------------------------------------------------------
     def _padded(key: str) -> list[float]:
         return [0.0] + ops[key][:total]
@@ -1434,12 +1523,19 @@ def _compute(inputs: dict) -> dict:
             for r in inputs.get("opexLineItems") or []
         )
         if insurance_present:
-            def _avg_annual_operating_cf(stmt: dict) -> float:
+            def _avg_annual_operating_cf(stmt: dict, refi: dict | None) -> float:
                 months = stmt["exitMonth"]
                 operating = sum(stmt["levered"][1 : months + 1]) - stmt["saleProceedsNet"][months]
+                # Run 6 (B3): the same capital-event strip as avgCashOnCash.
+                if "escrowFlows" in stmt:
+                    operating -= stmt["escrowFlows"][months]
+                if "juniorPayoff" in stmt:
+                    operating += stmt["juniorPayoff"][months]
+                if refi is not None:
+                    operating -= refi["netToEquity"]
                 return operating / (months / 12) if months else 0.0
 
-            base_cf = _avg_annual_operating_cf(statement)
+            base_cf = _avg_annual_operating_cf(statement, maturity_refi)
             insurance_rows = []
             for bump in (0.25, 0.50):
                 bumped_lines = [
@@ -1455,7 +1551,10 @@ def _compute(inputs: dict) -> dict:
                     {
                         "bumpPct": bump,
                         "minDscr": sub["outputs"].get("minDscr"),
-                        "leveredCfDeltaAnnual": _avg_annual_operating_cf(sub["statement"]) - base_cf,
+                        "leveredCfDeltaAnnual": (
+                            _avg_annual_operating_cf(sub["statement"], sub.get("maturityRefinance"))
+                            - base_cf
+                        ),
                     }
                 )
             debt_block["insuranceStress"] = insurance_rows
@@ -1482,7 +1581,7 @@ def _compute(inputs: dict) -> dict:
             for name, comp in components.items()
         }
 
-    return {
+    result: dict = {
         "outputs": outputs,
         "warnings": warnings,
         "gprSource": gpr_source,
@@ -1500,3 +1599,8 @@ def _compute(inputs: dict) -> dict:
         ),
         "statement": statement,
     }
+    if irr_diagnostics:
+        # Conditional (absent for the usual one-sign-change deal): every root
+        # in the -99%..300% annual band, per series, plus the reported IRR.
+        result["irrDiagnostics"] = {"irrMultipleRoots": True, **irr_diagnostics}
+    return result

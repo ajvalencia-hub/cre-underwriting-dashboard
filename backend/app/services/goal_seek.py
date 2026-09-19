@@ -181,7 +181,10 @@ def run_goal_seek(
     lo, hi = _resolve_bounds(fields[target_input], current, bounds)
 
     def evaluate(value: float) -> float | None:
-        trial = {**values, target_input: value}
+        # Run 6 (P1): scan/bisection points read outputs[metric] only — skip
+        # the insurance-stress sub-computes. The flag is part of the compute-
+        # cache key, so goal-seek points cache separately from full computes.
+        trial = {**values, target_input: value, "_skipCategoricalStress": True}
         try:
             result = compute_cache.cached_compute(trial)
         except engine.InsufficientInputsError:

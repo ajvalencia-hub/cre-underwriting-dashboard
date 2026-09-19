@@ -46,6 +46,15 @@ RECOVERABLE_EXPENSE_FIELDS = [
     "generalAdmin",
 ]
 
+# Run 6 (B7) — implemented, OFF pending the owner's decision. When True,
+# annual_gpr_and_other_income builds the year-1 recovery pool for lease deals
+# in expense-DETAIL mode from the per-line recoverable vector (the basis the
+# NOI build uses) instead of the flat recoverable fields (usually zero when
+# lines are used). Flipping it moves the regression baseline VALUE of
+# commercial_rollover.outputs.breakEvenRatio (see DECISIONS.md); flat mode is
+# unaffected in both states.
+DETAIL_MODE_YEAR1_RECOVERIES = False
+
 
 def _num(inputs: dict, field: str, default: float = 0.0) -> float:
     value = inputs.get(field)
@@ -69,9 +78,18 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
     # a mixed-use composition (H2). Year-1 scheduled base rent; recoveries
     # ride in "other".
     if leases.has_leases(inputs):
-        recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
+        if has_opex_detail(inputs) and DETAIL_MODE_YEAR1_RECOVERIES:
+            # Run 6 (B7, opt-in): in expense-detail mode the year-1 recovery
+            # pool is the SAME per-line recoverable vector the NOI build uses,
+            # so the legacy break-even ratio's EGI and NOI sit on one basis.
+            recoverable_monthly = _fixed_expense_vectors(inputs, Timeline(12, 0, 0, 1))[
+                "recoverable"
+            ]
+        else:
+            recoverable_base = sum(_num(inputs, f) for f in RECOVERABLE_EXPENSE_FIELDS)
+            recoverable_monthly = [recoverable_base / 12] * 12
         income = leases.build_lease_income(
-            inputs, 12, [recoverable_base / 12] * 12, _num(inputs, "expenseGrowthPct", 0.025)
+            inputs, 12, recoverable_monthly, _num(inputs, "expenseGrowthPct", 0.025)
         )
         gpr = sum(income["scheduledBaseRent"])
         other = sum(income["recoveries"]) + _num(inputs, "otherIncome")
@@ -577,6 +595,17 @@ def _build_lease_noi_vector(
     # mgmt_vec is ALL EGI-based opex (it drives opex/NOI); only the
     # management_fee share is reported as the management fee.
     mgmt_report, egi_opex_by_category = _split_egi_opex(egi_vec, *expenses["egiPctSplit"])
+    lease_detail = {
+        "walt": income["walt"],
+        "totalSf": income["totalSf"],
+        "occupancyYear1": income["occupancyYear1"],
+        "occupancyStabilized": income["occupancyStabilized"],
+        "expirationSchedule": income["expirationSchedule"],
+        "perLease": income["perLease"],
+    }
+    if income.get("buildingRsf"):
+        # Run 6: conditional key — only when a valid buildingRsf applied.
+        lease_detail["buildingRsf"] = income["buildingRsf"]
     return {
         "noi": noi_vec,
         "egi": egi_vec,
@@ -592,14 +621,7 @@ def _build_lease_noi_vector(
         "fixedOpexByCategory": expenses["byCategory"],
         "recoveries": income["recoveries"],
         "leasingCapital": leasing_capital,
-        "leaseDetail": {
-            "walt": income["walt"],
-            "totalSf": income["totalSf"],
-            "occupancyYear1": income["occupancyYear1"],
-            "occupancyStabilized": income["occupancyStabilized"],
-            "expirationSchedule": income["expirationSchedule"],
-            "perLease": income["perLease"],
-        },
+        "leaseDetail": lease_detail,
         "gprSource": "commercialLeases",
         "warnings": warnings,
     }
@@ -1433,8 +1455,16 @@ def stabilized_annual_noi(inputs: dict) -> float:
     management_fee_pct = _num(inputs, "managementFeePct")
     occupancy = max(0.0, 1 - vacancy_pct)
     egi = annual_gpr * occupancy * (1 - credit_loss_pct) + annual_other
+    category_bases = {f: _num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS}
+    # Run 6 (B2): the reassessment substitution (H4) applies to the legacy
+    # stabilized figure exactly as it does to the expense vectors, so sizing
+    # NOI / debt yield / yield on cost / break-evens move with
+    # useReassessedTaxes in flat mode too. Toggle off is identical.
+    reassessed_taxes, _ = _reassessed_tax_annual(inputs)
+    if reassessed_taxes is not None:
+        category_bases["realEstateTaxes"] = reassessed_taxes
     expenses = (
-        sum(_num(inputs, f) for f in EXPENSE_DOLLAR_FIELDS)
+        sum(category_bases.values())
         + _num(inputs, "nonAdValoremTaxes")  # I5: separate fixed line
         + egi * management_fee_pct
     )

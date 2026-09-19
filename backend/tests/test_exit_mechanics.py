@@ -47,9 +47,11 @@ def test_defaults_are_unchanged(growing):
 def test_excel_export_refuses_what_it_does_not_mirror(growing):
     from app.services import excel_model_export
 
-    for extra in ({"exitNoiBasis": "trailing"}, {"prepaymentPenaltyPct": 0.01}):
-        assert excel_model_export.unsupported_features(dict(growing, **extra)), extra
+    assert excel_model_export.unsupported_features(dict(growing, exitNoiBasis="trailing"))
     assert excel_model_export.unsupported_features(growing) == []
+    # Run 6 port: the prepayment cost is mirrored (exit payoff x (1 + pct));
+    # parity cases export_prepayment_{acquisition,development} pin it.
+    assert excel_model_export.unsupported_features(dict(growing, prepaymentPenaltyPct=0.01)) == []
 
 
 def test_negative_exit_noi_floors_the_sale_price_at_zero():
