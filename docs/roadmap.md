@@ -36,13 +36,13 @@ DECISIONS.md under "Engine audit fixes".
 |---|---|---|---|
 | 1 | ~~**Deleting a document can break another deal's attachment**~~ **Done** (4f4a778) | `documents.py` deletes a file that other records share (same content hash), and a re-upload can then fail with a 500 | S |
 | 2 | ~~**Backup rotation and restore safety**~~ **Done** (5cd7d8e, 137af9e) | A backup runs on every launch and only 7 dailies are kept, so 7 relaunches wipe older backups. Failures are swallowed silently. Restore doesn't snapshot first, and `kind` isn't validated | S–M |
-| 3 | **Docker mode is open to the local network** ✓ | Binds to `0.0.0.0` with no login; publish on `127.0.0.1`, add `nosniff` and CSP headers, serve SVGs as downloads | S |
-| 4 | **Loading a scenario silently replaces every input** ✓ | Add a confirm (reuse the preset diff) and a "Working from: <scenario>" chip | S |
-| 5 | **Numbers people read are hard to read** ✓ | 182 uses of `text-slate-400` (about 2.6:1, below WCAG AA). Negative money shows as `$-2,116,364` | S |
-| 6 | **Six of the twelve tabs are off-screen at 1440px** | Move module navigation into the left rail, grouped, without the numbering | M |
-| 7 | **Quick Screen total cost leaves out the developer fee and financing** | Its yield on cost reads higher than Compute for the same deal | S |
-| 8 | **Bridge tightening** ✓ | `DesktopBridge.attach` is callable from the page; rename it private and check the origin in each method | S |
-| 9 | **Default the analysis start date from Critical Dates "Closing"** | The new input should fill itself when the date is already known | S |
+| 3 | ~~**Docker mode is open to the local network** ✓~~ **Done** (367a8f1) | Binds to `0.0.0.0` with no login; publish on `127.0.0.1`, add `nosniff` and CSP headers, serve SVGs as downloads | S |
+| 4 | ~~**Loading a scenario silently replaces every input** ✓~~ **Done** (63bd3d8) | Add a confirm (reuse the preset diff) and a "Working from: <scenario>" chip | S |
+| 5 | ~~**Numbers people read are hard to read** ✓~~ **Done** (58664ba, a81f16e) | 182 uses of `text-slate-400` (about 2.6:1, below WCAG AA). Negative money shows as `$-2,116,364` | S |
+| 6 | ~~**Six of the twelve tabs are off-screen at 1440px**~~ **Done** (a992089) | Move module navigation into the left rail, grouped, without the numbering | M |
+| 7 | ~~**Quick Screen total cost leaves out the developer fee and financing**~~ **Done** (34355a4) | Its yield on cost reads higher than Compute for the same deal | S |
+| 8 | ~~**Bridge tightening** ✓~~ **Done** (6da1c29) | `DesktopBridge.attach` is callable from the page; rename it private and check the origin in each method | S |
+| 9 | ~~**Default the analysis start date from Critical Dates "Closing"**~~ **Done** (5614529) | The new input should fill itself when the date is already known | S |
 
 ## Next: substantive gaps an analyst would hit
 
