@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
-from app.services import deal_history, deck_service, share_html
+from app.services import deal_history, deck_service, document_storage, share_html
 from app.services.proforma import engine
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -624,8 +624,6 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     # template deletion already removes dependent scenarios. J12: notes and
     # deal-scoped attachments cascade too (files unlink only when no other
     # document row shares the hash — uploads dedupe by content).
-    from pathlib import Path as _Path
-
     from app.models import DealNote, Document
 
     db.execute(Scenario.__table__.delete().where(Scenario.deal_id == deal_id))
@@ -635,14 +633,9 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
         select(Document).where(Document.deal_id == deal_id)
     ).scalars().all()
     for doc in attachments:
-        others = db.execute(
-            select(Document).where(
-                Document.file_hash == doc.file_hash, Document.id != doc.id
-            )
-        ).scalars().first()
-        if others is None:
-            _Path(doc.stored_path).unlink(missing_ok=True)
+        document_storage.release_file(db, doc)
         db.delete(doc)
+        db.flush()  # so the next attachment's check no longer counts this row
     db.delete(deal)
     db.commit()
     return {"deleted": True}
