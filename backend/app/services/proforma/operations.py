@@ -18,7 +18,7 @@ Conventions (see DECISIONS.md):
 """
 
 from app.services.proforma import leases
-from app.services.proforma.timeline import Timeline
+from app.services.proforma.timeline import Timeline, analysis_epoch
 
 EXPENSE_DOLLAR_FIELDS = [
     "realEstateTaxes",
@@ -585,11 +585,8 @@ def _allocation_shares(inputs: dict, total: int):
             for m in range(1, total + 1)
         ]
         # Group by calendar year (epoch-anchored, same mapping as leases.py).
-        year_of = [
-            leases.ANALYSIS_EPOCH.year
-            + (leases.ANALYSIS_EPOCH.month - 1 + m) // 12
-            for m in range(total)
-        ]
+        epoch = analysis_epoch()
+        year_of = [epoch.year + (epoch.month - 1 + m) // 12 for m in range(total)]
         share_by_year: dict[int, float] = {}
         for year in set(year_of):
             months_in = [m for m in range(total) if year_of[m] == year]

@@ -70,6 +70,17 @@ stated reason.
   0.81 -> 1.12, 0.80 -> 1.11); every case gains the `minMonthlyDscr` key.
   Baseline files are merged value-by-value (only real changes) so
   float noise from regenerating on another machine doesn't churn them.
+- **[FIN] Per-deal analysis start (closing) date** — `analysisStartDate`,
+  blank = the fixed 2026-01-01 epoch (so every existing deal and the
+  baseline are unchanged). Supersedes the H1/F2 rejections: they held when
+  the epoch only moved XIRR by leap-day noise, but lease start/expiry
+  dates, rollover downtime, free rent and base years all map through it,
+  so any deal closing after Jan 2026 was mis-timed — and increasingly so
+  every month. Implemented as a context variable set around each compute
+  (thread-safe for the Monte Carlo worker) rather than a parameter on
+  every lease function; operations' revenue-share-by-year uses it too.
+  Test: moving the start date and every lease date by two years leaves
+  every output identical; a bad date warns and falls back.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
@@ -1159,7 +1170,8 @@ stated reason.
   offset m-1). Leases straddling the start are in place at month 1 with
   escalations counted from their TRUE start date. Rejected: a per-deal
   analysis-start input (the epoch is already the XIRR convention; one
-  calendar everywhere).
+  calendar everywhere). *(Superseded — analysisStartDate, see "Engine audit
+  fixes".)*
 - **[FIN] Escalation timing:** step-ups apply on lease-start anniversaries
   every escalationMonths months (default 12); fixed_pct compounds, fixed_step
   adds $psf. Rejected: calendar-January escalations (less common in

@@ -3,7 +3,7 @@ probability-weighted rollover. Every convention is logged in DECISIONS.md
 ([FIN] H1 block); the load-bearing ones, in brief:
 
 - Calendar: lease dates map onto the analysis calendar anchored at
-  timeline.ANALYSIS_EPOCH — operating month m spans the calendar month at
+  the deal's analysis start (timeline.analysis_epoch(); default ANALYSIS_EPOCH) — operating month m spans the calendar month at
   offset m-1 from the epoch. Leases straddling the start are in place at
   month 1 with escalations counted from their TRUE start date.
 - Escalations: applied on lease-start anniversaries every escalationMonths
@@ -36,7 +36,7 @@ probability-weighted rollover. Every convention is logged in DECISIONS.md
 
 from datetime import date, datetime
 
-from app.services.proforma.timeline import ANALYSIS_EPOCH
+from app.services.proforma.timeline import analysis_epoch
 
 
 def _num(source: dict, field: str, default: float = 0.0) -> float:
@@ -60,9 +60,11 @@ def _parse_date(value) -> date | None:
     return None
 
 
-def month_index_of(d: date, epoch: date = ANALYSIS_EPOCH) -> int:
+def month_index_of(d: date, epoch: date | None = None) -> int:
     """1-based operating month whose calendar month contains `d`
-    (month 1 = the epoch's own calendar month)."""
+    (month 1 = the epoch's own calendar month; default: the deal's analysis
+    start)."""
+    epoch = epoch or analysis_epoch()
     return (d.year - epoch.year) * 12 + (d.month - epoch.month) + 1
 
 
@@ -129,12 +131,12 @@ def _annual_recoverable_by_calendar_year(
     de-growing year 1 at the expense growth rate."""
     by_year: dict[int, list[float]] = {}
     for m, amount in enumerate(recoverable_monthly, start=1):
-        year = ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + m - 1) // 12
+        year = analysis_epoch().year + (analysis_epoch().month - 1 + m - 1) // 12
         by_year.setdefault(year, []).append(amount)
     annuals = {
         year: sum(values) * (12 / len(values)) for year, values in by_year.items()
     }
-    first_year = min(annuals) if annuals else ANALYSIS_EPOCH.year
+    first_year = min(annuals) if annuals else analysis_epoch().year
     first_amount = annuals.get(first_year, 0.0)
     for back in range(1, 31):  # pre-epoch base years, extrapolated backward
         year = first_year - back
@@ -187,14 +189,14 @@ def _grossed_up_pool(
     occ_by_year: dict[int, float] = {}
     samples: dict[int, list[float]] = {}
     for m in range(1, months + 1):
-        year = ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + m - 1) // 12
+        year = analysis_epoch().year + (analysis_epoch().month - 1 + m - 1) // 12
         samples.setdefault(year, []).append(occupancy[m - 1])
     for year, values in samples.items():
         occ_by_year[year] = sum(values) / len(values)
 
     adjusted = []
     for m in range(1, months + 1):
-        year = ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + m - 1) // 12
+        year = analysis_epoch().year + (analysis_epoch().month - 1 + m - 1) // 12
         occ = occ_by_year.get(year, 1.0)
         ratio = max(1.0, gross_up_to / occ) if occ > 0 else 1.0
         fixed_part = pool[m - 1] - variable[m - 1]
@@ -256,7 +258,7 @@ def build_lease_income(
         )
 
     def calendar_year_of(month: int) -> int:
-        return ANALYSIS_EPOCH.year + (ANALYSIS_EPOCH.month - 1 + month - 1) // 12
+        return analysis_epoch().year + (analysis_epoch().month - 1 + month - 1) // 12
 
     # CAM admin fee (I1): a billing markup on pool-based recoveries. Applies
     # to NNN and base-year-stop only — fixed_psf is a stated contract amount
@@ -308,7 +310,7 @@ def build_lease_income(
         start_index = month_index_of(start_date) if start_date else 1
         end_index = month_index_of(end_date) if end_date else months + 1
         free_months = int(_num(lease, "freeRentMonths"))
-        base_year = (start_date or ANALYSIS_EPOCH).year
+        base_year = (start_date or analysis_epoch()).year
 
         # WALT + expiration schedule from the ORIGINAL contract only. WALT is
         # SF-weighted remaining term in years from the analysis start

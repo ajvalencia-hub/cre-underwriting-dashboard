@@ -5,7 +5,14 @@ outside this package reimplements any of them.
 """
 
 from app.services.proforma import debt, development, equity, operations, returns
-from app.services.proforma.timeline import Timeline, build_timeline, month_end_dates
+from app.services.proforma.timeline import (
+    ANALYSIS_EPOCH,
+    Timeline,
+    analysis_calendar,
+    build_timeline,
+    month_end_dates,
+    parse_analysis_start,
+)
 
 
 class InsufficientInputsError(Exception):
@@ -137,7 +144,28 @@ def _operating_break_evens(statement: dict, total: int) -> dict:
 
 def compute(inputs: dict) -> dict:
     """Returns {"outputs": {<schema output id>: float}, "warnings": [str]}.
-    Raises InsufficientInputsError naming every missing required field."""
+    Raises InsufficientInputsError naming every missing required field.
+
+    [FIN] Month 0 is the deal's analysisStartDate (closing) when given —
+    lease dates, base years and XIRR dates map onto the calendar from there;
+    blank keeps the fixed ANALYSIS_EPOCH (2026-01-01)."""
+    try:
+        start = parse_analysis_start(inputs.get("analysisStartDate"))
+        start_warning = None
+    except ValueError:
+        start = None
+        start_warning = (
+            f"Analysis start date '{inputs.get('analysisStartDate')}' isn't a date "
+            f"(YYYY-MM-DD) — using {ANALYSIS_EPOCH.isoformat()}."
+        )
+    with analysis_calendar(start):
+        result = _compute(inputs)
+    if start_warning:
+        result["warnings"].insert(0, start_warning)
+    return result
+
+
+def _compute(inputs: dict) -> dict:
     warnings: list[str] = []
 
     deal_type = inputs.get("dealType")
