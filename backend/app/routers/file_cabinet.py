@@ -116,10 +116,18 @@ def download_attachment(
     if doc is None or not Path(doc.stored_path).exists():
         raise HTTPException(404, "Attachment not found")
     disposition = "inline" if inline and doc.file_ext in _INLINE_EXTS else "attachment"
+    headers = {}
+    if doc.file_ext == "svg":
+        # An uploaded SVG can carry script; opened directly it would run in
+        # the app's origin. Sandboxed, it renders as a picture only.
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+        )
     return FileResponse(
         doc.stored_path,
         filename=doc.filename,
         content_disposition_type=disposition,
+        headers=headers,
     )
 
 

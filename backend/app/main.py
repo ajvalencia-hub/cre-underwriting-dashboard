@@ -77,6 +77,9 @@ async def request_id_middleware(request: Request, call_next):
         response.status_code, duration_ms,
     )
     response.headers["X-Request-ID"] = request_id
+    # Never let a browser guess a type other than the one we declare (an
+    # uploaded file sniffed as HTML would run in the app's origin).
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
     return response
 
 

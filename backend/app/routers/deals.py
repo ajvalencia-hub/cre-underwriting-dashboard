@@ -334,7 +334,11 @@ def share_deal(deal_id: str, db: Session = Depends(get_db)):
     safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", deal.name).strip()[:60] or "deal"
     return HTMLResponse(
         content=page,
-        headers={"Content-Disposition": f'inline; filename="{safe_name}-share.html"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}-share.html"',
+            # The page is static (no scripts, inline styles only); keep it so.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        },
     )
 
 

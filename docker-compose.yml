@@ -6,7 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      # Published on this machine only: the app has no login, so anyone who
+      # can reach the port can read and change every deal. To share it on a
+      # trusted network on purpose, change this to "8000:8000".
+      - "127.0.0.1:8000:8000"
     volumes:
       - cre-data:/data
     environment:

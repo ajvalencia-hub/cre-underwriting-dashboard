@@ -275,6 +275,11 @@ serves the whole app (UI + API) on `http://localhost:8000`:
 docker compose up --build
 ```
 
+The port is published on **this machine only** (`127.0.0.1:8000`): the app
+has no login, so anyone who can reach it can read and change every deal. To
+share it on a trusted network deliberately, change the `ports` entry in
+`docker-compose.yml` to `"8000:8000"`.
+
 The SQLite database, uploads, and rotating backups live on the named volume
 `cre-data` (mounted at `/data` in the container), so they survive rebuilds.
 Set optional API keys in a `.env` beside `docker-compose.yml` (compose reads
