@@ -138,26 +138,35 @@ def unsupported_features(inputs: dict) -> list[str]:
     return features
 
 
-def _expense_rows(inputs: dict) -> tuple[list[dict], float, list[str]]:
+def _expense_rows(
+    inputs: dict,
+) -> tuple[list[dict], float, dict[str, float], list[str]]:
     """The Expenses block: rows of {label, basis, amount, growth,
     recoverable} where `amount` resolves per basis in-sheet. Returns
-    (rows, egi_pct_total, warnings)."""
+    (rows, mgmt_fee_pct, {label: pct} for non-management pct_of_egi lines,
+    warnings) — only management_fee rows are the management fee, matching
+    the engine's statement split."""
     warnings: list[str] = []
     expense_growth = (
         _num(inputs, "expenseGrowthPct") if inputs.get("expenseGrowthMode") != "flat" else 0.0
     )
 
     rows: list[dict] = []
-    egi_pct_total = 0.0
+    mgmt_pct = 0.0
+    other_egi_pct: dict[str, float] = {}
     if operations.has_opex_detail(inputs):
         for raw in inputs.get("opexLineItems") or []:
             if not (isinstance(raw, dict) and _num(raw, "amount") > 0):
                 continue
             basis = raw.get("basis") or "annual_total"
-            if basis == "pct_of_egi":
-                egi_pct_total += _num(raw, "amount")
-                continue
             category = raw.get("category") or "other"
+            if basis == "pct_of_egi":
+                if category == "management_fee":
+                    mgmt_pct += _num(raw, "amount")
+                else:
+                    label = _DETAIL_LABELS.get(category, _DETAIL_LABELS["other"])
+                    other_egi_pct[label] = other_egi_pct.get(label, 0.0) + _num(raw, "amount")
+                continue
             growth = (
                 _num(raw, "growthPct") if raw.get("growthPct") is not None else expense_growth
             )
@@ -169,7 +178,7 @@ def _expense_rows(inputs: dict) -> tuple[list[dict], float, list[str]]:
                 "recoverable": raw.get("recoverable") in (True, "yes", "true", 1),
             })
     else:
-        egi_pct_total = _num(inputs, "managementFeePct")
+        mgmt_pct = _num(inputs, "managementFeePct")
         for field in EXPENSE_DOLLAR_FIELDS:
             rows.append({
                 "label": _EXPENSE_LABELS.get(field, field),
@@ -194,7 +203,7 @@ def _expense_rows(inputs: dict) -> tuple[list[dict], float, list[str]]:
             ),
             "recoverable": True if nav_flag is None else bool(nav_flag),
         })
-    return rows, egi_pct_total, warnings
+    return rows, mgmt_pct, other_egi_pct, warnings
 
 
 def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
@@ -251,7 +260,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
     )
-    expense_rows, egi_pct_total, exp_warnings = _expense_rows(inputs)
+    expense_rows, mgmt_pct, other_egi_pct, exp_warnings = _expense_rows(inputs)
     warnings.extend(exp_warnings)
 
     total_units = sum(
@@ -301,7 +310,14 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     put("stabOcc", "Stabilized occupancy", f"=1-{R['vac']}")
     put("credit", "Credit loss %", _num(inputs, "creditLossPct"))
     put("rentG", "Rent growth %/yr", rent_growth)
-    put("mgmtPct", "Mgmt fee % of EGI", egi_pct_total)
+    put("mgmtPct", "Mgmt fee % of EGI", mgmt_pct)
+    # Non-management pct_of_egi opex lines (their own category, not the fee)
+    # ride in the Opex column; only written when present.
+    for i, (label, pct) in enumerate(other_egi_pct.items()):
+        put(f"otherEgiPct{i}", f"{label} % of EGI", pct)
+    other_egi_terms = "".join(
+        f"+H{{r}}*{R[f'otherEgiPct{i}']}" for i in range(len(other_egi_pct))
+    )
     put("loan", "Perm loan (sized by app)" if is_dev else "Loan amount (sized by app)", loan_amount)
     put("rate", "Interest rate", _num(inputs, "interestRate", 0.065))
     if is_dev:
@@ -407,7 +423,9 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     model = wb.create_sheet("Model")
     headers = [
         "Month", "Op month", "Occupancy", "GPR", "Vacancy loss", "Credit loss",
-        "Other income", "EGI", "Fixed opex", "Mgmt fee", "NOI",
+        "Other income", "EGI",
+        "Opex ex mgmt fee (fixed + other % of EGI)" if other_egi_pct else "Fixed opex",
+        "Mgmt fee", "NOI",
         "Begin balance", "Interest", "Principal", "End balance", "Debt service",
         "DSCR", "Unlevered CF", "Levered CF",
     ]
@@ -434,7 +452,8 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         model.cell(row=r, column=8, value=f"=D{r}-E{r}-F{r}+G{r}")
         model.cell(
             row=r, column=9,
-            value=f"=IF($B{r}<1,0,SUMPRODUCT({exp_annual}/12,(1+{exp_growth})^{g}))",
+            value=f"=IF($B{r}<1,0,SUMPRODUCT({exp_annual}/12,(1+{exp_growth})^{g}))"
+            + other_egi_terms.format(r=r),
         )
         model.cell(row=r, column=10, value=f"=H{r}*{R['mgmtPct']}")
         model.cell(row=r, column=11, value=f"=H{r}-I{r}-J{r}")
@@ -548,7 +567,8 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         ("Stabilized EGI (today's rents)",
          f"={R['gpr']}*(1-{R['vac']})*(1-{R['credit']})+{R['other']}"),
         ("Stabilized NOI",
-         f"=B9-SUM({exp_annual})-B9*{R['mgmtPct']}"),
+         f"=B9-SUM({exp_annual})-B9*{R['mgmtPct']}"
+         + "".join(f"-B9*{R[f'otherEgiPct{i}']}" for i in range(len(other_egi_pct)))),
     ]
     for i, (label, formula) in enumerate(helper_rows, start=1):
         out.cell(row=i, column=1, value=label)

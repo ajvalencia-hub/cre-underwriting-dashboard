@@ -24,7 +24,9 @@ test('underwriting happy path', async ({ page }) => {
   // Quick Screen renders a feasibility verdict and the sidebar shows
   // Quick Screen estimates marked "est.".
   await expect(page.getByText(/Strong —|Marginal —|Weak —/).first()).toBeVisible()
-  await expect(page.getByText('est.').first()).toBeVisible()
+  // exact: the (hidden, always-mounted) Settings page has prose ending in
+  // "…manifest." that a substring match would pick up first.
+  await expect(page.getByText('est.', { exact: true }).first()).toBeVisible()
 
   // Nudge the rent input and confirm the verdict block is still live.
   const rentInput = inputNextToLabel(page, 'Monthly Rent per Unit')
@@ -84,12 +86,19 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await page.goto('/')
   await expect(page.locator('select').first()).toBeVisible()
 
-  // Deals (pipeline) tab: stage chips, the auto-created deal row, staleness-free.
+  // Deals (pipeline) tab: one board per dealflow, each with its own stage
+  // chips and typed "New … deal" button.
   await page.getByRole('button', { name: 'Deals' }).click()
-  await expect(page.getByText(/Screening · \d/)).toBeVisible()
+  await expect(page.getByText(/Screening · \d/)).toHaveCount(2)
   // exact: the header's own "New Deal" button is a different control
-  await expect(page.getByRole('button', { name: 'New deal', exact: true })).toBeVisible()
-  const dealRow = page.locator('tr', { hasText: 'Default Deal' }).first()
+  await expect(page.getByRole('button', { name: 'New acquisition deal', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New development deal', exact: true })).toBeVisible()
+
+  // The auto-created Default Deal predates typed creation and waits in the
+  // untyped list; a typed deal created from the board is a row immediately.
+  await expect(page.getByText('UNTYPED DEALS — assign a dealflow')).toBeVisible()
+  await page.getByRole('button', { name: 'New acquisition deal', exact: true }).click()
+  const dealRow = page.locator('tr', { hasText: 'Untitled Acquisition' }).first()
   await expect(dealRow).toBeVisible()
 
   // Status select persists a stage change.

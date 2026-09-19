@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { scratchDbDir } from '../playwright.config'
+import { scratchDbDir, scratchDbPath } from '../playwright.config'
 
 // Best-effort sweep of scratch databases from PREVIOUS runs. The current
 // run's db is already open by the backend webServer (which boots before
-// globalSetup), so deletion failures are expected and ignored.
+// globalSetup) and must be skipped explicitly: on Linux/macOS unlinking an
+// open file SUCCEEDS, and SQLite then fails every write with "attempt to
+// write a readonly database".
 export default function globalSetup() {
   let entries: string[] = []
   try {
@@ -13,11 +15,12 @@ export default function globalSetup() {
     return
   }
   for (const entry of entries) {
-    if (/^e2e-.*\.sqlite3$/.test(entry)) {
+    const full = path.join(scratchDbDir, entry)
+    if (/^e2e-.*\.sqlite3$/.test(entry) && full !== scratchDbPath) {
       try {
-        fs.rmSync(path.join(scratchDbDir, entry))
+        fs.rmSync(full)
       } catch {
-        // held open by this run's backend — leave it
+        // locked (e.g. Windows) — leave it
       }
     }
   }

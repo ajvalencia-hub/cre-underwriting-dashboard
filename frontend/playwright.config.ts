@@ -20,7 +20,12 @@ const pythonBin =
 // best-effort sweeps older ones.
 export const scratchDbDir = path.resolve(__dirname, '.e2e-scratch')
 fs.mkdirSync(scratchDbDir, { recursive: true })
-const scratchDbPath = path.join(scratchDbDir, `e2e-${Date.now()}.sqlite3`)
+// Playwright evaluates this config more than once per run (runner, then again
+// when globalSetup imports it), so a bare Date.now() would name a DIFFERENT
+// file each time. Pin the run's path in the environment on first evaluation
+// so globalSetup can recognise — and spare — the db the backend has open.
+process.env.CRE_E2E_SCRATCH_DB ??= path.join(scratchDbDir, `e2e-${Date.now()}.sqlite3`)
+export const scratchDbPath = process.env.CRE_E2E_SCRATCH_DB
 
 export default defineConfig({
   testDir: './e2e',
