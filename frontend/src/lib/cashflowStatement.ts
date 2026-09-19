@@ -65,6 +65,15 @@ export interface Statement {
   breakEvens?: {
     years: { year: number; occupancy: number | null; rentFactor: number | null; notes: string[] }[]
   }
+  /** Roadmap #25: present only for hotels (operating months, close = 0). */
+  hotel?: {
+    keys: number
+    roomsRevenue: number[]
+    fnbRevenue: number[]
+    otherRevenue: number[]
+    gop: number[]
+    revenueLinkedOpex: number[]
+  }
   /** J2: present only when loss-to-lease burn-off is active. */
   lossToLease?: { marketGpr: number[]; lossToLease: number[] }
   renovation?: {
@@ -98,6 +107,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   reservesUnderwritten: 'Replacement reserves (underwritten)',
   managementFeeFixed: 'Management fee (fixed $)',
   otherOpex: 'Other opex',
+  hotelDepartmental: 'Departmental expenses',
+  hotelUndistributed: 'Undistributed operating expenses',
+  franchiseFee: 'Franchise fee',
+  ffeReserve: 'FF&E reserve',
 }
 
 export function statementRows(statement: Statement): StatementRow[] {
@@ -115,18 +128,31 @@ export function statementRows(statement: Statement): StatementRow[] {
       },
     )
   }
-  rows.push(
-    {
-      key: 'gpr',
-      label: statement.lossToLease ? 'Scheduled rent' : 'Gross potential rent',
-      kind: 'flow',
-      series: (s) => s.gpr,
-    },
-    { key: 'vacancyLoss', label: 'Less: vacancy', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
-    { key: 'creditLoss', label: 'Less: credit loss', kind: 'flow', series: (s) => s.creditLoss, indent: true },
-    { key: 'otherIncome', label: 'Other income', kind: 'flow', series: (s) => s.otherIncome, indent: true },
-    { key: 'egi', label: 'Effective gross income', kind: 'flow', series: (s) => s.egi },
-  )
+  if (statement.hotel) {
+    // Roadmap #25: the hotel revenue build (USALI summary), same vectors.
+    rows.push(
+      { key: 'gpr', label: 'Potential rooms revenue (100% occupied)', kind: 'flow', series: (s) => s.gpr },
+      { key: 'vacancyLoss', label: 'Less: unsold room-nights', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
+      { key: 'hotel.rooms', label: 'Rooms revenue', kind: 'flow', series: (s) => s.hotel?.roomsRevenue ?? [] },
+      { key: 'hotel.fnb', label: 'Food & beverage revenue', kind: 'flow', series: (s) => s.hotel?.fnbRevenue ?? [], indent: true },
+      { key: 'hotel.other', label: 'Other revenue', kind: 'flow', series: (s) => s.hotel?.otherRevenue ?? [], indent: true },
+      { key: 'egi', label: 'Total revenue', kind: 'flow', series: (s) => s.egi },
+      { key: 'hotel.gop', label: 'Gross operating profit (after departmental and undistributed)', kind: 'flow', series: (s) => s.hotel?.gop ?? [] },
+    )
+  } else {
+    rows.push(
+      {
+        key: 'gpr',
+        label: statement.lossToLease ? 'Scheduled rent' : 'Gross potential rent',
+        kind: 'flow',
+        series: (s) => s.gpr,
+      },
+      { key: 'vacancyLoss', label: 'Less: vacancy', kind: 'flow', series: (s) => s.vacancyLoss, indent: true },
+      { key: 'creditLoss', label: 'Less: credit loss', kind: 'flow', series: (s) => s.creditLoss, indent: true },
+      { key: 'otherIncome', label: 'Other income', kind: 'flow', series: (s) => s.otherIncome, indent: true },
+      { key: 'egi', label: 'Effective gross income', kind: 'flow', series: (s) => s.egi },
+    )
+  }
   for (const category of Object.keys(statement.fixedOpexByCategory)) {
     rows.push({
       key: `opex.${category}`,

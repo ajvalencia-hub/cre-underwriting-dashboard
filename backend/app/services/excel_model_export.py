@@ -109,6 +109,8 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("missing deal type (set Deal Basics → Deal Type first)")
     if leases.has_leases(inputs):
         features.append("commercial lease-level rent rolls (escalations/recoveries/rollover)")
+    if operations.has_hotel_operations(inputs):
+        features.append("hotel operations (rooms revenue, departmental and undistributed costs)")
     if inputs.get("waterfallTiers"):
         features.append("promote waterfall tiers")
     if inputs.get("irrConvention") == "xirr":

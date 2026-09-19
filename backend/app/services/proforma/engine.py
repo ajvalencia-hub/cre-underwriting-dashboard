@@ -87,7 +87,10 @@ def _operating_break_evens(statement: dict, total: int) -> dict:
         credit = _yr(statement["creditLoss"], year)
         other = _yr(statement["otherIncome"], year)
         egi = _yr(statement["egi"], year)
-        mgmt = _yr(statement["managementFee"], year)
+        # The management fee scales with revenue; so do a hotel's
+        # departmental, undistributed, franchise and FF&E costs (#25).
+        hotel_variable = (statement.get("hotel") or {}).get("revenueLinkedOpex", zeros)
+        mgmt = _yr(statement["managementFee"], year) + _yr(hotel_variable, year)
         fixed = _yr(statement["opexTotal"], year) - mgmt
         below = (
             _yr(statement["debtService"], year)
@@ -190,7 +193,11 @@ def _compute(inputs: dict) -> dict:
         missing.append("exitCapRatePct")
 
     annual_gpr, _, gpr_source, _ = operations.annual_gpr_and_other_income(inputs)
-    if annual_gpr <= 0:
+    # A lease rent roll, if entered, takes precedence over the rooms model.
+    if inputs.get("propertyType") == "hotel" and not operations.leases.has_leases(inputs):
+        # Roadmap #25: a hotel computes from its rooms, rate and occupancy.
+        missing.extend(f for f in ("keys", "adr", "occupancyPct") if _num(inputs, f) <= 0)
+    elif annual_gpr <= 0:
         missing.append("grossPotentialRent (or a unitMix / per-SF rent section)")
 
     if deal_type == "acquisition" and _num(inputs, "purchasePrice") <= 0:
@@ -203,6 +210,18 @@ def _compute(inputs: dict) -> dict:
 
     if missing:
         raise InsufficientInputsError(missing)
+
+    components = inputs.get("mixedUseComponents")
+    if (
+        inputs.get("propertyType") != "hotel"
+        and isinstance(components, list)
+        and "hotel" in components
+        and _num(inputs, "keys") > 0
+    ):
+        warnings.append(
+            "The hotel component of a mixed-use deal isn't modeled yet — its rooms, ADR and "
+            "hotel expense inputs are ignored. Model the hotel as its own deal (property type Hotel)."
+        )
 
     timeline, tl_warnings = build_timeline(
         deal_type,
@@ -1095,6 +1114,22 @@ def _compute(inputs: dict) -> dict:
             put("ltc", perm_loan / total_cost_basis)
 
         gpr_annual, other_annual, _, _ = operations.annual_gpr_and_other_income(inputs)
+        if gpr_source == "hotel":
+            # [FIN] Roadmap #25: most hotel costs move with revenue, so the
+            # fixed-opex formula below would overstate the break-even. On a
+            # stabilized year (revenue R at occupancy o, a share v of it
+            # spent on revenue-linked costs, fixed charges F), revenue is
+            # linear in occupancy, so break-even o* = (F + DS) / ((1 - v) R / o).
+            window = operations.build_noi_vector(inputs, Timeline(12, 0, 0, 1))
+            revenue = sum(window["egi"])
+            variable = sum(window["managementFee"]) + sum(window["hotel"]["revenueLinkedOpex"])
+            fixed = sum(window["opex"]) - variable
+            hotel_occupancy = _num(inputs, "occupancyPct")
+            if gpr_annual + other_annual > 0:
+                put("breakEvenRatio", (sum(window["opex"]) + annual_service) / (gpr_annual + other_annual))
+            if revenue > 0 and hotel_occupancy > 0 and variable < revenue:
+                put("breakEvenOccupancy", (fixed + annual_service) / ((revenue - variable) / hotel_occupancy))
+            gpr_annual = 0.0  # skip the fixed-opex formula below
         # Lease-modeled deals embed vacancy as downtime — the general
         # vacancyPct input never applies to them (H1, DECISIONS.md).
         occupancy = (
@@ -1105,7 +1140,7 @@ def _compute(inputs: dict) -> dict:
         stabilized_egi = gpr_annual * occupancy * (1 - credit_loss) + other_annual
         stabilized_opex = stabilized_egi - stabilized_noi
         gross_revenue = gpr_annual + other_annual
-        if gross_revenue > 0:
+        if gross_revenue > 0 and gpr_source != "hotel":
             # Break-even ratio: (opex + debt service) / gross potential revenue.
             put("breakEvenRatio", (stabilized_opex + annual_service) / gross_revenue)
         if gpr_annual > 0 and credit_loss < 1:
@@ -1302,6 +1337,16 @@ def _compute(inputs: dict) -> dict:
             "fundingSource": reno["fundingSource"],
         }
         put("postRenoAvgRent", reno["postRenoAvgRent"])
+    if ops.get("hotel") is not None:
+        # Roadmap #25: conditional hotel rows (absent for other deals).
+        hotel = ops["hotel"]
+        statement["hotel"] = {
+            "keys": hotel["keys"],
+            **{
+                key: [0.0] + hotel[key][:total]
+                for key in ("roomsRevenue", "fnbRevenue", "otherRevenue", "gop", "revenueLinkedOpex")
+            },
+        }
     if reserves_stmt is not None:
         # J6: conditional below-NOI reserves row (both vectors).
         statement["replacementReserves"] = reserves_stmt

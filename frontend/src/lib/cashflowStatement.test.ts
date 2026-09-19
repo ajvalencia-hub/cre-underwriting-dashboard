@@ -113,3 +113,22 @@ describe('statementToCsv', () => {
     expect(header.split(',').length).toBe(1 + 1 + 25 + 1) // label + close + 25 months + total
   })
 })
+
+describe('hotel statement rows (roadmap #25)', () => {
+  it('shows the rooms revenue build and GOP instead of rent rows', () => {
+    const base = makeStatement()
+    const zeros = base.gpr.map(() => 0)
+    const statement: Statement = {
+      ...base,
+      hotel: { keys: 100, roomsRevenue: zeros, fnbRevenue: zeros, otherRevenue: zeros, gop: zeros, revenueLinkedOpex: zeros },
+      fixedOpexByCategory: { hotelDepartmental: zeros, ffeReserve: zeros },
+    }
+    const labels = statementRows(statement).map((r) => r.label)
+    expect(labels).toContain('Potential rooms revenue (100% occupied)')
+    expect(labels).toContain('Total revenue')
+    expect(labels).toContain('Departmental expenses')
+    expect(labels).toContain('FF&E reserve')
+    expect(labels).not.toContain('Gross potential rent')
+    expect(labels).not.toContain('Less: credit loss')
+  })
+})

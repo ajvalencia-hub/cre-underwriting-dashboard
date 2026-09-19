@@ -260,6 +260,29 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **[FIN] Hotel operations** (roadmap #25), USALI summary level, for
+  deals whose property type is Hotel (a lease rent roll, if entered, still
+  takes precedence; a hotel component of a mixed-use deal warns that it's
+  ignored). Rooms revenue = keys × ADR × occupancy × 365/12 a month (a flat
+  month length, like the rest of the engine's monthly math); F&B and other
+  revenue are annual at stabilized occupancy and scale with occupancy in a
+  ramp; ADR and ancillary revenue grow at the rent growth rate from
+  opening. Departmental and undistributed expenses, the management fee and
+  the FF&E reserve are shares of total revenue; the franchise fee is a
+  share of rooms revenue (how brands charge); fixed charges are the usual
+  expense inputs, with a warning if operating lines (payroll, utilities…)
+  are entered on top of the ratios, or reserves on top of FF&E. NOI is
+  after FF&E (the lender/appraiser convention), so value and sizing use it.
+  Statement identities hold: GPR = rooms revenue at 100% occupancy, vacancy
+  = unsold room-nights, other income = F&B + other, EGI = total revenue.
+  Credit loss isn't applied and the general management fee is ignored
+  (warned). Break-evens treat revenue-linked costs as variable (the
+  fixed-opex formula would put a hotel's break-even far too high); revenue
+  is linear in occupancy, so the stabilized break-even is exact:
+  o* = (fixed + debt service) / ((revenue − revenue-linked costs) / o).
+  The Excel export refuses hotels. Rejected: day-count-exact months (would
+  make hotel months differ from every other asset's), and departmental
+  ratios per department (the inputs are one ratio each).
 - **[FIN] Market leasing profiles** (roadmap #27). ARGUS-style market
   leasing assumptions per space type: a `marketLeasingProfiles` table whose
   rows may override any deal-level rollover input (market rent and growth,

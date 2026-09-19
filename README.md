@@ -210,7 +210,9 @@ value-add multifamily fixture):
 - **Workflow.** An **OM-to-deal wizard** (upload → confirm types → extract →
   the existing review gate → a new deal with provenance rows; resumable
   draft), **critical dates** (deadline strip + header chips + share),
-  an **investment-committee sign-off** (submit with the computed version,
+  a **hotel operating model** (keys × ADR × occupancy, F&B and other
+  revenue, departmental / undistributed / franchise / management / FF&E
+  costs, GOP and NOI after FF&E), an **investment-committee sign-off** (submit with the computed version,
   approvals by name, reasons to reject / return / reopen, locked inputs while
   under review), a **file cabinet + notes** timeline per deal, a **command palette** (Cmd+K:
   run Compute and other actions, jump to any tab or Deal Inputs field, and

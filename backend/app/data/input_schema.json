@@ -470,16 +470,16 @@
         { "field": "mixedUseComponents", "contains": "hotel" }
       ] },
       "fields": [
-        { "id": "keys", "templateOnly": true, "label": "# Keys", "type": "number", "min": 0 },
-        { "id": "adr", "templateOnly": true, "label": "ADR", "type": "currency", "min": 0 },
-        { "id": "occupancyPct", "templateOnly": true, "label": "Occupancy", "type": "percent", "min": 0, "max": 1 },
-        { "id": "fnbRevenue", "templateOnly": true, "label": "F&B Revenue", "type": "currency", "min": 0 },
-        { "id": "otherRevenue", "templateOnly": true, "label": "Other Revenue", "type": "currency", "min": 0 },
-        { "id": "departmentalExpenseRatioPct", "templateOnly": true, "label": "Departmental Expense Ratio", "type": "percent", "min": 0, "max": 1 },
-        { "id": "undistributedExpenseRatioPct", "templateOnly": true, "label": "Undistributed Expense Ratio", "type": "percent", "min": 0, "max": 1 },
-        { "id": "ffeReservePct", "templateOnly": true, "label": "FF&E Reserve", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
-        { "id": "franchiseFeePct", "templateOnly": true, "label": "Franchise Fee", "type": "percent", "min": 0, "max": 0.15 },
-        { "id": "managementFeeHotelPct", "templateOnly": true, "label": "Hotel Management Fee", "type": "percent", "min": 0, "max": 0.15 }
+        { "id": "keys", "label": "# Keys", "type": "number", "min": 0 },
+        { "id": "adr", "label": "ADR", "type": "currency", "min": 0 },
+        { "id": "occupancyPct", "label": "Occupancy", "type": "percent", "min": 0, "max": 1 },
+        { "id": "fnbRevenue", "label": "F&B Revenue", "type": "currency", "min": 0 },
+        { "id": "otherRevenue", "label": "Other Revenue", "type": "currency", "min": 0 },
+        { "id": "departmentalExpenseRatioPct", "label": "Departmental Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "undistributedExpenseRatioPct", "label": "Undistributed Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "ffeReservePct", "label": "FF&E Reserve", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
+        { "id": "franchiseFeePct", "label": "Franchise Fee", "type": "percent", "min": 0, "max": 0.15 },
+        { "id": "managementFeeHotelPct", "label": "Hotel Management Fee", "type": "percent", "min": 0, "max": 0.15 }
       ]
     },
     {

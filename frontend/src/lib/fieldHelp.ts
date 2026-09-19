@@ -137,6 +137,16 @@ export const FIELD_HELP: Record<string, string> = {
 
   // Commercial rent roll
   commercialLeases: 'Lease-by-lease rent roll: area, dates, rent per SF per year, escalations, recoveries and free rent. Name a leasing profile to roll a lease over on that profile instead of the deal assumptions.',
+  keys: 'Number of guest rooms (keys).',
+  adr: 'Average daily rate: rooms revenue per occupied room-night, in today\'s dollars. Grows at the rent growth rate.',
+  occupancyPct: 'Share of available room-nights sold at stabilization. Rooms revenue = keys × ADR × occupancy × 365.',
+  fnbRevenue: 'Food & beverage revenue per year at stabilized occupancy; scales with occupancy during a ramp.',
+  otherRevenue: 'Other operated departments and miscellaneous revenue per year (parking, spa, resort fees) at stabilized occupancy.',
+  departmentalExpenseRatioPct: 'Departmental expenses (rooms, F&B and other operated departments) as a share of total revenue.',
+  undistributedExpenseRatioPct: 'Undistributed operating expenses (admin, sales & marketing, property operations, utilities) as a share of total revenue.',
+  ffeReservePct: 'Furniture, fixtures & equipment reserve as a share of total revenue. Deducted before NOI, as lenders and appraisers do.',
+  franchiseFeePct: 'Brand franchise fees (royalty, marketing, reservations) as a share of rooms revenue.',
+  managementFeeHotelPct: 'Hotel operator base management fee as a share of total revenue.',
   marketLeasingProfiles: 'Rollover assumptions per space type (anchor, inline, office floor…). A lease uses the profile named in its Leasing Profile column; blank cells here keep the deal assumptions.',
   renewalProbability: 'Chance a tenant renews at expiry. Rollover income blends renewal and re-let outcomes by this probability.',
   downtimeMonths: 'Months a space sits empty before a new tenant (re-let path only).',
