@@ -139,6 +139,37 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
     return _to_out(deal)
 
 
+@router.get("/metrics")
+def deal_metrics(db: Session = Depends(get_db)):
+    """Key numbers for every deal, computed from its saved inputs (roadmap
+    #18: the pipeline showed no numbers). Uses the compute cache, so an
+    unchanged deal costs nothing. Deals missing required inputs report what
+    they're missing instead of numbers."""
+    from app.services import compute_cache
+
+    out: dict[str, dict] = {}
+    for deal in db.execute(select(Deal)).scalars():
+        inputs = deal.inputs or {}
+        try:
+            result = compute_cache.cached_compute(inputs)
+        except engine.InsufficientInputsError as exc:
+            out[deal.id] = {"status": "incomplete", "missing": exc.missing}
+            continue
+        outputs = result.get("outputs") or {}
+        uses = (result.get("sourcesAndUses") or {}).get("uses") or []
+        levered = (result.get("statement") or {}).get("levered") or []
+        out[deal.id] = {
+            "status": "ok",
+            "totalCost": sum(amount for _, amount in uses) if uses else None,
+            "equity": max(0.0, -levered[0]) if levered else None,
+            "leveredIrr": outputs.get("leveredIrr"),
+            "equityMultiple": outputs.get("equityMultiple"),
+            "yieldOnCost": outputs.get("yieldOnCost"),
+            "goingInCapRate": outputs.get("goingInCapRate"),
+        }
+    return out
+
+
 @router.get("/{deal_id}", response_model=DealOut)
 def get_deal(deal_id: str, db: Session = Depends(get_db)):
     deal = db.get(Deal, deal_id)

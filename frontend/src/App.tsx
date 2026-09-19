@@ -1070,6 +1070,7 @@ function App() {
           values) survives switching tabs — only visibility toggles. */}
       <div style={{ display: tab === 'pipeline' ? 'block' : 'none' }}>
         <PipelinePage
+          active={tab === 'pipeline'}
           deals={deals}
           activeDealId={activeDealId}
           onOpenDeal={(dealId) => {

@@ -909,6 +909,23 @@ export interface PortfolioRollup {
   excluded: { id: string; name: string; reason: string }[]
 }
 
+/** Key numbers per deal, computed from its saved inputs (roadmap #18). */
+export type DealMetrics =
+  | {
+      status: 'ok'
+      totalCost: number | null
+      equity: number | null
+      leveredIrr: number | null
+      equityMultiple: number | null
+      yieldOnCost: number | null
+      goingInCapRate: number | null
+    }
+  | { status: 'incomplete'; missing: string[] }
+
+export function fetchDealMetrics() {
+  return getJson<Record<string, DealMetrics>>('/deals/metrics')
+}
+
 export function fetchPortfolio() {
   return getJson<PortfolioRollup>('/portfolio')
 }
