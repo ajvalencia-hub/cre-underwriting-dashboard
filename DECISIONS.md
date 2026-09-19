@@ -260,6 +260,16 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **Owner decisions, 2026-09-19** (raised by the #32 tests):
+  - Quick Screen → Send to Deal Inputs now carries the napkin's operating
+    expenses as one Opex Detail row (category other, annual dollars, note
+    "Operating expenses (Quick Screen estimate)") and credit loss 0. It
+    carried none, so Compute ran with no opex. Annual dollars rather than
+    % of EGI: the engine reports every % of EGI row as the management fee.
+  - **[FIN]** A negative capitalized sale price floors at $0 with a warning
+    (engine and export).
+  - **[FIN]** Amortization of 0 years = interest-only everywhere (the payment
+    function used to repay the loan in month 1).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
