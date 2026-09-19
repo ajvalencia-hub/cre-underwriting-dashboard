@@ -1,6 +1,6 @@
 """H11 parity: the NATIVE-EXPORTED workbook (formula-live, no template)
 recalculated by LibreOffice must match the engine within the same
-tolerances as the template corpus. Two cases:
+tolerances as the template corpus. Cases include:
 
 - analytic_acquisition: the hand-derivable fixture (pure IO, flat growth) —
   its expected values are pinned in the fixture's comment block, making
@@ -109,6 +109,19 @@ OPEX_DETAIL_INPUTS = {
     "waterfallTiers": [],
 }
 
+# Non-management pct_of_egi lines report under their own category (not the
+# management fee); the workbook carries them as separate "% of EGI" inputs
+# folded into the opex column — NOI must still tie out.
+OPEX_DETAIL_EGI_PCT_INPUTS = {
+    **OPEX_DETAIL_INPUTS,
+    "dealName": "Export Parity — Opex Detail, other-category % of EGI",
+    "opexLineItems": [
+        *OPEX_DETAIL_INPUTS["opexLineItems"],
+        {"category": "other", "amount": 0.015, "basis": "pct_of_egi", "recoverable": "no"},
+        {"category": "utilities", "amount": 0.01, "basis": "pct_of_egi", "recoverable": "no"},
+    ],
+}
+
 # I7: development — S-curve draws, equity-first funding, capitalized
 # interest + fee, NOI sweep to takeout, constraint-sized perm, IO->amort.
 DEVELOPMENT_SCURVE_INPUTS = {
@@ -165,6 +178,7 @@ def _load_cases() -> list[tuple[str, dict]]:
         ("export_analytic_acquisition", analytic),
         ("export_amortizing_growth", AMORTIZING_GROWTH_INPUTS),
         ("export_opex_detail", OPEX_DETAIL_INPUTS),
+        ("export_opex_detail_egi_pct", OPEX_DETAIL_EGI_PCT_INPUTS),
         ("export_development_scurve", DEVELOPMENT_SCURVE_INPUTS),
         # No construction period: the whole budget lands at close (the export
         # used to carry land only there and drop every other cost).
