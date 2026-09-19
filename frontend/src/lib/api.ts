@@ -181,6 +181,24 @@ export async function previewMapping(
   return fields
 }
 
+export interface RecalcAgreementRow {
+  fieldId: string
+  excelValue: string | number | boolean | null
+  libreOfficeValue: string | number | boolean | null
+  agrees: boolean
+}
+
+export interface RecalcAgreement {
+  status: 'agrees' | 'differs' | 'noOutputsMapped' | 'noSavedValues'
+  rows: RecalcAgreementRow[]
+}
+
+/** Recalculate the unmodified template in LibreOffice and compare each
+ *  mapped output with the value Excel saved in the file. */
+export function checkRecalcAgreement(templateId: string, mappings: MappingsById) {
+  return postJson<RecalcAgreement>(`/templates/${templateId}/recalc-check`, { mappings })
+}
+
 export function fetchAutoMatch(templateId: string) {
   return getJson<AutoMatchResult>(`/mappings/auto-match/${templateId}`)
 }

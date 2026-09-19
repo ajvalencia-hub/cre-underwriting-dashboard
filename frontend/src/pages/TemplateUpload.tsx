@@ -12,6 +12,7 @@ import {
   updateMappingProfile,
   uploadTemplate,
 } from '../lib/api'
+import RecalcAgreementPanel from '../components/RecalcAgreementPanel'
 import FileChooser from '../components/FileChooser'
 import MappingCoverage from '../components/MappingCoverage'
 import SheetPicker from '../components/SheetPicker'
@@ -624,6 +625,10 @@ export default function TemplateUpload({
                 }}
               />
             </div>
+
+            {template && savedMappings && (
+              <RecalcAgreementPanel templateId={template.id} mappings={savedMappings} labelOf={(id) => labelById.get(id) ?? id} />
+            )}
 
             {unsaved && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

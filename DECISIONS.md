@@ -188,6 +188,18 @@ stated reason.
   after reserves already exists (reservesConvention =
   above_noi_underwritten). The Excel export refuses trailing exits,
   prepayment costs and growth during construction. Baseline unchanged.
+- **Template results are labelled LibreOffice, and the Template tab can
+  check LibreOffice against Excel** (roadmap #13). Read-back results come
+  from a LibreOffice recalculation but were labelled "Excel"; LibreOffice's
+  IRR/XIRR root-finders and some financial functions differ. Labels now
+  say "recalculated by LibreOffice". The check recalculates the UNMODIFIED
+  template (a copy, prepared exactly as Generate prepares its output:
+  openpyxl round-trip + fullCalcOnLoad — without the flag LibreOffice
+  keeps the cached values and the comparison is vacuous, found while
+  testing) and compares each mapped output with the value Excel saved in
+  the file (rel/abs 1e-6). On demand, not on upload: it costs a
+  LibreOffice cold start and needs the output mapping. Recalc behavior and
+  the downloaded workbook are unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

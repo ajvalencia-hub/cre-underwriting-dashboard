@@ -54,12 +54,14 @@ export function latestStamp(a: ResultStamp | null, b: ResultStamp | null): Resul
 
 export const SOURCE_LABEL: Record<ResultSource, string> = {
   native: 'Built-in engine',
-  excel: 'Your Excel template',
+  // Read back after a LibreOffice recalculation — not Excel itself, and
+  // LibreOffice's IRR and some functions can differ (Template tab checks).
+  excel: 'Your template, recalculated by LibreOffice',
 }
 
 export const SOURCE_TAG: Record<ResultSource, string> = {
   native: 'engine',
-  excel: 'Excel',
+  excel: 'LibreOffice',
 }
 
 export function describeStamp(stamp: ResultStamp): string {
