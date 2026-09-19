@@ -1,34 +1,23 @@
-// STUB (Phase 0, F1) — F3 replaces the body with the Run 6 Agent tab
-// (AgentChat + PendingProposalCard + lib/useAgentThread). Keep the props
-// interface; App.tsx already mounts it:
+// The Agent tab: the full-height Underwriting Agent conversation for the open
+// deal. App mounts it (and the floating AgentDock, with the same props):
 //
-//   <PanelBoundary name="Agent">
-//     <AgentPage key={dealScope} dealId={…} schema={…} currentValues={…}
-//                icLocked={…} onApproveProposal={…} />
-//   </PanelBoundary>
+//   <AgentPage key={dealScope} dealId={…} schema={…} currentValues={…}
+//              icLocked={…} onApproveProposal={…} />
 //
-// Props (shared with components/AgentDock.tsx — see AgentSurfaceProps):
+// Props (AgentSurfaceProps, shared with components/AgentDock.tsx):
 // - dealId:            the active deal (null only during boot).
-// - schema:            input schema (labels for the proposal diff —
-//                      prefer lib/inputChanges.describeInputChanges).
+// - schema:            input schema (labels for the proposal diff).
 // - currentValues:     the Deal Inputs on screen (the "before" side).
 // - icLocked:          the deal is locked for the investment committee —
-//                      show Approve disabled with the reason (App also
+//                      Approve shows disabled with the reason (App also
 //                      refuses; the server 409s as the last line).
-// - onApproveProposal: App's approve path. It checks the IC lock, saves
-//                      pending edits, calls approveAgentProposal (api.ts),
-//                      adopts the returned deal (applyDealState + provenance
-//                      source 'agent') and resolves true on success, false
-//                      when refused/failed (App already toasted why). The
-//                      component then refreshes its thread. Rejecting has no
-//                      app-level side effects: call rejectAgentProposal
-//                      (api.ts) directly.
-//
-// Thread sharing between the dock and the tab: if F3's useAgentThread needs
-// to be one instance for both, add a `controller` prop to
-// AgentSurfaceProps and G1 wires `useAgentThread(activeDealId)` in App at
-// integration. Storage (dock open state etc.) goes through lib/safeStorage;
-// errors through toastError('What failed', err).
+// - onApproveProposal: App's approve path (IC lock, pending-save flush,
+//                      approveAgentProposal, adopt the deal + provenance
+//                      'agent'); resolves true when applied. Rejecting has no
+//                      app-level side effects (lib/useAgentThread calls
+//                      rejectAgentProposal directly).
+import AgentChat from '../components/AgentChat'
+import { announceAgentThreadChange, useAgentThread } from '../lib/useAgentThread'
 import type { InputSchema } from '../types/schema'
 import type { AgentProposal } from '../types/agent'
 
@@ -45,13 +34,48 @@ export interface AgentSurfaceProps {
 
 export type AgentPageProps = AgentSurfaceProps
 
-export default function AgentPage({ dealId }: AgentPageProps) {
+export default function AgentPage({ dealId, schema, currentValues, icLocked, onApproveProposal }: AgentPageProps) {
+  const controller = useAgentThread(dealId)
+
+  if (!dealId) {
+    return <div className="text-sm text-slate-500">Open a deal to chat with the Underwriting Agent.</div>
+  }
+
+  async function handleApprove(proposal: AgentProposal) {
+    const ok = await onApproveProposal(proposal)
+    if (dealId) announceAgentThreadChange(dealId)
+    return ok
+  }
+
+  const thread = controller.thread
+
   return (
-    <div className="max-w-3xl rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600">
-      <h2 className="text-sm font-semibold text-slate-800">Underwriting Agent</h2>
-      <p className="mt-1 text-xs text-slate-500">
-        {dealId ? 'The agent chat for this deal is coming soon.' : 'Open a deal to talk to the agent.'}
-      </p>
+    <div className="rounded-md border border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
+        <h2 className="text-sm font-semibold text-slate-700">Underwriting Agent</h2>
+        {thread && (
+          <div
+            className="text-xs text-slate-500"
+            title={`${thread.totalInputTokens.toLocaleString()} input + ${thread.totalOutputTokens.toLocaleString()} output tokens (${thread.provider})`}
+          >
+            {(thread.totalInputTokens + thread.totalOutputTokens).toLocaleString()} tokens used
+          </div>
+        )}
+      </div>
+      {icLocked && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-700">
+          Locked for the investment committee — the agent can still analyse this deal, but its input changes can't be
+          applied until the lock is lifted.
+        </div>
+      )}
+      <AgentChat
+        key={dealId}
+        controller={controller}
+        schema={schema}
+        currentValues={currentValues}
+        icLocked={icLocked}
+        onApprove={handleApprove}
+      />
     </div>
   )
 }

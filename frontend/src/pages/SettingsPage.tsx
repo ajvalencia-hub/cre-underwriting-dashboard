@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { ExternalToolsPanel, KeychainKeyRow, RestartBanner } from '../components/DesktopSettings'
+import ServerFileLink from '../components/ServerFileLink'
 import {
+  UNAUTHORIZED_EVENT,
+  backupDownloadUrl,
+  fetchAuthStatus,
   fetchBackups,
   fetchExternalTools,
   fetchIntegrations,
+  logout,
   restoreBackup,
   runBackupNow,
   type AutomaticBackupStatus,
@@ -17,6 +22,9 @@ import { isDesktop, openExternal, type UpdateCheckResult } from '../lib/platform
 import { checkForUpdates, describeUpdateCheck, setUpdateChecks } from '../lib/updateCheck'
 import { useDesktopSettings } from '../lib/useDesktopSettings'
 import { loadThemePref, setThemePref, type ThemePref } from '../lib/uiPrefs'
+import { loadNewDealTypePref, saveNewDealTypePref, type NewDealTypePref } from '../lib/newDealPrefs'
+import { safeStorage } from '../lib/safeStorage'
+import { toastError } from '../lib/toast'
 
 interface SettingsPageProps {
   active: boolean
@@ -36,6 +44,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </div>
   )
 }
+
+const NEW_DEAL_OPTIONS: { value: NewDealTypePref; label: string; hint: string }[] = [
+  { value: 'ask', label: 'Ask each time', hint: 'New Deal offers Acquisition or Development' },
+  { value: 'acquisition', label: 'Acquisition', hint: 'New Deal creates an acquisition' },
+  { value: 'development', label: 'Development', hint: 'New Deal creates a development' },
+]
 
 const KIND_LABEL: Record<BackupKind, string> = {
   daily: 'Daily',
@@ -82,7 +96,17 @@ function SnapshotTable({
                 </td>
                 <td className="pr-3 text-right tabular-nums">{snap.uploadCount}</td>
                 <td className="pr-3">{snap.hasDb ? '✓' : '—'}</td>
-                <td className="text-right">
+                <td className="whitespace-nowrap text-right">
+                  {snap.hasDb && (
+                    <ServerFileLink
+                      href={backupDownloadUrl(kind, snap.name)}
+                      filename={`cre-backup-${kind}-${snap.name}.sqlite3`}
+                      title="Download this snapshot's database file"
+                      className="mr-2 rounded border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+                    >
+                      Download
+                    </ServerFileLink>
+                  )}
                   <button
                     onClick={() => onRestore(kind, snap.name)}
                     disabled={busy || !snap.hasDb}
@@ -176,9 +200,64 @@ function UpdatesSection() {
   )
 }
 
-/** Settings v1: appearance (theme), backups (J16 endpoints), integrations. */
-export default function SettingsPage({ active }: SettingsPageProps) {
-  const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(window.localStorage))
+/** Browser/Docker mode with CRE_API_TOKEN set: end the session (the token
+ *  gate comes back). Never shown in the desktop app — its launcher's
+ *  per-launch token protects the API, and there is nothing to sign out of. */
+function SecuritySection({ active }: { active: boolean }) {
+  const [required, setRequired] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const desktop = isDesktop()
+
+  useEffect(() => {
+    if (!active || desktop) return
+    let current = true
+    fetchAuthStatus()
+      .then((status) => current && setRequired(status.required))
+      .catch(() => current && setRequired(false))
+    return () => {
+      current = false
+    }
+  }, [active, desktop])
+
+  if (desktop || !required) return null
+
+  async function handleSignOut() {
+    setBusy(true)
+    try {
+      await logout()
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    } catch (err) {
+      toastError("Couldn't sign out", err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section title="SECURITY">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          disabled={busy}
+          className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        >
+          {busy ? 'Signing out…' : 'Sign out'}
+        </button>
+        <span className="text-[11px] text-slate-500">
+          This server requires an access token. Signing out clears this browser's session; you'll need the token
+          again.
+        </span>
+      </div>
+    </Section>
+  )
+}
+
+/** Settings v1: appearance (theme), workflow, backups (J16 endpoints),
+ *  integrations, security. */
+function SettingsPage({ active }: SettingsPageProps) {
+  const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(safeStorage))
+  const [newDealType, setNewDealType] = useState<NewDealTypePref>(() => loadNewDealTypePref())
   const [backups, setBackups] = useState<BackupListing | null>(null)
   const [integrations, setIntegrations] = useState<IntegrationStatus[] | null>(null)
   const [tools, setTools] = useState<ExternalToolsStatus | null>(null)
@@ -285,6 +364,32 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         </p>
       </Section>
 
+      <Section title="WORKFLOW">
+        <fieldset>
+          <legend className="text-xs text-slate-700">Default type for New Deal</legend>
+          <div className="mt-1.5 flex flex-wrap gap-4">
+            {NEW_DEAL_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-1.5 text-sm text-slate-700">
+                <input
+                  type="radio"
+                  name="new-deal-type"
+                  checked={newDealType === option.value}
+                  onChange={() => {
+                    setNewDealType(option.value)
+                    saveNewDealTypePref(option.value)
+                  }}
+                />
+                {option.label}
+                <span className="text-[11px] text-slate-500">({option.hint})</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p className="mt-2 text-[11px] text-slate-500">
+          Stored in this browser. The last tab you used is always restored on launch.
+        </p>
+      </Section>
+
       <Section title="BACKUPS">
         <div className="flex items-center gap-3">
           <button
@@ -372,6 +477,8 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         )}
       </Section>
 
+      <SecuritySection active={active} />
+
       {desktop && <UpdatesSection />}
 
       {desktopSettings && (
@@ -385,3 +492,5 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     </div>
   )
 }
+
+export default memo(SettingsPage)

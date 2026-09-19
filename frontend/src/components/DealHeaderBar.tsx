@@ -6,6 +6,7 @@ import { dateStatus, readCriticalDates, sortByDate } from '../lib/criticalDates'
 import { dealTypeOf, type DealType } from '../lib/dealStages'
 import type { IcState } from '../lib/api'
 import { IC_STATE_LABELS, IC_STATE_STYLES } from '../lib/icWorkflow'
+import { defaultNewDealType } from '../lib/newDealPrefs'
 import type { Deal } from '../types/deal'
 
 const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
@@ -207,7 +208,14 @@ export default function DealHeaderBar({
       )}
       <div className="relative" ref={newDealMenuRef}>
         <button
-          onClick={() => setNewDealMenuOpen((v) => !v)}
+          onClick={() => {
+            // Settings > Workflow can make New Deal create one dealflow
+            // directly; 'ask' (the default) keeps the menu. Read at click
+            // time so a change in Settings applies immediately.
+            const preset = defaultNewDealType()
+            if (preset) void chooseNewDeal(preset)
+            else setNewDealMenuOpen((v) => !v)
+          }}
           aria-haspopup="menu"
           aria-expanded={newDealMenuOpen}
           className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"

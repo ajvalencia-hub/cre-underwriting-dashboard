@@ -3,6 +3,89 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Run 6 port onto later-items — frontend
+
+Run 6's frontend work was ported into this line's structure (left-rail
+navigation, split App modules, generated API types, IC lock, desktop
+app). Dropped in favour of this line's versions: Run 6's toast module,
+field-id helper, tablist roving and Ctrl/Cmd+1..9 tab keys (the rail is
+not a tablist and the palette jumps to tabs), and its last-tab store.
+Optimistic-concurrency checks (If-Match) run in the browser only — this
+line's desktop plan declined cross-window protection for the app.
+
+### Panels
+
+- **CompsPage market filter** is *derived*, not synced by an effect: `typedFilter: string | null`,
+  `marketFilter = typedFilter ?? dealMarket`. Null = follow the deal; typing sets it; "Use deal
+  market (X)" resets to null. Avoids Run 6's setState-in-effect and a stale-filter flash on deal switch.
+  Latest-wins via `createLatestGuard` in a ref (covers kind toggles and typing). Delete uses inline
+  `window.confirm` (target convention; no confirmAction lib).
+- **outputVisibility**: added `grossMarginPct` and `selloutYears` to DEVELOPMENT_ONLY (for_sale.applies
+  requires dealType=development). `peakEquity` left visible (generic concept; deals.py reads it for all
+  deals). Filter applies to the sidebar *detail* list only; headline sets already type-aware.
+- **RiskPanel**: 'cancelled' poll status -> neutral notice "Run cancelled." (not an error). Timeout also
+  fires best-effort `cancelMonteCarlo`. Poll/start errors go through `friendlyEngineError`. Seed error
+  tied with `aria-describedby`.
+- **Tornado inert**: `TornadoBar.reason` widened to `string | null` (api.ts type); geometry normalises null
+  to undefined. Inert bars: opacity 0.45, `<title>` tooltip, "inert — reason" text, and the ↓/↑ value
+  labels are hidden (they would overlap the reason at the base line). Test lives in a NEW file
+  `lib/tornadoInert.test.ts` so F3's `scenarioComparison.test.ts` stays untouched.
+- **ScenariosPanel memo**: `orderedOutputs` memo keyed on `compared[0].inputs` (+schema.outputs,
+  showAllMetrics); dropped the eslint-disable on `comparisonRows` by keying on memoised `compared`.
+  Tornado error also uses `friendlyEngineError`.
+- **CashFlowTab year headers** were already `<button aria-expanded>` inside `<th>` on target; only added
+  `scope="col"` and `aria-hidden` on the arrow (kept th onClick for the wider mouse target — the button
+  stops propagation).
+- **QS sensitivity grid**: cell content is now a full-cell `<button>` (td `p-0`, button `block w-full
+  p-1.5`) so visuals/click area are unchanged; metric toggles get `aria-pressed`; component wrapped in
+  `memo`.
+- **SheetPicker**: cells get `role=button`/`tabIndex=0`/Enter+Space **only while picking** (otherwise the
+  grid would add hundreds of tab stops); "Go to cell" remains the fast path.
+- **GeneratePanel**: `errorParts` keeps ApiError.missing (ResultsStatus-style links) but the message goes
+  through `friendlyEngineError`. irrDiagnostics: small amber "X IRR shown a%; other roots: …" line under
+  the existing warnings list (the engine's multi-root warning already lists roots; this line separates
+  the reported root from the others). Reported IRR untouched.
+- **FileCabinet**: delete only when `source === 'attachment'`; SVG never gets an inline `<img>` preview
+  (IMAGE_EXTS already excluded svg on target — documented + svg icon added).
+- **Documents**: `.xls` dropped from accept (server refuses legacy BIFF).
+- **DealInputForm**: one guarded `fetchMarketRates` per mount, passed to RatesHint/SofrSeed as props.
+  `buildingRsf` needs no form code (schema-driven, commercial_rent_roll section) — pinned by
+  `lib/buildingRsfSchema.test.ts`.
+- **IcApprovalPage**: switched its hand try/catch storage to `safeStorage` (behaviour identical).
+- **NOT done (G1 file)**: Load-in-Quick-Screen switching the napkin mode — the handler is
+  `handleLoadQuickScreenScenario` in App.tsx; ScenariosPanel only calls the prop. G1 should add
+  `quickScreens.setMode('development')` there.
+- Skipped per plan: memo(TemplateUpload); loanPayoff row (no vector on this line); Sensitivity
+  `data-heat-cell` set only on cells that have a point (empty cells have no pastel background).
+
+### Pipeline, Settings, Compare, Agent UI, e2e
+
+- **Agent thread sharing without a `controller` prop.** The dock and the Agent tab each call `useAgentThread(dealId)`. They are never visible together (the dock returns null while `tab === 'agent'`), and every mutation (send, play, reject, provider switch, approve via App) dispatches `cre:agent-thread-changed` with the deal id; the other instance re-reads the thread. So App needs no extra wiring. `AgentSurfaceProps` is unchanged.
+- **Approve goes through App only.** `useAgentThread` has no approve. The surfaces call `onApproveProposal(proposal)` (IC lock, save flush, provenance 'agent'), then announce the thread change. Reject calls `rejectAgentProposal` directly (errors go to `toastError`). Approve is disabled when `icLocked && kind === 'input_changes'`, with an inline reason (a note on the card and a banner on the tab).
+- **Proposal diff.** This reuses the target's `diffSnapshots` + `SnapshotDiffView`, so the proposal diff reads like History. The engine preview comes through `proposalPreview()`, and its warnings are merged with the proposal warnings. The status badge uses `PROPOSAL_STATUS_LABELS` ("Pending review" / "Approved" …).
+- **Provider picker.** If the thread's provider isn't user-selectable (the e2e `scripted` stub), it is shown as the current option instead of silently showing the first provider.
+- **Dock.** It sits at z-40, bottom-right, and its open flag is stored under the `cre.agentDockOpen` key through safeStorage. Escape closes it only when focus is inside the dock or on the body, so Escape in the palette or a modal stays with that surface. It carries `data-no-print`.
+- **Compare.** It computes from App's `deals` prop (saved inputs hydrated over the schema defaults via `hydrateDealState`) and does not refetch. The cache is keyed by `id + updatedAt`, so a deal that autosaves recomputes automatically. Latest-wins uses a generation ref that Recompute bumps. An earlier `createLatestGuard().next()` inside a `useState` initializer broke under StrictMode, where initializers run twice. Untyped deals show "not computable" with the reason. Engine errors go through `friendlyEngineError`.
+  - Rows use F2's `lib/outputVisibility.ts` (it was present, so it is imported rather than duplicated). Metrics that no computed deal produced (for-sale or hotel metrics on a rental comparison) are dropped.
+  - CSV export uses `saveOutput(textBlob(...))`, which works in the desktop app. Clicking a column header opens that deal (`onOpenDeal`).
+- **`METRIC_DIRECTION` / `bestValueIndex`** moved into `compareMath.ts` and are re-exported from `scenarioComparison.ts`; `tornadoGeometry` is untouched. I added directions for the target-only outputs: `trendedYieldOnCost`, `grossMarginPct`, `minMonthlyDscr`, `stressedDscr`, `goingInDebtYield` (up) and `prepaymentCost` (down). This affects the Scenarios best-value highlight as well. It is display only, not [FIN].
+- **Pipeline.**
+  - **`pipelineViews.ts`:** Run 6's rewrite, extended with the target's metric columns as sort keys (`totalCost`, `equity`, `leveredIrr`, `equityMultiple`, `yield`; nulls always sort last; they default to descending) and an optional `columns` field in saved views. `normalizeView` upgrades old `{name, marketFilter, sortKey, showTerminal}` views and drops unknown stages and staleness values. `applyView` keeps its old signature.
+  - **Staleness column:** the badge moved out of "Last touched" into its own sortable column.
+  - **Bulk tags / unarchive:** the page calls `bulkUpdateDealTags` / `unarchiveDeal` itself and overlays the returned copies on App's list (by `updatedAt`) until App catches up. It also emits the new optional prop `onDealsChanged(deals)` for App to upsert.
+  - **Show archived:** fetches `fetchDeals({includeArchived:true})` locally and refetches when App's list changes. Archived rows appear dimmed on their board (untyped ones in the untyped box) with an Unarchive button. They are not counted, not selectable and excluded from bulk actions. The view filters apply to them too.
+  - **Tag filter:** AND semantics, with a case-insensitive pressed state.
+  - **Storage:** all storage access (columns, views) goes through safeStorage.
+- **Settings.**
+  - **Backup download:** `ServerFileLink` + `backupDownloadUrl` on every snapshot row with `hasDb`, for every kind (daily / weekly / pre_restore / pre_migration).
+  - **WORKFLOW section:** a "Default type for New Deal" setting (ask / acquisition / development). The new `lib/newDealPrefs.ts` holds it under the `cre.newDealType` key and exports `defaultNewDealType()`, which returns null for ask. Run 6's `workflowPrefs` last-tab half was not ported, because navigation.ts already has it under the same key.
+  - **SECURITY section:** a "Sign out" button, shown only when `fetchAuthStatus().required` and not in the desktop app. It calls `logout()` then dispatches `UNAUTHORIZED_EVENT`.
+  - **Other:** theme is read through safeStorage, and the page is wrapped in `memo`.
+- **e2e.**
+  - **playwright.config:** kept the target's scratch-DB pinning, and added `workers: 1`, `AGENT_PROVIDER=scripted` and `CRE_STORAGE_ROOT=<.e2e-scratch>/storage` (new). The settings spec runs "Back up now", which would otherwise write into, and rotate, the developer's real `backend/storage/backups`.
+  - **Specs:** agent.spec (3 tests: approve → History "Agent-applied"; unverified-claim gate; dock shares the conversation and closes on Escape) and features.spec (4 tests: settings / portfolio / risk; compare; tags; pipeline sort, bulk tags and archive).
+  - **Selectors and data:** the specs use the target's selectors (rail buttons without numbers, the `select` deal picker). Deals come from `analytic_acquisition.json` via the API (`_comment` stripped) and are deleted afterwards. Tags keep their case ("Core Plus").
+
 ## Underwriting Agent (Run 6 port onto later-items)
 
 Ported from `run6-desktop-audit` (6e54b93). The backend is

@@ -151,7 +151,9 @@ export default function HistoryDrawer({ schema, dealId, onRestored }: HistoryDra
                           ? 'text-slate-400'
                           : snapshot.kind === 'restore'
                             ? 'text-violet-600'
-                            : 'text-slate-600'
+                            : snapshot.kind === 'agent'
+                              ? 'text-indigo-700'
+                              : 'text-slate-600'
                       }`}
                     >
                       {KIND_LABELS[snapshot.kind]}

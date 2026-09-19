@@ -269,6 +269,34 @@ The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
 
+### Added by the Run 6 port
+
+- **Compare tab (Portfolio group):** pick 2–4 deals (archived ones are excluded) and see their outputs side by side.
+  - Each deal is computed from its saved inputs, and recomputed automatically after it's edited.
+  - Rows are filtered by dealflow: "n/a" means the metric doesn't apply to that deal type. Untyped or incomplete deals show "not computable" with the reason.
+  - The best value is highlighted where "better" is unambiguous.
+  - Export CSV works in the browser and uses the native Save dialog in the desktop app. The selection is remembered.
+- **Underwriting Agent tab (This deal group) + floating Agent dock:** chat about the open deal with a provider picker, one-click plays ("Screen this deal", …) and a list of tool calls per answer.
+  - Figures that no tool call backs up are flagged "Unverified".
+  - The agent only *proposes* input changes. Each proposal is a card with a before/after diff and an engine preview, plus Approve & apply or Reject.
+  - Approving respects the IC lock (it's disabled, with the reason, while locked), saves pending edits first, records a history entry ("Agent-applied") and marks the fields as agent-filled.
+  - The dock stays open across tabs and closes with Escape. It shares the conversation with the tab.
+- **Tags:** add or remove tags from the deal header's chip row.
+  - The pipeline shows tag chips per deal and has an AND tag filter.
+  - Bulk "Add tag" / "Remove tag" work on the selection. Tags also appear in the pipeline CSV.
+- **Archive / duplicate:** "More ▾ → Duplicate… / Archive" in the deal header.
+  - Archived deals leave the working list.
+  - The pipeline's "Show archived" lists them dimmed, each with Unarchive.
+- **Pipeline sort and filter:** every column header is sortable (Deal, Market, Stage, Last touched, Staleness and the metric columns such as IRR, equity and yield), with ascending/descending shown by `aria-sort`.
+  - Filters by stage, staleness (fresh / stale / critical) and tag.
+  - Saved views capture the sort, direction, filters and visible columns; older saved views load unchanged.
+- **Settings:**
+  - Each backup snapshot now has a **Download** of its database file.
+  - **Workflow:** default type for New Deal (ask / acquisition / development).
+  - **Security:** Sign out, shown only when the server requires an access token (`CRE_API_TOKEN`, browser/Docker mode; never in the desktop app).
+- **Token prompt:** when the server sets `CRE_API_TOKEN`, the browser app asks for the token before loading (and again after a 401 or Sign out). The desktop app never shows it, because its launcher already protects the API.
+- **Tests:** `npm run e2e` now also runs `e2e/agent.spec.ts` (scripted, network-free agent provider) and `e2e/features.spec.ts`. Spec files run serially (`workers: 1`) against one scratch database and a scratch storage root.
+
 ## Underwriting Agent
 
 The Underwriting Agent is a chat assistant for the active deal. It has

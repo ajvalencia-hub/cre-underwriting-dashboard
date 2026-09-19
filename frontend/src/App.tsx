@@ -1181,6 +1181,17 @@ function App() {
               toastError(`Couldn't change the status of ${dealIds.length} deal(s) — none were changed`, err)
             }
           }}
+          onDealsChanged={(changed) => {
+            // Pipeline-side edits (bulk tags, unarchive) land in App's list
+            // too, so the header tag row and deal picker stay in step. An
+            // unarchived deal isn't in the (archived-hidden) list yet.
+            const byId = new Map(changed.map((d) => [d.id, d]))
+            setDeals((prev) => {
+              const merged = prev.map((d) => byId.get(d.id) ?? d)
+              const known = new Set(prev.map((d) => d.id))
+              return [...merged, ...changed.filter((d) => !known.has(d.id) && !d.archivedAt)]
+            })
+          }}
           onNewDeal={(type) => void handleNewDeal(type)}
           onNewDealFromDocuments={() => setOmWizardOpen(true)}
           onSetDealType={(dealId, type) => void handleSetDealType(dealId, type)}
