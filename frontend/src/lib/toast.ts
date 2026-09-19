@@ -61,7 +61,8 @@ export function toastSaved(
   actions: { reveal: (path: string) => void; open: (path: string) => void },
 ): void {
   if (result.status === 'saved') {
-    const name = result.path.split(/[\/]/).pop() ?? result.path
+    // Windows paths use backslashes, macOS forward slashes.
+    const name = result.path.split(/[\\/]/).pop() ?? result.path
     showToast(
       {
         kind: 'success',
