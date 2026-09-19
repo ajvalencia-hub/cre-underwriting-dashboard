@@ -42,6 +42,12 @@ rm -f "$ZIP"
 # ditto preserves the bundle's symlinks and signatures; plain zip does not.
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
+# Roadmap #31: sign (and notarize) when an identity is given — see
+# desktop/sign_mac.sh. Unsigned builds are unchanged.
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+  APP="$APP" ZIP="$ZIP" "$REPO/desktop/sign_mac.sh"
+fi
+
 echo
 echo "Built: $APP"
 echo "       $ZIP ($(du -h "$ZIP" | cut -f1))"

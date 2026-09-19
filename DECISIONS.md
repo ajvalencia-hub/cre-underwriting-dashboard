@@ -260,6 +260,20 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **Signing and notarization** (roadmap #31, part 1). `desktop/sign_mac.sh`
+  signs inside-out (every Mach-O file, then the bundle; Apple advises
+  against `--deep`) with the hardened runtime and a secure timestamp,
+  verifies, reruns the frozen self-test on the signed app, and notarizes +
+  staples when a notarytool keychain profile is given; `build_mac.sh` calls
+  it only when SIGN_IDENTITY is set. The only entitlement is
+  allow-unsigned-executable-memory (libffi closures for pyobjc/pywebview).
+  Verified with an ad-hoc signature: self-test passes and the window loads
+  and talks to the backend under the hardened runtime (ad-hoc needs
+  disable-library-validation too, since it has no Team ID; a Developer ID
+  build doesn't). Not verifiable here: notarization itself (needs the
+  owner's Apple account). Auto-update is not started — Sparkle is a new
+  native dependency and needs a hosted appcast; an update check against
+  GitHub Releases is the lighter alternative (owner to choose).
 - **[FIN] Build-to-sell homes** (roadmap #26): its own cash flow
   (services/proforma/for_sale.py) for single-family / townhouse
   developments with "Model as For-Sale" on and a sale price entered —

@@ -76,6 +76,30 @@ build instead of reaching a colleague.
 The shell's own tests (access gate, dialogs, PATH, quit cleanup) run with
 `desktop/.venv/bin/python -m pytest desktop/tests -q`, and first in every build.
 
+### Signing and notarizing
+
+Unsigned, the zip opens on other Macs only via right-click → Open. To
+distribute it properly you need an Apple Developer account ($99/year) and
+a **Developer ID Application** certificate in your login keychain. Then,
+once, store notarization credentials (an app-specific password from
+appleid.apple.com):
+
+```bash
+xcrun notarytool store-credentials cre-notary --apple-id you@example.com --team-id TEAMID --password xxxx-xxxx-xxxx-xxxx
+```
+
+and build with:
+
+```bash
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=cre-notary desktop/build_mac.sh
+```
+
+`desktop/sign_mac.sh` signs every binary with the hardened runtime
+(`desktop/entitlements.plist`), verifies the signature, reruns the
+self-test on the signed app, then notarizes and staples. `SIGN_IDENTITY=-`
+makes a local ad-hoc signature to test the hardened runtime without an
+account (not distributable).
+
 To run the desktop shell from source without building, first run
 `npm run build` in `frontend/`, then run
 `desktop/.venv/bin/python desktop/launcher.py`.
