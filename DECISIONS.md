@@ -58,6 +58,18 @@ stated reason.
   a program that doesn't finish within 20 years falls back to in-place
   with a warning. Baseline unchanged (no baseline case has a program);
   test_renovation's hand expectation updated from 180,000 to 216,000 NOI.
+- **[FIN] Min DSCR is the worst LOAN YEAR** (12 months of NOI over 12
+  months of debt service, from the first debt-service month; a trailing
+  partial year is dropped when a full one exists). The minimum of monthly
+  DSCRs let one rollover-downtime month set the headline — lenders test
+  annual (trailing/forward 12) coverage. `minMonthlyDscr` keeps the old
+  number; `underwrittenDscr` (NOI − reserves) and the insurance-stress
+  minDscr follow the same annual rule; `avgDscr` is unchanged. The Excel
+  export's minDscr is the same windows as SUM/SUM terms. **Baseline moved:
+  commercial_rollover only** — minDscr 0.83x -> 1.12x (stress variants
+  0.81 -> 1.12, 0.80 -> 1.11); every case gains the `minMonthlyDscr` key.
+  Baseline files are merged value-by-value (only real changes) so
+  float noise from regenerating on another machine doesn't churn them.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

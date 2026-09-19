@@ -29,7 +29,7 @@ from io import BytesIO
 
 import openpyxl
 
-from app.services.proforma import development, engine, leases, operations
+from app.services.proforma import debt, development, engine, leases, operations
 from app.services.proforma.operations import (
     EXPENSE_DOLLAR_FIELDS,
     RECOVERABLE_EXPENSE_FIELDS,
@@ -89,6 +89,16 @@ def _num(inputs: dict, key: str, default: float = 0.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
     return float(value)
+
+
+def _annual_dscr_formula(first_month: int, last_month: int) -> str:
+    """Lowest loan-year DSCR, mirroring the engine: 12 months of NOI (Model
+    column K) over 12 months of debt service (column P); month m is row m+1."""
+    windows = debt.annual_dscr_windows(first_month, last_month)
+    if not windows:
+        return '=""'
+    terms = [f"SUM(Model!$K${a + 1}:$K${b + 1})/SUM(Model!$P${a + 1}:$P${b + 1})" for a, b in windows]
+    return f"=MIN({','.join(terms)})"
 
 
 def unsupported_features(inputs: dict) -> list[str]:
@@ -616,7 +626,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         "netSaleProceeds": "=B8",
         "totalProfit": f"=SUM({lev})",
         "npv": f"=D1+NPV((1+{R['disc']})^(1/12)-1,$D$2:$D${flow_last})",
-        "minDscr": f"=MIN(Model!$Q$2:$Q${hold_row})",
+        "minDscr": _annual_dscr_formula(takeout, hold_months) if loan_amount > 0 else f"=MIN(Model!$Q$2:$Q${hold_row})",
         "debtYield": f"=B10/{R['loan']}",
         "ltv": ltv_formula,
         "loanConstant": f"=IF({constant_io},{constant_rate},12*B1/{R['loan']})",

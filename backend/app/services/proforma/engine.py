@@ -906,18 +906,29 @@ def compute(inputs: dict) -> dict:
     ]
     if perm_loan > 0 and service_months:
         dscrs = [n / s.payment for n, s in service_months]
-        put("minDscr", min(dscrs))
+        # [FIN] Lenders test DSCR on loan years (12 months of NOI over 12
+        # months of debt service), not single months: one downtime month
+        # used to set the headline. The monthly minimum stays available.
+        service_month_ids = [
+            m for m in range(1, total + 1)
+            if debt_service[m] is not None and debt_service[m].payment > 0
+        ]
+        windows = debt.annual_dscr_windows(service_month_ids[0], service_month_ids[-1])
+
+        def _annual_min(noi_of) -> float:
+            return min(
+                sum(noi_of(m) for m in range(a, b + 1))
+                / sum(debt_service[m].payment for m in range(a, b + 1) if debt_service[m] is not None)
+                for a, b in windows
+            )
+
+        put("minDscr", _annual_min(lambda m: noi[m - 1]))
+        put("minMonthlyDscr", min(dscrs))
         put("avgDscr", sum(dscrs) / len(dscrs))
         if reserves_stmt is not None:
             # J6: lender-UW DSCR on NOI − reserves — a DETAIL row; the
             # deal's own DSCR stays on NOI (below_noi convention).
-            uw_dscrs = [
-                (noi[m - 1] - reserves_stmt[m]) / debt_service[m].payment
-                for m in range(1, total + 1)
-                if debt_service[m] is not None and debt_service[m].payment > 0
-            ]
-            if uw_dscrs:
-                put("underwrittenDscr", min(uw_dscrs))
+            put("underwrittenDscr", _annual_min(lambda m: noi[m - 1] - reserves_stmt[m]))
         annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate_for_perm, amort_years)
         if io_months >= total - takeout_month + 1:
             annual_service = perm_loan * interest_rate_for_perm  # never leaves IO

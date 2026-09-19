@@ -42,7 +42,8 @@
     { "id": "npv", "label": "Net Present Value", "type": "currency", "group": "Yield & Value" },
     { "id": "profitabilityIndex", "label": "Profitability Index", "type": "multiple", "group": "Yield & Value" },
 
-    { "id": "minDscr", "label": "Min DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "minDscr", "label": "Min DSCR (lowest loan year)", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "minMonthlyDscr", "label": "Min Monthly DSCR", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "avgDscr", "label": "Avg DSCR", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "debtYield", "label": "Debt Yield", "type": "percent", "group": "Debt & Leverage" },
     { "id": "ltv", "label": "LTV", "type": "percent", "group": "Debt & Leverage" },

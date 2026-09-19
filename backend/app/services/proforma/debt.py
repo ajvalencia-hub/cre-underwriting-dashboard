@@ -255,6 +255,21 @@ class ConstructionFinancing:
     balances: list[float]  # end-of-month balance per month
 
 
+def annual_dscr_windows(first_month: int, last_month: int) -> list[tuple[int, int]]:
+    """Loan-year windows (inclusive month ranges) for the DSCR test: 12-month
+    periods from the first debt-service month. A trailing partial year is
+    dropped when at least one full year exists (lenders test full years);
+    with less than a year of service the single partial window is used."""
+    if last_month < first_month:
+        return []
+    windows = [
+        (start, min(start + 11, last_month))
+        for start in range(first_month, last_month + 1, 12)
+    ]
+    full = [w for w in windows if w[1] - w[0] == 11]
+    return full or windows[:1]
+
+
 def size_construction_loan(
     cost_schedule: list[float],
     budget_ex_financing: float,
