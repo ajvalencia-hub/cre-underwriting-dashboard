@@ -9,6 +9,7 @@ from app.api_models import (
     GoalSeekInputOut,
     GoalSeekOut,
     HoldSweepResponseOut,
+    MonteCarloCancelOut,
     MonteCarloJobOut,
     TornadoOut,
 )
@@ -97,8 +98,9 @@ class MonteCarloRequest(BaseModel):
 
 @router.post("/monte-carlo")
 def monte_carlo_start(payload: MonteCarloRequest):
-    """J8: start a seeded Monte Carlo run on a background thread. Validation
-    is synchronous — a bad request fails HERE, not at the poll."""
+    """J8: start a seeded Monte Carlo run on the bounded worker pool.
+    Validation is synchronous — a bad request fails HERE, not at the poll;
+    a saturated pool is a 429 with Retry-After."""
     try:
         job_id = monte_carlo.start_job(
             payload.values, payload.drivers, payload.correlations,
@@ -106,6 +108,9 @@ def monte_carlo_start(payload: MonteCarloRequest):
         )
     except monte_carlo.MonteCarloError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except monte_carlo.MonteCarloBusy as exc:
+        # The bounded pool is saturated (Run 6): retry shortly.
+        raise HTTPException(429, str(exc), headers={"Retry-After": "5"}) from exc
     return {"jobId": job_id, "n": payload.n}
 
 
@@ -115,6 +120,17 @@ def monte_carlo_poll(job_id: str):
     if status is None:
         raise HTTPException(404, "Unknown Monte Carlo job — it may have been evicted.")
     return status
+
+
+@router.delete("/monte-carlo/{job_id}", response_model=MonteCarloCancelOut)
+def monte_carlo_cancel(job_id: str):
+    """Cancel a running job (it stops after the trial in flight; the poll
+    then reports "cancelled"). Idempotent: a finished job reports its
+    terminal status."""
+    status = monte_carlo.cancel_job(job_id)
+    if status is None:
+        raise HTTPException(404, "Unknown Monte Carlo job — it may have been evicted.")
+    return {"jobId": job_id, "status": status}
 
 
 @router.post("", response_model=ComputeResponseOut)
@@ -141,6 +157,10 @@ def compute(payload: ComputeRequest, detail: bool = False):
     if result.get("juniorTranche"):
         # J4: conditional — only tranche deals gain the block.
         response["juniorTranche"] = result["juniorTranche"]
+    if result.get("irrDiagnostics"):
+        # Run 6 port: conditional — only present when the multi-root IRR
+        # warning fires (undeclared on ComputeResponseOut; extra=allow).
+        response["irrDiagnostics"] = result["irrDiagnostics"]
     if detail:
         # The period-level statement: the engine's own vectors, no recompute.
         response["statement"] = result["statement"]

@@ -3,16 +3,24 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
+from app.api_models import BulkTagsOut, DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 from app.database import get_db
 from app.models import Deal, DealSnapshot, IcEvent, MappingProfile, Scenario, Template
-from app.schemas import DealIn, DealOut, DealUpdate
+from app.schemas import (
+    DealIn,
+    DealOut,
+    DealSummaryFields,
+    DealSummaryOut,
+    DealUpdate,
+    normalize_tags,
+)
 from app.services import deal_history, deck_service, document_storage, ic_workflow, share_html
 from app.services.proforma import engine
 
@@ -21,6 +29,8 @@ PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.
 router = APIRouter(prefix="/api/deals", tags=["deals"])
 
 EXPORT_KIND = "cre-dashboard-deal"
+# Stays 1: the bundle's new `deal.tags` key is additive (older bundles
+# import with no tags; the import check below is an exact match).
 EXPORT_SCHEMA_VERSION = 1
 
 
@@ -32,26 +42,194 @@ def _to_out(deal: Deal) -> DealOut:
         status=deal.status or "screening",
         activeTemplateId=deal.active_template_id,
         activeMappingProfileId=deal.active_mapping_profile_id,
+        archivedAt=deal.archived_at,
+        tags=list(deal.tags or []),
         createdAt=deal.created_at,
         updatedAt=deal.updated_at,
     )
 
 
-@router.get("", response_model=list[DealOut])
-def list_deals(db: Session = Depends(get_db)):
-    deals = db.execute(select(Deal).order_by(Deal.updated_at.desc())).scalars().all()
+def _to_summary(deal: Deal) -> DealSummaryOut:
+    inputs = deal.inputs or {}
+
+    def _str(key: str) -> str | None:
+        value = inputs.get(key)
+        return value if isinstance(value, str) and value else None
+
+    return DealSummaryOut(
+        id=deal.id,
+        name=deal.name,
+        status=deal.status or "screening",
+        activeTemplateId=deal.active_template_id,
+        activeMappingProfileId=deal.active_mapping_profile_id,
+        archivedAt=deal.archived_at,
+        tags=list(deal.tags or []),
+        summary=DealSummaryFields(
+            dealType=_str("dealType"),
+            dealName=_str("dealName"),
+            address=_str("address"),
+            market=_str("market"),
+        ),
+        createdAt=deal.created_at,
+        updatedAt=deal.updated_at,
+    )
+
+
+def _etag(deal: Deal) -> str:
+    """Opaque, quoted, derived from updated_at. SQLite hands back naive
+    datetimes while a just-assigned default is tz-aware — normalize to
+    naive UTC so the same row always yields the same tag regardless of
+    which path built it."""
+    stamp = deal.updated_at
+    if stamp.tzinfo is not None:
+        stamp = stamp.astimezone(timezone.utc).replace(tzinfo=None)
+    return f'"{stamp.isoformat()}"'
+
+
+def _with_etag(deal: Deal, response: Response) -> DealOut:
+    """Every single-deal response carries the deal's ETag (for If-Match)."""
+    response.headers["ETag"] = _etag(deal)
+    return _to_out(deal)
+
+
+def _if_match_passes(if_match: str | None, current: str) -> bool:
+    if if_match is None:
+        return True  # absent = last writer wins (unchanged behaviour)
+    for candidate in (c.strip() for c in if_match.split(",")):
+        if candidate == "*":
+            return True
+        if candidate.startswith("W/"):
+            candidate = candidate[2:]
+        if candidate == current:
+            return True
+    return False
+
+
+def _has_tag(deal: Deal, tag: str) -> bool:
+    wanted = tag.strip().casefold()
+    return any(isinstance(t, str) and t.casefold() == wanted for t in (deal.tags or []))
+
+
+@router.get("", response_model=list[DealOut] | list[DealSummaryOut])
+def list_deals(
+    includeArchived: bool = False,
+    tag: str | None = None,
+    fields: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Archived deals are hidden unless `includeArchived=true`. `tag=<name>`
+    filters case-insensitively; `fields=summary` returns the slim pipeline
+    shape (no inputs blob). All opt-in — the default response is the
+    active deals in the full DealOut shape."""
+    if fields is not None and fields not in ("summary", "full"):
+        raise HTTPException(422, "fields must be 'summary' or 'full'.")
+    query = select(Deal).order_by(Deal.updated_at.desc())
+    if not includeArchived:
+        query = query.where(Deal.archived_at.is_(None))
+    deals = list(db.execute(query).scalars().all())
+    if tag is not None and tag.strip():
+        deals = [d for d in deals if _has_tag(d, tag)]
+    if fields == "summary":
+        return [_to_summary(d) for d in deals]
     return [_to_out(d) for d in deals]
 
 
 @router.post("", response_model=DealOut)
-def create_deal(payload: DealIn, db: Session = Depends(get_db)):
+def create_deal(payload: DealIn, response: Response, db: Session = Depends(get_db)):
     if not payload.name.strip():
         raise HTTPException(400, "Deal name cannot be empty")
     deal = Deal(name=payload.name.strip(), inputs=payload.inputs)
     db.add(deal)
     db.commit()
     db.refresh(deal)
-    return _to_out(deal)
+    return _with_etag(deal, response)
+
+
+@router.post("/{deal_id}/archive", response_model=DealOut)
+def archive_deal(deal_id: str, response: Response, db: Session = Depends(get_db)):
+    """Soft delete: hides the deal from the pipeline, portfolio, search,
+    metrics and IC state lists while keeping everything attached to it.
+    Idempotent. Not an input change, so allowed while IC-locked."""
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    if deal.archived_at is None:
+        deal.archived_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(deal)
+    return _with_etag(deal, response)
+
+
+@router.post("/{deal_id}/unarchive", response_model=DealOut)
+def unarchive_deal(deal_id: str, response: Response, db: Session = Depends(get_db)):
+    deal = db.get(Deal, deal_id)
+    if deal is None:
+        raise HTTPException(404, "Deal not found")
+    if deal.archived_at is not None:
+        deal.archived_at = None
+        db.commit()
+        db.refresh(deal)
+    return _with_etag(deal, response)
+
+
+class CloneRequest(BaseModel):
+    name: str | None = None
+
+
+def _json_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value))
+
+
+@router.post("/{deal_id}/clone", response_model=DealOut)
+def clone_deal(
+    deal_id: str,
+    response: Response,
+    payload: CloneRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Duplicate a deal for a what-if: inputs (minus any in-progress wizard
+    draft), pipeline stage, tags, template/mapping selection and scenarios
+    are copied. Notes, attachments, input history and IC events are NOT —
+    they belong to the source record — so the copy starts a fresh history
+    in the draft IC state (editable even when the source is IC-locked)."""
+    source = db.get(Deal, deal_id)
+    if source is None:
+        raise HTTPException(404, "Deal not found")
+    requested = (payload.name if payload else None) or ""
+    name = requested.strip() or f"Copy of {source.name}"
+    inputs = {
+        key: value for key, value in _json_copy(source.inputs or {}).items()
+        if key != "_omWizard"
+    }
+    inputs["dealName"] = name
+    clone = Deal(
+        name=name,
+        inputs=inputs,
+        status=source.status or "screening",
+        active_template_id=source.active_template_id,
+        active_mapping_profile_id=source.active_mapping_profile_id,
+        tags=list(source.tags or []),
+    )
+    db.add(clone)
+    db.flush()
+    scenarios = db.execute(
+        select(Scenario).where(Scenario.deal_id == source.id).order_by(Scenario.created_at)
+    ).scalars().all()
+    for s in scenarios:
+        db.add(Scenario(
+            scenario_name=s.scenario_name,
+            kind=s.kind,
+            deal_id=clone.id,
+            template_id=s.template_id,
+            mapping_profile_id=s.mapping_profile_id,
+            inputs=_json_copy(s.inputs or {}),
+            outputs=_json_copy(s.outputs or {}),
+            sensitivity=_json_copy(s.sensitivity) if s.sensitivity else None,
+            monte_carlo=_json_copy(s.monte_carlo) if s.monte_carlo else None,
+        ))
+    db.commit()
+    db.refresh(clone)
+    return _with_etag(clone, response)
 
 
 class FromExtractionRequest(BaseModel):
@@ -65,7 +243,9 @@ class FromExtractionRequest(BaseModel):
 
 
 @router.post("/from-extraction", response_model=DealOut)
-def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = Depends(get_db)):
+def create_deal_from_extraction(
+    payload: FromExtractionRequest, response: Response, db: Session = Depends(get_db)
+):
     """J10: create (or finalize a draft) deal from a reviewed extraction.
     Blocking cross-validation failures carry the SAME acknowledgment
     mechanics as the review gate — unacknowledged failures are a 409 here
@@ -128,6 +308,10 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
             if key != "_omWizard"
         }
         merged.update(inputs)
+        try:
+            ic_workflow.check_input_change(db, deal, merged)
+        except ic_workflow.IcError as exc:
+            raise HTTPException(409, str(exc)) from None
         deal_history.record_snapshot(db, deal, merged)
         deal.inputs = merged
         deal.name = payload.name.strip()
@@ -136,7 +320,7 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
         db.add(deal)
     db.commit()
     db.refresh(deal)
-    return _to_out(deal)
+    return _with_etag(deal, response)
 
 
 @router.get("/metrics", response_model=dict[str, DealMetricsOk | DealMetricsIncomplete])
@@ -148,7 +332,7 @@ def deal_metrics(db: Session = Depends(get_db)):
     from app.services import compute_cache
 
     out: dict[str, dict] = {}
-    for deal in db.execute(select(Deal)).scalars():
+    for deal in db.execute(select(Deal).where(Deal.archived_at.is_(None))).scalars():
         inputs = deal.inputs or {}
         try:
             result = compute_cache.cached_compute(inputs)
@@ -172,18 +356,43 @@ def deal_metrics(db: Session = Depends(get_db)):
 
 
 @router.get("/{deal_id}", response_model=DealOut)
-def get_deal(deal_id: str, db: Session = Depends(get_db)):
+def get_deal(deal_id: str, response: Response, db: Session = Depends(get_db)):
     deal = db.get(Deal, deal_id)
     if deal is None:
         raise HTTPException(404, "Deal not found")
-    return _to_out(deal)
+    return _with_etag(deal, response)
 
 
-@router.put("/{deal_id}", response_model=DealOut)
-def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)):
+@router.put(
+    "/{deal_id}",
+    response_model=DealOut,
+    responses={412: {"description": "If-Match is stale: {detail, current: DealOut}"}},
+)
+def update_deal(
+    deal_id: str,
+    payload: DealUpdate,
+    response: Response,
+    if_match: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Optional optimistic concurrency: send the `ETag` from the last read
+    as `If-Match`. A stale value is a 412 carrying the CURRENT deal so the
+    client can merge; no header keeps last-writer-wins; `*` always passes.
+    Order: 404 -> 412 -> IC lock 409 -> write."""
     deal = db.get(Deal, deal_id)
     if deal is None:
         raise HTTPException(404, "Deal not found")
+
+    current_etag = _etag(deal)
+    if not _if_match_passes(if_match, current_etag):
+        return JSONResponse(
+            status_code=412,
+            content={
+                "detail": "Deal was modified elsewhere",
+                "current": jsonable_encoder(_to_out(deal)),
+            },
+            headers={"ETag": current_etag},
+        )
 
     # Partial-update semantics: only fields present in the request body are
     # applied, so the autosave (inputs only) can't clobber a concurrent
@@ -207,10 +416,61 @@ def update_deal(deal_id: str, payload: DealUpdate, db: Session = Depends(get_db)
         deal.active_template_id = payload.activeTemplateId
     if "activeMappingProfileId" in provided:
         deal.active_mapping_profile_id = payload.activeMappingProfileId
+    if "tags" in provided and payload.tags is not None:
+        # Already normalized by the schema validator; not an input, so
+        # allowed while IC-locked.
+        deal.tags = payload.tags
 
     db.commit()
     db.refresh(deal)
-    return _to_out(deal)
+    return _with_etag(deal, response)
+
+
+class BulkTagsRequest(BaseModel):
+    dealIds: list[str]
+    add: list[str] = []
+    remove: list[str] = []
+
+
+@router.post("/bulk-tags", response_model=BulkTagsOut)
+def bulk_tags(payload: BulkTagsRequest, db: Session = Depends(get_db)):
+    """Add and/or remove tags across many deals in one write. Same shape as
+    bulk-status: unknown ids are reported, not silently dropped; the
+    normalized result on each deal must still satisfy the tag caps (422
+    before anything is written otherwise). Allowed while IC-locked."""
+    if not payload.dealIds:
+        raise HTTPException(400, "dealIds is empty.")
+    try:
+        add = normalize_tags(payload.add)
+        remove_keys = {t.casefold() for t in normalize_tags(payload.remove)}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not add and not remove_keys:
+        raise HTTPException(400, "Nothing to do: add and remove are both empty.")
+
+    missing: list[str] = []
+    pending: list[tuple[Deal, list[str]]] = []
+    for deal_id in payload.dealIds:
+        deal = db.get(Deal, deal_id)
+        if deal is None:
+            missing.append(deal_id)
+            continue
+        kept = [
+            t for t in (deal.tags or [])
+            if isinstance(t, str) and t.casefold() not in remove_keys
+        ]
+        try:
+            merged = normalize_tags([*kept, *add])
+        except ValueError as exc:
+            raise HTTPException(422, f"Deal '{deal.name}': {exc}") from exc
+        pending.append((deal, merged))
+    for deal, merged in pending:
+        deal.tags = merged
+    db.commit()
+    updated = [deal for deal, _ in pending]
+    for deal in updated:
+        db.refresh(deal)
+    return {"updated": [_to_out(d) for d in updated], "missing": missing}
 
 
 class BulkStatusRequest(BaseModel):
@@ -332,7 +592,9 @@ def get_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{deal_id}/history/{snapshot_id}/restore", response_model=DealOut)
-def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_db)):
+def restore_snapshot(
+    deal_id: str, snapshot_id: str, response: Response, db: Session = Depends(get_db)
+):
     """Sets the deal's inputs back to the snapshot's state. The restore is
     recorded as its own snapshot, so it can itself be undone."""
     deal = db.get(Deal, deal_id)
@@ -349,7 +611,7 @@ def restore_snapshot(deal_id: str, snapshot_id: str, db: Session = Depends(get_d
     deal.inputs = snapshot.inputs
     db.commit()
     db.refresh(deal)
-    return _to_out(deal)
+    return _with_etag(deal, response)
 
 
 @router.get("/{deal_id}/share.html", response_class=HTMLResponse)
@@ -432,9 +694,11 @@ def deal_ic_deck(deal_id: str, scenario_id: str | None = None, db: Session = Dep
     sensitivity = monte_carlo = None
     if scenario_id:
         scenario = db.get(_Scenario, scenario_id)
-        if scenario is not None:
-            sensitivity = scenario.sensitivity
-            monte_carlo = scenario.monte_carlo
+        # Another deal's scenario must not leak its runs into this deck.
+        if scenario is None or scenario.deal_id != deal_id:
+            raise HTTPException(404, "Scenario not found on this deal")
+        sensitivity = scenario.sensitivity
+        monte_carlo = scenario.monte_carlo
 
     tornado = None
     try:
@@ -526,7 +790,8 @@ def export_deal(deal_id: str, db: Session = Depends(get_db)):
         "schemaVersion": EXPORT_SCHEMA_VERSION,
         "exportedAt": datetime.now(timezone.utc).isoformat(),
         "deal": {"name": deal.name, "inputs": deal.inputs,
-                 "status": deal.status or "screening"},
+                 "status": deal.status or "screening",
+                 "tags": list(deal.tags or [])},
         "activeTemplate": template_ref,
         "activeMappingProfile": mapping_ref,
         "notes": [
@@ -561,7 +826,7 @@ class DealImportRequest(BaseModel):
 
 
 @router.post("/import")
-def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
+def import_deal(payload: DealImportRequest, response: Response, db: Session = Depends(get_db)):
     """Creates a NEW deal from an exported bundle — never merges. Internal
     ids are rewritten; template/mapping references import as named
     placeholders (cleared ids) since the .xlsx isn't bundled."""
@@ -596,7 +861,25 @@ def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
                 "the imported deal starts at Screening."
             )
 
-    deal = Deal(name=f"{name} (imported)", inputs=inputs, status=status)
+    # Tags round-trip (older bundles lack the key -> []); junk entries are
+    # dropped with a warning rather than failing the whole import.
+    raw_tags = deal_data.get("tags")
+    tags: list[str] = []
+    if isinstance(raw_tags, list):
+        text_tags = [t for t in raw_tags if isinstance(t, str)]
+        if len(text_tags) < len(raw_tags):
+            warnings.append(
+                f"{len(raw_tags) - len(text_tags)} bundle tag(s) weren't text and were dropped."
+            )
+        try:
+            tags = normalize_tags(text_tags)
+        except ValueError as exc:
+            warnings.append(f"Bundle tags were not imported: {exc}.")
+            tags = []
+    elif raw_tags is not None:
+        warnings.append("Bundle tags were not a list and were not imported.")
+
+    deal = Deal(name=f"{name} (imported)", inputs=inputs, status=status, tags=tags)
     db.add(deal)
     db.flush()  # assigns the new deal id for the scenarios below
     if bundle.get("activeTemplate") or bundle.get("activeMappingProfile"):
@@ -662,7 +945,7 @@ def import_deal(payload: DealImportRequest, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(deal)
-    out = _to_out(deal)
+    out = _with_etag(deal, response)
     # Ride the warnings/counts on the response without a new schema: the
     # client shows them once and they aren't deal state.
     return {

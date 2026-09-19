@@ -178,16 +178,35 @@ def list_backups(backups_root: Path | None = None) -> dict:
     return out
 
 
+def snapshot_path(kind: str, name: str, *, backups_root: Path | None = None) -> Path:
+    """Resolve (kind, name) to its snapshot directory, refusing anything that
+    is not a known kind plus a well-formed snapshot name inside the backups
+    root (ValueError). The name regex rejects traversal by construction; the
+    containment check is belt-and-braces against a symlinked root. Shared by
+    restore and download, so it covers every kind including pre_restore and
+    pre_migration."""
+    _check_kind(kind)
+    if not _NAME_RE.match(name):
+        raise ValueError(f"'{name}' isn't a snapshot name")
+    root = (backups_root or BACKUPS_DIR).resolve()
+    candidate = (root / kind / name).resolve()
+    if not candidate.is_relative_to(root):
+        raise ValueError(f"Snapshot '{kind}/{name}' escapes the backups root")
+    return candidate
+
+
+def snapshot_db_file(kind: str, name: str, *, backups_root: Path | None = None) -> Path:
+    """The snapshot's SQLite file (may not exist — the caller 404s)."""
+    return snapshot_path(kind, name, backups_root=backups_root) / _SNAPSHOT_NAME
+
+
 def restore_backup(kind: str, name: str, *, db_path: Path | None = None,
                    backups_root: Path | None = None) -> dict:
     """Restore a snapshot's DB over the live DB (online backup in reverse).
     The app should be restarted afterward so SQLAlchemy reopens the file.
     Returns the manifest so the caller can flag uploads that need re-transfer."""
-    _check_kind(kind)
-    if not _NAME_RE.match(name):
-        raise ValueError(f"'{name}' isn't a snapshot name")
     root = backups_root or BACKUPS_DIR
-    snapshot_dir = root / kind / name
+    snapshot_dir = snapshot_path(kind, name, backups_root=root)
     snapshot_db = snapshot_dir / _SNAPSHOT_NAME
     if not snapshot_db.exists():
         raise FileNotFoundError(f"No DB snapshot at {kind}/{name}")

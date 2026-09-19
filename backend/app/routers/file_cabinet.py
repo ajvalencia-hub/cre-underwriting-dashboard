@@ -10,6 +10,7 @@ Notes are a timestamped timeline; markdown-lite rendering happens client-side
 without a markdown dependency.
 """
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -23,13 +24,36 @@ from app.config import DOCUMENTS_DIR
 from app.database import get_db
 from app.models import Deal, DealNote, Document
 from app.routers.upload_limit import read_upload_limited
+from app.services import document_storage
 from app.services.template_service import compute_file_hash
 
 router = APIRouter(prefix="/api/deals", tags=["file-cabinet"])
 
 # Attachments accept ANY extension (unlike extraction uploads) — the cabinet
-# is storage, not a parser input.
-_INLINE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "svg", "pdf"}
+# is storage, not a parser input. The stored name reuses the extension, so it
+# is whitelisted to a short alphanumeric token (a 200-char suffix was an
+# OSError; `name.txt:stream` on NTFS wrote an alternate data stream).
+_EXT_RE = re.compile(r"[a-z0-9]{1,10}")
+# SVG is deliberately NOT inline-viewable (roadmap #3: serve SVGs as
+# downloads): it can carry script, and inline rendering would run it on the
+# app's origin. Every inline response — and any SVG — also carries the
+# sandboxing CSP; nosniff is global (main.py).
+_INLINE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "pdf"}
+_SANDBOX_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+
+
+def _safe_ext(filename: str | None) -> str:
+    raw = Path(filename or "").suffix.lower().lstrip(".")
+    return raw if _EXT_RE.fullmatch(raw) else "bin"
+
+
+def _get_deal_document(db: Session, deal_id: str, document_id: str) -> Document:
+    """A document is reachable under a deal only when it belongs to that deal
+    or is a global (extraction) document — never another deal's attachment."""
+    doc = db.get(Document, document_id)
+    if doc is None or doc.deal_id not in (None, deal_id):
+        raise HTTPException(404, "Attachment not found")
+    return doc
 
 
 def _attachment_out(doc: Document, source: str) -> dict:
@@ -72,8 +96,12 @@ def list_attachments(deal_id: str, db: Session = Depends(get_db)):
     }
     if source_names:
         seen = {row["fileHash"] for row in rows}
+        # Global documents only — another deal's private attachment that
+        # happens to share a filename must not surface here.
         for doc in db.execute(
-            select(Document).where(Document.filename.in_(source_names))
+            select(Document).where(
+                Document.filename.in_(source_names), Document.deal_id.is_(None)
+            )
         ).scalars():
             if doc.file_hash not in seen:
                 rows.append(_attachment_out(doc, "extraction"))
@@ -83,11 +111,11 @@ def list_attachments(deal_id: str, db: Session = Depends(get_db)):
 @router.post("/{deal_id}/attachments", response_model=AttachmentOut)
 async def upload_attachment(deal_id: str, file: UploadFile, db: Session = Depends(get_db)):
     _get_deal(db, deal_id)
-    ext = Path(file.filename or "").suffix.lower()
+    ext = _safe_ext(file.filename)
     file_bytes = await read_upload_limited(file)  # 413 over the cap
     file_hash = compute_file_hash(file_bytes)
 
-    stored_path = DOCUMENTS_DIR / f"{file_hash}{ext or '.bin'}"
+    stored_path = DOCUMENTS_DIR / f"{file_hash}.{ext}"
     if not stored_path.exists():
         stored_path.write_bytes(file_bytes)
 
@@ -95,7 +123,7 @@ async def upload_attachment(deal_id: str, file: UploadFile, db: Session = Depend
         filename=file.filename or "attachment",
         file_hash=file_hash,
         stored_path=str(stored_path),
-        file_ext=ext.lstrip(".") or "bin",
+        file_ext=ext,
         document_type="other",
         type_confidence=1.0,
         type_source="manual",
@@ -113,23 +141,37 @@ def download_attachment(
     deal_id: str, document_id: str, inline: bool = False, db: Session = Depends(get_db)
 ):
     _get_deal(db, deal_id)
-    doc = db.get(Document, document_id)
-    if doc is None or not Path(doc.stored_path).exists():
+    doc = _get_deal_document(db, deal_id, document_id)
+    if not Path(doc.stored_path).exists():
         raise HTTPException(404, "Attachment not found")
-    disposition = "inline" if inline and doc.file_ext in _INLINE_EXTS else "attachment"
+    is_inline = inline and doc.file_ext in _INLINE_EXTS
     headers = {}
-    if doc.file_ext == "svg":
-        # An uploaded SVG can carry script; opened directly it would run in
-        # the app's origin. Sandboxed, it renders as a picture only.
-        headers["Content-Security-Policy"] = (
-            "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
-        )
+    if is_inline or doc.file_ext == "svg":
+        # Anything the browser may render from the app's origin is sandboxed:
+        # an uploaded SVG (or a mislabeled file) can carry script.
+        headers["Content-Security-Policy"] = _SANDBOX_CSP
     return FileResponse(
         doc.stored_path,
         filename=doc.filename,
-        content_disposition_type=disposition,
+        content_disposition_type="inline" if is_inline else "attachment",
         headers=headers,
     )
+
+
+@router.delete("/{deal_id}/attachments/{document_id}")
+def delete_attachment(deal_id: str, document_id: str, db: Session = Depends(get_db)):
+    """Remove one of the deal's OWN attachments (extraction documents are
+    global and are not deletable from a cabinet — 404). Not a deal input, so
+    no IC-lock check. The file is unlinked only when no other row shares it
+    (document_storage.release_file)."""
+    _get_deal(db, deal_id)
+    doc = db.get(Document, document_id)
+    if doc is None or doc.deal_id != deal_id:
+        raise HTTPException(404, "Attachment not found")
+    document_storage.release_file(db, doc)
+    db.delete(doc)
+    db.commit()
+    return {"deleted": True}
 
 
 @router.get("/{deal_id}/attachments/{document_id}/preview")
@@ -137,9 +179,7 @@ def preview_attachment(deal_id: str, document_id: str, db: Session = Depends(get
     """First-page TEXT preview for PDFs (cheap, reuses pdfplumber); other
     types return a typed no-preview response, never an error."""
     _get_deal(db, deal_id)
-    doc = db.get(Document, document_id)
-    if doc is None:
-        raise HTTPException(404, "Attachment not found")
+    doc = _get_deal_document(db, deal_id, document_id)
     if doc.file_ext != "pdf":
         return {"kind": "none", "note": f".{doc.file_ext} files have no text preview."}
     try:

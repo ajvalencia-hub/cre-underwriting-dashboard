@@ -3,12 +3,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.api_models import MappingPreviewOut
 from app.database import get_db
-from app.models import MappingProfile, Scenario, Template
+from app.models import Deal, MappingProfile, Scenario, Template
 from app.schemas import AutoMatchResult, MappingEntry, MappingProfileIn, MappingProfileOut
 from app.services import mapping_preview, mapping_service
 
@@ -113,6 +113,12 @@ def delete_mapping(mapping_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Mapping profile not found")
 
     db.execute(delete(Scenario).where(Scenario.mapping_profile_id == mapping_id))
+    # A deal that had this profile selected would otherwise keep a dangling id.
+    db.execute(
+        update(Deal)
+        .where(Deal.active_mapping_profile_id == mapping_id)
+        .values(active_mapping_profile_id=None)
+    )
     db.delete(profile)
     db.commit()
     return {"deleted": True}

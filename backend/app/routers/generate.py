@@ -27,8 +27,11 @@ def _content_disposition(filename: str) -> str:
     double quote corrupted the header. Send an ASCII-safe fallback in
     filename= plus the real name RFC 5987-encoded in filename*.
     """
-    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
-    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+    # Control characters (CR/LF in a deal or scenario name) would make h11
+    # reject the response outright — strip them from both forms.
+    clean = "".join(ch for ch in filename if ch >= " " and ch != "\x7f")
+    ascii_name = clean.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(clean)}"
 
 
 class ModelExportRequest(BaseModel):

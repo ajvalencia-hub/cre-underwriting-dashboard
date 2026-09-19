@@ -76,11 +76,18 @@ def convert_file(path: Path, target_format: str, timeout: int = 60) -> Path:
             time.sleep(_RETRY_DELAY_SECONDS)
         tmp_dir = path.parent / f".so-{uuid.uuid4().hex[:8]}"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        proc = subprocess.run(
-            build_convert_command(path, tmp_dir, target_format),
-            timeout=timeout,
-            capture_output=True,
-        )
+        try:
+            proc = subprocess.run(
+                build_convert_command(path, tmp_dir, target_format),
+                timeout=timeout,
+                capture_output=True,
+            )
+        except subprocess.TimeoutExpired:
+            # A hung soffice used to escape as an unhandled 500 and leave
+            # the scratch dir behind; it is a conversion failure like any other.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            last_error = f"LibreOffice timed out after {timeout}s"
+            continue
         converted = tmp_dir / (path.stem + "." + target_format.split(":")[0])
         if proc.returncode == 0 and converted.exists():
             return converted

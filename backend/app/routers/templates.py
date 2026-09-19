@@ -2,13 +2,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.api_models import RecalcAgreementOut
 from app.config import TEMPLATES_DIR
 from app.database import get_db
-from app.models import MappingProfile, Scenario, Template
+from app.models import Deal, MappingProfile, Scenario, Template
 from app.routers.upload_limit import read_upload_limited
 from app.schemas import MappingEntry, SheetGrid, TemplateSummary
 from app.services import recalc_agreement, recalc_service, template_service
@@ -93,12 +93,20 @@ def get_sheet_grid(
     template = db.get(Template, template_id)
     if template is None:
         raise HTTPException(404, "Template not found")
+    # Clamp both ends: a 0/negative window used to reach openpyxl as an
+    # empty or inverted range.
+    max_rows = max(1, min(max_rows, 500))
+    max_cols = max(1, min(max_cols, 100))
+    start_row = max(1, start_row)
+    path = Path(template.stored_path)
+    if not path.exists():
+        raise HTTPException(404, f"The template file for {template.filename} is missing from storage — upload it again.")
     try:
         return template_service.get_sheet_grid(
-            Path(template.stored_path),
+            path,
             sheet_name,
-            max_rows=min(max_rows, 500),
-            max_cols=min(max_cols, 100),
+            max_rows=max_rows,
+            max_cols=max_cols,
             start_row=start_row,
         )
     except KeyError:
@@ -120,6 +128,19 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
         )
     db.execute(delete(MappingProfile).where(MappingProfile.template_id == template_id))
     db.execute(delete(Scenario).where(Scenario.template_id == template_id))
+    # Deals that had this template/profile selected would otherwise keep a
+    # dangling id (generate 404s while the UI still shows a selection).
+    db.execute(
+        update(Deal)
+        .where(Deal.active_template_id == template_id)
+        .values(active_template_id=None, active_mapping_profile_id=None)
+    )
+    if profile_ids:
+        db.execute(
+            update(Deal)
+            .where(Deal.active_mapping_profile_id.in_(profile_ids))
+            .values(active_mapping_profile_id=None)
+        )
 
     Path(template.stored_path).unlink(missing_ok=True)
     db.delete(template)

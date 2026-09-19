@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.api_models import CompMapOut, CompOut, CompsImportOut
 from app.database import get_db
 from app.models import RentComp, SaleComp
+from app.routers.upload_limit import read_upload_limited
 from app.services import comps as comps_service
+from app.services import rate_limit
 
 router = APIRouter(prefix="/api/comps", tags=["comps"])
 
@@ -78,7 +80,11 @@ def _to_out(comp, kind: str) -> dict:
 def _apply(comp, payload: dict, kind: str):
     for json_field, attr in _KIND_ATTRS[kind].items():
         if json_field in payload and payload[json_field] is not None:
-            setattr(comp, attr, payload[json_field])
+            value = payload[json_field]
+            # Text fields are stored trimmed: the name guard already checked
+            # the stripped value, and market/address matching compares what
+            # the user typed, not incidental padding.
+            setattr(comp, attr, value.strip() if isinstance(value, str) else value)
 
 
 class ImportRequest(BaseModel):
@@ -154,21 +160,33 @@ def import_csv(payload: ImportRequest, db: Session = Depends(get_db)):
     return {"phase": "imported", "imported": imported, "warnings": warnings}
 
 
-@router.get("/{kind}/map", response_model=CompMapOut)
+def _comps_for_market(db: Session, model, market: str) -> list:
+    """Newest first, filtered with the shared bidirectional market match
+    (services/comps.market_matches); the SQL prefilter is a superset with
+    the user's text LIKE-escaped, so `%`/`_` in the query stay literal."""
+    query = comps_service.market_prefilter(
+        select(model).order_by(model.created_at.desc()), model, market
+    )
+    return [c for c in db.execute(query).scalars() if comps_service.market_matches(c.market, market)]
+
+
+@router.get(
+    "/{kind}/map",
+    response_model=CompMapOut,
+    dependencies=[Depends(rate_limit.limited("comps_map"))],
+)
 def comps_map(kind: str, market: str = "", db: Session = Depends(get_db)):
     """I11: geocoded points for the filtered comp set. Comps whose address
     can't be geocoded are SKIPPED with a warning naming them — a map with
-    silently missing pins would misrepresent the set."""
+    silently missing pins would misrepresent the set. Rate-limited: each
+    uncached address is an external geocoder call."""
     from app.services.data_sources import geocode
     from app.services.data_sources.source_cache import cached_fetch
 
     model = _model_for(kind)
-    query = select(model).order_by(model.created_at.desc())
-    if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
     points: list[dict] = []
     warnings: list[str] = []
-    for comp in db.execute(query).scalars():
+    for comp in _comps_for_market(db, model, market):
         if not comp.address:
             warnings.append(f"{comp.name}: no address — not mapped.")
             continue
@@ -204,9 +222,9 @@ async def import_csv_file(
     """Multipart convenience wrapper: reads the file and returns the same
     preview payload as /import without a mapping, plus the decoded text so
     the client can re-submit /import with a mapping."""
-    raw = await file.read()
-    if len(raw) > MAX_CSV_BYTES:
-        raise HTTPException(413, "CSV exceeds the 5 MB import limit.")
+    # Chunked read that 413s as soon as the cap is crossed — never buffer
+    # an unbounded body first (every other upload route already does this).
+    raw = await read_upload_limited(file, MAX_CSV_BYTES)
     text = raw.decode("utf-8-sig", errors="replace")
     preview = import_csv(ImportRequest(kind=kind, csvText=text), db)
     return {**preview, "csvText": text}
@@ -215,10 +233,7 @@ async def import_csv_file(
 @router.get("/{kind}", response_model=list[CompOut])
 def list_comps(kind: str, market: str = "", db: Session = Depends(get_db)):
     model = _model_for(kind)
-    query = select(model).order_by(model.created_at.desc())
-    if market.strip():
-        query = query.where(model.market.ilike(f"%{market.strip()}%"))
-    return [_to_out(c, kind) for c in db.execute(query).scalars()]
+    return [_to_out(c, kind) for c in _comps_for_market(db, model, market)]
 
 
 @router.post("/{kind}", response_model=CompOut)

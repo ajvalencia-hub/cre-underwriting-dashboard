@@ -191,9 +191,14 @@ def summary(db: Session, deal_id: str) -> dict:
 
 
 def states_by_deal(db: Session) -> dict[str, str]:
-    """Every deal's IC state that isn't draft, for the pipeline."""
+    """Every ACTIVE deal's IC state that isn't draft, for the pipeline.
+    Archived deals are hidden from the pipeline, so they drop out here too
+    (their events are kept; unarchiving brings the state back)."""
     by_deal: dict[str, list[IcEvent]] = {}
-    for event in db.execute(select(IcEvent).order_by(IcEvent.deal_id, IcEvent.seq)).scalars():
+    active = select(Deal.id).where(Deal.archived_at.is_(None))
+    for event in db.execute(
+        select(IcEvent).where(IcEvent.deal_id.in_(active)).order_by(IcEvent.deal_id, IcEvent.seq)
+    ).scalars():
         by_deal.setdefault(event.deal_id, []).append(event)
     out = {}
     for deal_id, events in by_deal.items():
