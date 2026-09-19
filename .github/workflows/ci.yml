@@ -4,8 +4,15 @@ on:
   push:
   pull_request:
 
+# One live run per ref: a newer push to the same branch / PR cancels the run
+# still in progress instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,13 +32,21 @@ jobs:
       - name: Run pytest (includes Excel parity via LibreOffice)
         working-directory: backend
         run: python -m pytest tests -q
-      - name: Parity CLI (divergence table)
+      - name: Parity CLI (divergence table — LibreOffice is mandatory here, no silent SKIPPED)
         working-directory: backend
-        run: python -m tests.parity.run
+        run: python -m tests.parity.run --require-libreoffice
+      # Advisory only: a freshly published CVE against a pinned dependency
+      # must not block unrelated PRs — the step annotates the run and
+      # Dependabot proposes the bump. Flip continue-on-error off once the
+      # current pins have been triaged.
+      - name: pip-audit (advisory, non-blocking)
+        continue-on-error: true
+        run: pip-audit
 
   # Roadmap #32: ruff and mypy (config in backend/pyproject.toml). mypy skips
   # the modules listed under its ratchet override until they're cleaned up.
   backend-lint:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +69,7 @@ jobs:
         run: mypy --python-version 3.12
 
   frontend:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,12 +90,18 @@ jobs:
       - name: Unit tests
         working-directory: frontend
         run: npm test
+      # Advisory only, same reasoning as pip-audit above.
+      - name: npm audit (advisory, non-blocking)
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
   # Roadmap #22: the frontend's generated API types must match the backend's
   # OpenAPI schema (regenerate with `npm run gen:api` in frontend/). The
   # compile-time contract in src/types/apiContract.ts is checked by the
   # frontend job's typecheck.
   api-contract:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,9 +125,10 @@ jobs:
       - name: Generated types are committed and current
         run: git diff --exit-code frontend/src/types/api.gen.ts
 
-  # J16: catch Dockerfile / compose rot — validate the compose file and build
-  # the image (build only; we don't run the container in CI).
+  # J16: catch Dockerfile / compose rot — validate the compose file, build the
+  # image, then boot it once and poll /api/health (up to 60 s).
   docker:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,10 +136,26 @@ jobs:
         run: docker compose config
       - name: Build the image
         run: docker build -t cre-dashboard:ci .
+      - name: Smoke-test the image (/api/health)
+        run: |
+          docker run -d --name cre-smoke -p 8000:8000 cre-dashboard:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health; then
+              echo; echo "healthy after ~$((i * 2))s"
+              docker rm -f cre-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/api/health never answered within 60 s"
+          docker logs cre-smoke
+          docker rm -f cre-smoke
+          exit 1
 
   # Separate job so unit-test feedback stays fast — one chromium happy path
   # through the real stack (scratch-DB backend + Vite dev server).
   frontend-e2e:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,6 +198,7 @@ jobs:
   # Desktop shell (pywebview/pyobjc need macOS): access gate, dialog filters,
   # PATH handling, quit cleanup. The desktop-app job below builds the .app.
   desktop-shell:
+    timeout-minutes: 20
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -180,6 +220,7 @@ jobs:
   # it takes several minutes on a macOS runner.
   desktop-app:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    timeout-minutes: 45
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

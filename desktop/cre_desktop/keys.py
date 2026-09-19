@@ -24,6 +24,7 @@ KNOWN_KEYS = (
     "BEA_API_KEY",
     "BLS_API_KEY",
     "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
 )
 
 
