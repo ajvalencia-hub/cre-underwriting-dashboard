@@ -14,7 +14,7 @@ import { formatMoney } from '../lib/money'
 interface PresetsPanelProps {
   schema: InputSchema
   values: Record<string, unknown>
-  onApply: (patch: Record<string, unknown>) => void
+  onApply: (patch: Record<string, unknown>, presetName: string) => void
 }
 
 function formatValue(v: unknown, type: string | undefined): string {
@@ -63,7 +63,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
   function handleApply() {
     if (!diffRows) return
     const patch = selectedChanges(diffRows, checked)
-    onApply(patch)
+    onApply(patch, selected?.name ?? 'preset')
     setDiffRows(null)
     setMessage(`Applied ${Object.keys(patch).length} field(s) from '${selected?.name}'.`)
   }

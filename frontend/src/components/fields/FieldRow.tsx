@@ -5,6 +5,7 @@ import { validateField } from '../../lib/validateField'
 import KeyValueField from './KeyValueField'
 import ScalarInput from './ScalarInput'
 import TableField from './TableField'
+import { describeProvenance, type FieldProvenance } from '../../lib/provenance'
 
 export interface FieldIndicator {
   verdict: 'caution' | 'warning'
@@ -20,11 +21,13 @@ interface FieldRowProps {
   indicator?: FieldIndicator
   /** The section already says all of its fields are template-only. */
   hideTemplateOnlyNote?: boolean
+  /** Set when the app filled this value (extraction, preset, goal seek…). */
+  provenance?: FieldProvenance
 }
 
 const TEMPLATE_ONLY_NOTE = 'Not used by Compute — only written to an Excel template that maps it.'
 
-export default function FieldRow({ field, value, onChange, indicator, hideTemplateOnlyNote }: FieldRowProps) {
+export default function FieldRow({ field, value, onChange, indicator, hideTemplateOnlyNote, provenance }: FieldRowProps) {
   const error = validateField(field, value)
   // "Required" appears once the user has been in the field — not across a
   // brand-new deal before anything was typed. Range errors show at once.
@@ -39,6 +42,16 @@ export default function FieldRow({ field, value, onChange, indicator, hideTempla
       <label className="block text-xs font-medium text-slate-600" htmlFor={isScalar ? inputId : undefined}>
         {field.label}
         {field.required && <span className="text-red-400"> *</span>}
+        {provenance && (
+          <span
+            className="ml-1.5 rounded bg-sky-50 px-1 py-px text-[10px] font-normal text-sky-700"
+            title={`Filled by the app ${describeProvenance(provenance)}${
+              provenance.at ? ` on ${new Date(provenance.at).toLocaleDateString()}` : ''
+            }. Typing a value replaces this marker.`}
+          >
+            {describeProvenance(provenance)}
+          </span>
+        )}
         {indicator && (
           <span
             title={indicator.explanation}

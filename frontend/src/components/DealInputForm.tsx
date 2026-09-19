@@ -8,6 +8,7 @@ import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
 import { isVisible } from '../lib/visibility'
 import type { InputSchema } from '../types/schema'
 import { closingDateOf, readCriticalDates } from '../lib/criticalDates'
+import { readProvenance } from '../lib/provenance'
 
 interface DealInputFormProps {
   schema: InputSchema
@@ -95,6 +96,9 @@ function ClosingDateHint({
 }
 
 export default function DealInputForm({ schema, values, onFieldChange }: DealInputFormProps) {
+  const provenance = readProvenance(values)
+  const appFilledCount = Object.keys(provenance).length
+  const [onlyAppFilled, setOnlyAppFilled] = useState(false)
   const visibleSections = orderSections(schema.sections.filter((s) => isVisible(s.visibleWhen, values)))
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult | null>(null)
@@ -177,8 +181,18 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
         benchmarksLoading={benchmarksLoading}
       />
 
+      {appFilledCount > 0 && (
+        <label className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
+          <input type="checkbox" checked={onlyAppFilled} onChange={(e) => setOnlyAppFilled(e.target.checked)} />
+          Show only the {appFilledCount} value(s) the app filled in (documents, presets, goal seek, Quick Screen) — to
+          check them before relying on the numbers
+        </label>
+      )}
       {visibleSections.map((section) => {
-        const shown = section.fields.filter((f) => isVisible(f.visibleWhen, values))
+        const shown = section.fields.filter(
+          (f) => isVisible(f.visibleWhen, values) && (!onlyAppFilled || f.id in provenance),
+        )
+        if (onlyAppFilled && shown.length === 0) return null
         const allTemplateOnly = shown.length > 0 && shown.every((f) => f.templateOnly)
         return (
           <details
@@ -205,6 +219,7 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     onChange={(v) => onFieldChange(field.id, v)}
                     indicator={fieldIndicators[field.id]}
                     hideTemplateOnlyNote={allTemplateOnly}
+                    provenance={provenance[field.id]}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
                   {field.id === 'analysisStartDate' && (

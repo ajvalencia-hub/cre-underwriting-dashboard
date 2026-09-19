@@ -12,6 +12,7 @@ import {
 } from '../lib/unitMixMerge'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
+import type { FieldProvenance } from '../lib/provenance'
 
 interface ExtractionReviewProps {
   schema: InputSchema
@@ -21,7 +22,7 @@ interface ExtractionReviewProps {
   currentUnitMix?: unknown
   /** Same for the deal's current lease-level commercial rent roll (H1). */
   currentCommercialLeases?: unknown
-  onApply: (confirmedValues: Record<string, unknown>) => void
+  onApply: (confirmedValues: Record<string, unknown>, provenance: Record<string, FieldProvenance>) => void
 }
 
 const LOW_CONFIDENCE_THRESHOLD = 0.6
@@ -122,7 +123,17 @@ export default function ExtractionReview({
           : leaseRows
       }
       await confirmExtraction(result.id, confirmedValues)
-      onApply(confirmedValues)
+      // Same shape the OM wizard stores server-side: each applied field
+      // traces to its source document (proposal tables to the proposal).
+      const at = new Date().toISOString()
+      const provenance: Record<string, FieldProvenance> = {}
+      for (const fieldId of Object.keys(confirmedValues)) {
+        const entry = result.fields[fieldId]
+        provenance[fieldId] = entry
+          ? { source: 'extraction', sourceRef: entry.sourceRef, confidence: entry.confidence, at }
+          : { source: 'reviewed_proposal', at }
+      }
+      onApply(confirmedValues, provenance)
       setApplied(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not apply extracted values')

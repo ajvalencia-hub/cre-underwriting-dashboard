@@ -5,13 +5,14 @@ import { DOCUMENT_TYPE_LABELS, type DocumentSummary, type DocumentType } from '.
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
 import FileChooser from '../components/FileChooser'
+import type { FieldProvenance } from '../lib/provenance'
 
 interface DocumentsProps {
   schema: InputSchema
   /** The active deal's current unitMix rows — drives the replace/merge choice. */
   currentUnitMix?: unknown
   currentCommercialLeases?: unknown
-  onApplyExtraction: (confirmedValues: Record<string, unknown>) => void
+  onApplyExtraction: (confirmedValues: Record<string, unknown>, provenance: Record<string, FieldProvenance>) => void
 }
 
 const DOCUMENT_TYPES: DocumentType[] = [

@@ -74,6 +74,7 @@ import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
 import { dealTypeOf, type DealType } from './lib/dealStages'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
+import { clearProvenance, recordProvenance, sameSourceFor, type FieldProvenance } from './lib/provenance'
 
 type LoadState =
   | { status: 'loading' }
@@ -670,7 +671,7 @@ function App() {
    *  already holds a different value (it used to be overwritten silently). */
   function sendToDealInputs(patch: Record<string, unknown>) {
     if (!confirmInputChanges(patch, 'Sending the Quick Screen', false)) return
-    setFormValues((prev) => ({ ...prev, ...patch }))
+    applyFromSource(patch, sameSourceFor(Object.keys(patch), { source: 'quickScreen', at: new Date().toISOString() }))
     setTab('dashboard')
   }
 
@@ -746,8 +747,16 @@ function App() {
   const { schema, apiOk } = state
   const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
 
+  /** A user edit: the value is now theirs, so any "filled by the app"
+   *  marker on the field goes. */
   function handleFieldChange(fieldId: string, value: unknown) {
-    setFormValues((prev) => ({ ...prev, [fieldId]: value }))
+    setFormValues((prev) => clearProvenance({ ...prev, [fieldId]: value }, fieldId))
+  }
+
+  /** Values the app filled in — recorded so the form can say where each
+   *  came from (roadmap #14). */
+  function applyFromSource(patch: Record<string, unknown>, entries: Record<string, FieldProvenance>) {
+    setFormValues((prev) => recordProvenance({ ...prev, ...patch }, entries))
   }
 
   function goToSection(sectionId: string) {
@@ -868,7 +877,10 @@ function App() {
           metric={goalSeekMetric}
           values={formValues}
           onApply={(fieldId, value) => {
-            handleFieldChange(fieldId, value)
+            applyFromSource(
+              { [fieldId]: value },
+              { [fieldId]: { source: 'goalSeek', label: `goal seek (${goalSeekMetric.label})`, at: new Date().toISOString() } },
+            )
             // Recompute with the solved value so the sidebar isn't left stale.
             requestAnimationFrame(() => computeNow())
           }}
@@ -1163,8 +1175,8 @@ function App() {
           schema={schema}
           currentUnitMix={formValues.unitMix}
           currentCommercialLeases={formValues.commercialLeases}
-          onApplyExtraction={(confirmedValues) => {
-            setFormValues((prev) => ({ ...prev, ...confirmedValues }))
+          onApplyExtraction={(confirmedValues, provenance) => {
+            applyFromSource(confirmedValues, provenance)
             setTab('dashboard')
           }}
         />
@@ -1204,7 +1216,12 @@ function App() {
         <PresetsPanel
           schema={schema}
           values={formValues}
-          onApply={(patch) => setFormValues((prev) => ({ ...prev, ...patch }))}
+          onApply={(patch, presetName) =>
+            applyFromSource(
+              patch,
+              sameSourceFor(Object.keys(patch), { source: 'preset', label: presetName, at: new Date().toISOString() }),
+            )
+          }
         />
         <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
         <GeneratePanel
