@@ -86,3 +86,52 @@ def test_quit_stops_child_processes():
     launcher.terminate_child_processes(timeout=2)
     time.sleep(0.2)
     assert child.poll() is not None
+
+
+class _FakeWindow:
+    def __init__(self, url):
+        self.url = url
+        self.confirm_close = False
+
+    def get_current_url(self):
+        return self.url
+
+
+def _bridge(url, tmp_path):
+    from types import SimpleNamespace
+
+    from cre_desktop.bridge import DesktopBridge
+
+    paths = SimpleNamespace(support=tmp_path, settings_file=tmp_path / "settings.json", log_file=tmp_path / "x.log")
+    bridge = DesktopBridge(paths, app_origin=f"http://127.0.0.1:{PORT}")
+    bridge._attach(_FakeWindow(url))
+    return bridge
+
+
+def test_bridge_answers_only_the_app_page(tmp_path, monkeypatch):
+    from cre_desktop import bridge as bridge_module
+
+    opened = []
+    monkeypatch.setattr(bridge_module.subprocess, "run", lambda args, **kw: opened.append(args))
+    monkeypatch.setattr(bridge_module.keys, "stored_names", lambda: [])
+
+    app = _bridge(f"http://127.0.0.1:{PORT}/", tmp_path)
+    assert app.get_settings()["dataFolder"] == str(tmp_path)
+    app.set_unsaved(True)
+    assert app._window.confirm_close is True
+
+    for foreign in ("https://evil.example/", f"http://127.0.0.1:{PORT + 1}/", f"http://127.0.0.1:{PORT}evil.example/", None):
+        other = _bridge(foreign, tmp_path)
+        assert other.get_settings() == {"error": "Not available on this page."}
+        assert other.set_api_key("FRED_API_KEY", "x") == {"error": "Not available on this page."}
+        other.open_external("https://example.com")
+        other.set_unsaved(True)
+        assert other._window.confirm_close is False
+    assert opened == []
+
+
+def test_bridge_does_not_expose_attach():
+    from cre_desktop.bridge import DesktopBridge
+
+    public = [n for n in dir(DesktopBridge) if not n.startswith("_") and callable(getattr(DesktopBridge, n))]
+    assert "attach" not in public

@@ -171,7 +171,7 @@ def main() -> int:
 
     prepare_environment(paths)
     server = BackendServer()
-    bridge = DesktopBridge(paths)
+    bridge = DesktopBridge(paths, app_origin=server.base_url)
     window = webview.create_window(
         APP_NAME,
         html=pages.STARTUP_HTML,
@@ -186,7 +186,7 @@ def main() -> int:
             ),
         },
     )
-    bridge.attach(window)
+    bridge._attach(window)
 
     shut_down = False
 
