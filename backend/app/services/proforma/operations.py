@@ -380,8 +380,11 @@ def _build_lease_noi_vector(
     stack; the statement identities hold via the mapping
     gpr := scheduled base rent, vacancyLoss := downtime + free rent,
     otherIncome := recoveries + the otherIncome input. The general vacancyPct
-    input is NOT applied (downtime IS the vacancy); credit loss applies to
-    collected revenue. Leasing capital (TI/LC) is returned separately and
+    input is NOT applied (downtime IS the vacancy); instead the optional
+    leaseGeneralVacancyPct tops the loss up to that share of potential
+    revenue (scheduled rent + recoveries) in months where rollover downtime
+    falls short — ARGUS's "reduce by absorption & turnover vacancy" method.
+    Credit loss applies to collected revenue. Leasing capital (TI/LC) is returned separately and
     lands BELOW NOI. recoverable_scale < 1 is the mixed-use case (H2):
     commercial tenants recover only the commercial share of property opex."""
     warnings: list[str] = []
@@ -393,6 +396,7 @@ def _build_lease_noi_vector(
     ]
 
     credit_loss_pct = _num(inputs, "creditLossPct")
+    general_vacancy_pct = min(1.0, max(0.0, _num(inputs, "leaseGeneralVacancyPct")))
     management_fee_pct = expenses["egiPctTotal"]
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
@@ -474,15 +478,22 @@ def _build_lease_noi_vector(
         # not occupancy-scaled in lease mode (see DECISIONS.md).
         operating_month = month - timeline.construction_months
         other_inc = (other_annual / 12) * _growth_multiplier(rent_growth, operating_month)
-        credit = (collected + recoveries) * credit_loss_pct
-        egi = collected + recoveries + other_inc - credit
+        # General vacancy above rollover downtime: a well-leased building
+        # still loses income to unplanned vacancy (audit finding).
+        general = max(
+            0.0,
+            general_vacancy_pct * (scheduled + recoveries) - income["downtimeLoss"][i],
+        )
+        general = min(general, collected + recoveries)
+        credit = (collected + recoveries - general) * credit_loss_pct
+        egi = collected + recoveries - general + other_inc - credit
 
         fixed = sum(vec[i] for vec in expenses["byCategory"].values())
         mgmt = egi * management_fee_pct
         opex = fixed + mgmt
 
         gpr_vec.append(scheduled)
-        vacancy_vec.append(income["downtimeLoss"][i] + income["freeRentLoss"][i])
+        vacancy_vec.append(income["downtimeLoss"][i] + income["freeRentLoss"][i] + general)
         credit_vec.append(credit)
         other_vec.append(recoveries + other_inc)
         egi_vec.append(egi)

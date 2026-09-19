@@ -77,6 +77,8 @@ ROLLOVER_DEFAULTS = {
     "tiRenewalPsf": 0.0,
     "lcNewPct": 0.0,
     "lcRenewalPct": 0.0,
+    "freeRentMonthsNew": 0,
+    "freeRentMonthsRenewal": 0,
 }
 
 
@@ -96,6 +98,12 @@ def _rollover_assumptions(inputs: dict) -> dict:
         "lcNewPct": _num(inputs, "lcNewPct"),
         "lcRenewalPct": _num(inputs, "lcRenewalPct"),
         "renewalRentDiscount": discount if discount > 0 else 1.0,
+        # Market leasing concessions on speculative rollovers (audit: new
+        # leases carried no free rent, overstating NOI after each expiry).
+        # New-tenant free rent starts at commencement (after downtime);
+        # renewal free rent at the renewal start. Base rent only.
+        "freeRentMonthsNew": max(0, int(_num(inputs, "freeRentMonthsNew"))),
+        "freeRentMonthsRenewal": max(0, int(_num(inputs, "freeRentMonthsRenewal"))),
         # I2 timing refinement is OPT-IN: at defaults the re-let TI/LC stays
         # at expiry+1 with the renewal side (Run-3 behavior), because moving
         # it changes cash timing whenever downtime > 0 and the compatibility
@@ -431,10 +439,21 @@ def build_lease_income(
                 blended_rent = p * renewal_rent + (1 - p) * market_rent
                 scheduled[m - 1] += blended_rent
                 slice_scheduled[m - 1] += blended_rent
-                in_downtime = (m - generation_start) < downtime
+                offset = m - generation_start
+                in_downtime = offset < downtime
+                # Expected free rent on each path (probability-weighted like
+                # everything else in the rollover blend).
+                free = 0.0
+                if offset < rollover["freeRentMonthsRenewal"]:
+                    free += p * renewal_rent
+                if downtime <= offset < downtime + rollover["freeRentMonthsNew"]:
+                    free += (1 - p) * market_rent
+                if free:
+                    free_rent_loss[m - 1] += free
+                    slice_free[m - 1] += free
                 if in_downtime:
                     # Renewal path pays (no downtime); re-let path is vacant.
-                    collected[m - 1] += p * renewal_rent
+                    collected[m - 1] += p * renewal_rent - free
                     downtime_loss[m - 1] += (1 - p) * market_rent
                     slice_downtime[m - 1] += (1 - p) * market_rent
                     rec = recovery_for(lease, m, share, gen_base_year) * p
@@ -442,7 +461,7 @@ def build_lease_income(
                     slice_recoveries[m - 1] += rec
                     occupied_sf[m - 1] += sf * p
                 else:
-                    collected[m - 1] += blended_rent
+                    collected[m - 1] += blended_rent - free
                     rec = recovery_for(lease, m, share, gen_base_year)
                     recoveries[m - 1] += rec
                     slice_recoveries[m - 1] += rec

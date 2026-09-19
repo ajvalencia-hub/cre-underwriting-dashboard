@@ -130,6 +130,18 @@ stated reason.
   for all of them, and re-uploading then 500'd (a one-row-per-hash lookup).
   Reuse is limited to general documents and restores a file missing from
   disk.
+- **[FIN] Lease-roll deals: general vacancy and speculative-lease free
+  rent** (roadmap #10). `leaseGeneralVacancyPct` tops each month's loss up
+  to that share of potential revenue (scheduled base rent + recoveries)
+  where rollover downtime falls short — ARGUS's "reduce by absorption &
+  turnover vacancy" method; rejected: stacking it on top of downtime
+  (double-counts vacancy in rollover months). Credit loss then applies to
+  what's left. `freeRentMonthsNew` abates the re-let path's base rent for
+  that many months after downtime; `freeRentMonthsRenewal` the renewal
+  path's from the renewal start; both probability-weighted like the rest
+  of the rollover blend, base rent only (existing free-rent convention).
+  All default 0: baseline unchanged. The Excel export already refuses
+  lease deals.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
