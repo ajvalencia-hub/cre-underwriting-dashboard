@@ -299,7 +299,7 @@
         { "id": "constructionMonths", "label": "Construction Period (mo)", "type": "number", "min": 0, "max": 96 },
         { "id": "leaseUpMonths", "label": "Lease-Up / Absorption Period (mo)", "type": "number", "min": 0, "max": 60 },
         { "id": "stabilizationMonth", "label": "Stabilization Month", "type": "number", "min": 0, "max": 120 },
-        { "id": "constructionDrawSchedule", "templateOnly": true, "label": "Construction Loan Draw Schedule", "type": "table",
+        { "id": "constructionDrawSchedule", "label": "Construction Draw Schedule (monthly spend; blank = S-curve)", "type": "table",
           "columns": [
             { "id": "month", "label": "Month", "type": "number" },
             { "id": "drawAmount", "label": "Draw Amount", "type": "currency" }

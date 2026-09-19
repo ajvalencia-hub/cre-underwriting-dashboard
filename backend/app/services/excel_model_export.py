@@ -221,6 +221,12 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     debt_block = result.get("debt") or {}
     loan_amount = float(debt_block.get("loanAmount") or 0.0)
     construction = result.get("constructionLoan") or {"equity": 0.0, "commitment": 0.0}
+    if is_dev and any(
+        isinstance(r, dict) and isinstance(r.get("drawAmount"), (int, float)) and r["drawAmount"] > 0
+        for r in inputs.get("constructionDrawSchedule") or []
+    ):
+        # The Draws sheet mirrors the S-curve structure.
+        raise UnsupportedModelFeatures(["a custom construction draw schedule"])
     if result.get("maturityRefinance"):
         # The workbook mirrors one loan; a refinance mid-hold would export a
         # silently different model.

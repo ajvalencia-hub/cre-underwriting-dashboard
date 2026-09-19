@@ -411,6 +411,12 @@ def _compute(inputs: dict) -> dict:
         cost_schedule = development.monthly_cost_schedule(
             budget, timeline.construction_months
         )
+        custom_schedule, draw_warnings = development.custom_cost_schedule(
+            budget, timeline.construction_months, inputs.get("constructionDrawSchedule") or []
+        )
+        warnings.extend(draw_warnings)
+        if custom_schedule is not None:
+            cost_schedule = custom_schedule
         gp_developer_fee = budget.developer_fee  # J3: a GP fee stream
         # LTC applies to total cost INCLUDING capitalized interest and loan
         # fees (lender convention); solved iteratively. See DECISIONS.md.

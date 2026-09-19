@@ -82,3 +82,41 @@ def monthly_cost_schedule(
             + (budget.soft + budget.developer_fee) * line_weights[m]
         )
     return schedule
+
+
+def custom_cost_schedule(
+    budget: DevelopmentBudget, construction_months: int, draws: list
+) -> tuple[list[float] | None, list[str]]:
+    """Roadmap #12: the user's monthly draw schedule shapes when the non-land
+    budget is spent (months 1..N; land stays at close). Amounts are used as
+    WEIGHTS: the schedule always spends exactly the budget, so a draw table
+    that doesn't add up can't silently change total cost — it's scaled, with
+    a warning. Returns (None, []) when there are no usable rows."""
+    warnings: list[str] = []
+    if construction_months <= 0:
+        return None, []
+    by_month = [0.0] * construction_months
+    for row in draws or []:
+        if not isinstance(row, dict):
+            continue
+        month, amount = row.get("month"), row.get("drawAmount")
+        if not isinstance(month, (int, float)) or not isinstance(amount, (int, float)) or amount <= 0:
+            continue
+        index = int(month)
+        if index < 1 or index > construction_months:
+            warnings.append(
+                f"Draw schedule month {index} is outside the {construction_months}-month build — "
+                "counted in the nearest build month."
+            )
+            index = min(max(index, 1), construction_months)
+        by_month[index - 1] += float(amount)
+    total_drawn = sum(by_month)
+    if total_drawn <= 0:
+        return None, warnings
+    spend = budget.total_ex_financing - budget.land
+    if abs(total_drawn - spend) > 0.01 * max(spend, 1.0):
+        warnings.append(
+            f"The draw schedule totals ${total_drawn:,.0f} but the non-land budget is "
+            f"${spend:,.0f} — its monthly shape is used, scaled to the budget."
+        )
+    return [budget.land] + [spend * amount / total_drawn for amount in by_month], warnings

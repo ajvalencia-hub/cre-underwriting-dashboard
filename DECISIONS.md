@@ -158,6 +158,17 @@ stated reason.
   `maturityRefinance`; the Excel export refuses such deals (it mirrors one
   loan). refiRateSpreadPct / refiCostsPct are now shown for acquisitions
   too. Baseline unchanged.
+- **[FIN] User construction draw schedule shapes spending** (roadmap
+  #12). The table was ignored (S-curve only). Its monthly amounts are used
+  as WEIGHTS for the non-land budget over months 1..N (land stays at
+  close): the schedule always spends exactly the budget, so a table that
+  doesn't add up is scaled with a warning rather than silently changing
+  total cost; out-of-range months fold into the nearest build month.
+  Equity-first funding and the LTC solve run on the result. Rejected:
+  treating the amounts as literal dollars (a typo would change the
+  budget) and as loan draws (the engine's funding order decides those).
+  The Excel export refuses a custom schedule (its Draws sheet mirrors the
+  S-curve). Blank = S-curve; baseline unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
