@@ -14,9 +14,23 @@ from datetime import date, datetime
 
 from app.services.extraction.excel_extractor import parse_numeric
 
-# Mid-table subtotal/summary rows ("Total 1BR/1BA", "Subtotal", "Totals:")
-# must never become phantom units — they inflate unit counts and GPR.
-_SUBTOTAL_ROW_RE = re.compile(r"^\s*(sub\s*)?totals?\b", re.IGNORECASE)
+# Mid-table subtotal/summary rows ("Total 1BR/1BA", "Subtotal", "Totals:",
+# "Average:") must never become phantom units — they inflate unit counts and
+# GPR, and (per the boundary detection below) mark candidate table endings.
+_SUBTOTAL_ROW_RE = re.compile(r"^\s*(sub\s*)?totals?\b|^\s*averages?\b", re.IGNORECASE)
+
+# Vacancy marker embedded in the unit label itself ("Unit 7 (Furnished) -
+# Vacant"), as distinct from a literal "VACANT" tenant name — brokers often
+# leave a boilerplate tenant-type label ("Residential") in the tenant column
+# for vacant units, which would otherwise read as occupied.
+_VACANT_LABEL_RE = re.compile(r"\bvacant\b", re.IGNORECASE)
+
+# Table-end detection lookahead (see parse_rows): after a summary row, this
+# many following rows must ALL fail _row_looks_like_unit before parsing
+# stops. One row is not enough — a mid-table "Total 1BR/1BA" subtotal is
+# routinely followed by a blank spacer row and THEN the next unit-type
+# block, and a one-row lookahead would truncate the roll right there.
+_TABLE_END_LOOKAHEAD = 2
 
 _FIELD_ALIASES: dict[str, list[str]] = {
     "unit": ["unit", "unit no", "unit number", "suite", "suite no", "suite number", "space"],
@@ -44,6 +58,17 @@ _FIELD_ALIASES: dict[str, list[str]] = {
     "leaseEnd": ["lease end", "lease expiration", "expiration", "expiry", "end date", "lease to"],
     "camRecoveries": ["cam", "cam recoveries", "recoveries", "nnn", "cam/nnn"],
     "status": ["status", "occupancy status", "occupied/vacant"],
+}
+
+# A "Tenant ID"/"Resident ID" column is an identifier, never the tenant's
+# actual name — letting it substring-match the "tenant" field (ahead of a
+# later "Resident Name" column, since the fallback pass scans left-to-right
+# and claims the first hit) previously broke vacancy detection, which
+# depends on seeing the literal "VACANT" marker some rent rolls put in the
+# name column specifically, not in an ID column. Scoped to "tenant" only —
+# an "ID" column is exactly what should satisfy a real identifier field.
+_FIELD_SUBSTRING_EXCLUSIONS: dict[str, re.Pattern] = {
+    "tenant": re.compile(r"\bid\b", re.IGNORECASE),
 }
 
 _MTM_RE = re.compile(r"^\s*(mtm|m-t-m|month\s*-?\s*to\s*-?\s*month)\s*$", re.IGNORECASE)
@@ -80,8 +105,11 @@ def _match_headers(headers: list[str]) -> dict[str, int]:
         if field in matched:
             continue
         norm_aliases = [_normalize(a) for a in aliases]
+        exclusion = _FIELD_SUBSTRING_EXCLUSIONS.get(field)
         for i, h in enumerate(normalized):
             if i in claimed or not h:
+                continue
+            if exclusion is not None and exclusion.search(headers[i]):
                 continue
             if any(
                 (len(a) >= 3 and a in h) or (len(h) >= 4 and h in a)
@@ -130,13 +158,19 @@ def _parse_end_date(value) -> tuple[str | None, bool, bool]:
     return _parse_date(value), False, False
 
 
-def _infer_status(tenant, rent_monthly, explicit_status: str | None) -> str:
+def _infer_status(tenant, rent_monthly, explicit_status: str | None, unit=None) -> str:
     if explicit_status:
         norm = explicit_status.strip().lower()
         if "vacant" in norm:
             return "vacant"
         if "occupied" in norm or "leased" in norm:
             return "occupied"
+    # The unit label itself is a common vacancy marker ("Unit 7 (Furnished) -
+    # Vacant") that would otherwise be masked by a boilerplate tenant-type
+    # value ("Residential") sitting in the tenant column for every row.
+    unit_text = "" if unit is None else str(unit).strip()
+    if _VACANT_LABEL_RE.search(unit_text):
+        return "vacant"
     # Yardi-style rolls put the literal word "VACANT" in the resident column —
     # that's a vacancy marker, not a tenant named Vacant.
     tenant_text = "" if tenant is None else str(tenant).strip()
@@ -150,10 +184,41 @@ def _infer_status(tenant, rent_monthly, explicit_status: str | None) -> str:
     return "unknown"
 
 
+def _row_looks_like_unit(row: list, field_cols: dict) -> bool:
+    """True if `row` still plausibly belongs to the unit table — has a unit
+    or tenant identifier that ISN'T itself a summary label, plus a real
+    figure. Used to tell a mid-table subtotal (more units follow) apart from
+    the table's actual end (everything below is a different section).
+
+    "Real figure" means an SF value when the roll has an SF column; on a
+    roll with NO SF column at all (small/simple rolls), a rent value stands
+    in — otherwise every row would fail this test and the first subtotal
+    would end the table."""
+
+    def get(field):
+        col = field_cols.get(field)
+        return row[col] if col is not None and col < len(row) else None
+
+    unit = get("unit")
+    tenant = get("tenant")
+    if unit is not None and _SUBTOTAL_ROW_RE.match(str(unit)):
+        return False
+    if tenant is not None and _SUBTOTAL_ROW_RE.match(str(tenant)):
+        return False
+    if unit is None and tenant is None:
+        return False
+    if "sf" in field_cols:
+        return parse_numeric(get("sf")) is not None
+    return (
+        parse_numeric(get("inPlaceRentMonthly")) is not None
+        or parse_numeric(get("marketRentMonthly")) is not None
+    )
+
+
 def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet: str) -> dict:
     """Returns {"rows": [RentRollRow,...], "matchedFields": [...], "confidence": float}."""
     field_cols = _match_headers(headers)
-    parsed_rows = []
+    parsed_rows: list[dict] = []
 
     for row_idx, row in enumerate(data_rows):
 
@@ -171,10 +236,25 @@ def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet
         # a blank/subtotal row, not real rent-roll data — skip it.
         if unit is None and tenant is None and sf is None:
             continue
-        # Labeled subtotal rows carry aggregate numbers, not a unit.
-        if unit is not None and _SUBTOTAL_ROW_RE.match(str(unit)):
-            continue
-        if tenant is not None and _SUBTOTAL_ROW_RE.match(str(tenant)):
+        # Labeled subtotal/total/average rows carry aggregate numbers, not a
+        # unit. Once we've collected at least one real unit, treat such a row
+        # as the possible end of the table: if NONE of the next
+        # _TABLE_END_LOOKAHEAD rows looks like a continuing unit row (a
+        # mid-table "Total 1BR/1BA" style subtotal is normally followed —
+        # possibly after one blank spacer — by more units; a grand "TOTAL:"
+        # row is normally followed by unrelated narrative/summary content),
+        # stop parsing entirely rather than let that content leak in as
+        # phantom units (real-world case: a combined rent-roll + income-
+        # statement sheet, where dozens of expense/summary rows below the
+        # roll each have SOMETHING in the unit/tenant/sf columns).
+        is_summary_row = (unit is not None and _SUBTOTAL_ROW_RE.match(str(unit))) or (
+            tenant is not None and _SUBTOTAL_ROW_RE.match(str(tenant))
+        )
+        if is_summary_row:
+            if parsed_rows:
+                lookahead = data_rows[row_idx + 1 : row_idx + 1 + _TABLE_END_LOOKAHEAD]
+                if not any(_row_looks_like_unit(r, field_cols) for r in lookahead):
+                    break
             continue
 
         # I9: CoStar-style annual figures derive the monthly rent when no
@@ -190,7 +270,7 @@ def parse_rows(headers: list[str], data_rows: list[list], source_doc: str, sheet
                 in_place = round(rent_psf * sf / 12, 2)
                 derived_from = "rentPsfAnnual"
 
-        status = _infer_status(tenant, in_place, get("status"))
+        status = _infer_status(tenant, in_place, get("status"), unit)
         lease_end, is_mtm, month_year_end = _parse_end_date(get("leaseEnd"))
 
         parsed = {
@@ -277,9 +357,13 @@ def propose_unit_mix(rows: list[dict]) -> dict:
     a warning, so inconsistent vocabulary can't split one physical unit type
     into several rows.
 
+    With no unit-type column at all, grouping falls back to square footage
+    (groupedBy "sf") — distinct SF values on a residential roll almost
+    always correspond to distinct floor plans.
+
     Returns {"rows": [{unitType, unitCount, avgSf, inPlaceRent, marketRent,
     occupiedCount, occupancyPct, sourceRowCount}], "groupedBy":
-    "label"|"bedBath", "warnings": [...]}."""
+    "label"|"bedBath"|"sf", "warnings": [...]}."""
     warnings: list[str] = []
 
     key_to_labels: dict[tuple, set[str]] = {}
@@ -289,6 +373,8 @@ def propose_unit_mix(rows: list[dict]) -> dict:
         if key is not None and label:
             key_to_labels.setdefault(key, set()).add(str(label).strip())
     inconsistent = any(len(labels) > 1 for labels in key_to_labels.values())
+
+    has_any_unit_type = any(r.get("unitType") for r in rows)
 
     if inconsistent:
         grouped_by = "bedBath"
@@ -304,6 +390,21 @@ def propose_unit_mix(rows: list[dict]) -> dict:
             if key is not None:
                 return _bed_bath_label(key)
             return str(r.get("unitType") or "Unspecified").strip()
+    elif not has_any_unit_type:
+        # No Unit Type / Floor Plan column at all (common on small, simple
+        # rolls) — grouping everyone into one "Unspecified" bucket loses
+        # real unit-mix variation. SF is the next-best proxy: distinct SF
+        # values on a residential roll almost always correspond to distinct
+        # floor plans, even when the broker never labeled them.
+        grouped_by = "sf"
+        warnings.append(
+            "No unit-type/floor-plan column found — grouped by square footage instead "
+            "(each distinct SF value treated as one unit type)."
+        )
+
+        def group_key(r):
+            sf = r.get("sf")
+            return f"{round(sf)} SF" if sf is not None else "Unspecified"
     else:
         grouped_by = "label"
 
