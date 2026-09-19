@@ -158,6 +158,8 @@ function App() {
   // A Quick Screen link the app was opened with, waiting for the user to
   // open it (it replaces this deal's napkin) or dismiss it.
   const [sharedFromLink, setSharedFromLink] = useState<SharedScreen | null>(null)
+  // The saved scenario the working inputs were loaded from (header chip).
+  const [loadedScenario, setLoadedScenario] = useState<{ name: string; key: string } | null>(null)
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -270,6 +272,7 @@ function App() {
     setQuickScreenInputs(hydrated.quickScreen)
     setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
     results.reset()
+    setLoadedScenario(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
     // Clear the previous deal's template now: otherwise the template tab sees
     // this deal's profile paired with the old deal's template until the fetch
@@ -606,25 +609,53 @@ function App() {
     }
   }
 
+  /** Ask before `next` changes Deal Inputs values the user already has.
+   *  `replaceAll` means fields missing from `next` get cleared too (a
+   *  scenario load), not kept (a merge). True when there's nothing to ask
+   *  about or the user agreed. */
+  function confirmInputChanges(next: Record<string, unknown>, what: string, replaceAll: boolean): boolean {
+    if (state.status !== 'ready') return true
+    const hasValue = (v: unknown) => v !== undefined && v !== null && v !== ''
+    const overwrites = presetDiff(formValues, next).filter((row) => row.changed && hasValue(row.current))
+    const cleared = replaceAll
+      ? Object.keys(formValues).filter((id) => hasValue(formValues[id]) && !hasValue(next[id]))
+      : []
+    if (overwrites.length === 0 && cleared.length === 0) return true
+    const byId = new Map(flattenFields(state.schema).map((f) => [f.id, f]))
+    const lines = [
+      ...overwrites.map((row) => {
+        const field = byId.get(row.fieldId)
+        return `• ${field?.label ?? row.fieldId}: ${formatValue(field, row.current)} → ${formatValue(field, row.proposed)}`
+      }),
+      ...cleared.map((id) => {
+        const field = byId.get(id)
+        return `• ${field?.label ?? id}: ${formatValue(field, formValues[id])} → (cleared)`
+      }),
+    ]
+    const shown = lines.slice(0, 12).join('\n')
+    const more = lines.length > 12 ? `\n…and ${lines.length - 12} more` : ''
+    return window.confirm(
+      `${what} changes ${lines.length} value(s) already in Deal Inputs:\n\n${shown}${more}\n\nContinue?`,
+    )
+  }
+
   /** Apply napkin values to the full form — after confirming any field that
    *  already holds a different value (it used to be overwritten silently). */
   function sendToDealInputs(patch: Record<string, unknown>) {
-    const overwrites = presetDiff(formValues, patch).filter(
-      (row) => row.changed && row.current !== undefined && row.current !== null && row.current !== '',
-    )
-    if (overwrites.length > 0 && state.status === 'ready') {
-      const byId = new Map(flattenFields(state.schema).map((f) => [f.id, f]))
-      const lines = overwrites.slice(0, 12).map((row) => {
-        const field = byId.get(row.fieldId)
-        return `• ${field?.label ?? row.fieldId}: ${formatValue(field, row.current)} → ${formatValue(field, row.proposed)}`
-      })
-      const more = overwrites.length > 12 ? `\n…and ${overwrites.length - 12} more` : ''
-      const ok = window.confirm(
-        `This replaces ${overwrites.length} value(s) already in Deal Inputs:\n\n${lines.join('\n')}${more}\n\nReplace them?`,
-      )
-      if (!ok) return
-    }
+    if (!confirmInputChanges(patch, 'Sending the Quick Screen', false)) return
     setFormValues((prev) => ({ ...prev, ...patch }))
+    setTab('dashboard')
+  }
+
+  /** A scenario load replaces every input (it used to, silently); confirm
+   *  first and remember where the working inputs came from. */
+  function loadScenario(inputs: Record<string, unknown>, name: string) {
+    // Over the schema defaults, like a deal load: a scenario saved before a
+    // field existed shouldn't clear that field's default.
+    const next = state.status === 'ready' ? { ...defaultValuesFor(state.schema), ...inputs } : inputs
+    if (!confirmInputChanges(next, `Loading scenario "${name}"`, true)) return
+    setFormValues(next)
+    setLoadedScenario({ name, key: inputsKey(next) })
     setTab('dashboard')
   }
 
@@ -916,8 +947,17 @@ function App() {
         >
           Dates
         </button>
+        {loadedScenario && (
+          <span
+            className="ml-auto rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
+            title="The Deal Inputs were loaded from this saved scenario."
+          >
+            Working from scenario “{loadedScenario.name}”
+            {inputsKey(formValues) !== loadedScenario.key && ' · modified'}
+          </span>
+        )}
         <span
-          className={`ml-auto text-xs ${
+          className={`${loadedScenario ? '' : 'ml-auto '}text-xs ${
             autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
           }`}
         >
@@ -1200,10 +1240,7 @@ function App() {
           computedOutputs={latestOutputs}
           computedDebt={(nativeResponse?.debt as Record<string, unknown> | null | undefined) ?? null}
           outputsStale={anyStale}
-          onLoadScenario={(inputs) => {
-            setFormValues(inputs)
-            setTab('dashboard')
-          }}
+          onLoadScenario={loadScenario}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
         />
       </div>

@@ -35,7 +35,7 @@ interface ScenariosPanelProps {
   computedDebt?: Record<string, unknown> | null
   /** computedOutputs came from inputs that have since changed. */
   outputsStale?: boolean
-  onLoadScenario: (inputs: Record<string, unknown>) => void
+  onLoadScenario: (inputs: Record<string, unknown>, name: string) => void
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
 
@@ -413,7 +413,7 @@ export default function ScenariosPanel({
                   </label>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => onLoadScenario(s.inputs)}
+                      onClick={() => onLoadScenario(s.inputs, s.scenarioName)}
                       className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
                     >
                       Load
