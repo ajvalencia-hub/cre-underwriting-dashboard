@@ -81,6 +81,22 @@ stated reason.
   every lease function; operations' revenue-share-by-year uses it too.
   Test: moving the start date and every lease date by two years leaves
   every output identical; a bad date warns and falls back.
+- **Engine inputs are type- and range-checked against the schema**
+  (proforma/input_validation.py, run first in engine.compute so every path
+  — compute, sweeps, Monte Carlo, imports, exports — is covered). The
+  engine's lenient number reader treated any non-number as the default, so
+  a vacancy imported as the text "0.1" read as 0 (levered IRR 11.57% ->
+  15.39%, silently). Now: numeric text ("0.1", "$1,250,000") is read as
+  the number with a warning; any other value in a numeric field or table
+  cell raises InsufficientInputsError naming it (the API's existing 422,
+  and the UI already links each entry to its field); values outside the
+  schema range compute AS ENTERED with a warning — never silently clamped.
+  Rejected: rejecting out-of-range values (the UI lets users commit them
+  deliberately) and clamping (the number on screen must be the number
+  used). New schema flag `zeroDisables` for sizing constraints where 0
+  means "off" (dscrConstraint's min of 1 contradicted the engine's
+  0 = no constraint); the frontend range check honours it too. ~0.05 ms per
+  compute. Baseline unchanged.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

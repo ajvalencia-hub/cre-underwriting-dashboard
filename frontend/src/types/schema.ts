@@ -39,6 +39,8 @@ export interface InputField {
   required?: boolean
   min?: number
   max?: number
+  /** 0 is a valid "off" setting outside [min, max] (e.g. a sizing constraint). */
+  zeroDisables?: boolean
   default?: string | number | boolean
   options?: string[]
   columns?: TableColumn[]

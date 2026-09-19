@@ -12,6 +12,8 @@ export function validateField(field: InputField, value: unknown): string | null 
   if (field.required && isEmpty) return 'Required'
   if (isEmpty) return null
 
+  // 0 switches some constraints off (e.g. the DSCR sizing floor) — valid.
+  if (value === 0 && field.zeroDisables) return null
   if (['number', 'currency', 'percent'].includes(field.type) && typeof value === 'number') {
     if (field.min !== undefined && value < field.min) return `Min ${formatBound(field, field.min)}`
     if (field.max !== undefined && value > field.max) return `Max ${formatBound(field, field.max)}`

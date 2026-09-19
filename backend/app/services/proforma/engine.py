@@ -4,7 +4,7 @@ ids out. Orchestration only — every formula lives in the sibling modules
 outside this package reimplements any of them.
 """
 
-from app.services.proforma import debt, development, equity, operations, returns
+from app.services.proforma import debt, development, equity, input_validation, operations, returns
 from app.services.proforma.timeline import (
     ANALYSIS_EPOCH,
     Timeline,
@@ -158,10 +158,12 @@ def compute(inputs: dict) -> dict:
             f"Analysis start date '{inputs.get('analysisStartDate')}' isn't a date "
             f"(YYYY-MM-DD) — using {ANALYSIS_EPOCH.isoformat()}."
         )
+    inputs, input_warnings, input_errors = input_validation.validate_inputs(inputs)
+    if input_errors:
+        raise InsufficientInputsError(input_errors)
     with analysis_calendar(start):
         result = _compute(inputs)
-    if start_warning:
-        result["warnings"].insert(0, start_warning)
+    result["warnings"][:0] = ([start_warning] if start_warning else []) + input_warnings
     return result
 
 

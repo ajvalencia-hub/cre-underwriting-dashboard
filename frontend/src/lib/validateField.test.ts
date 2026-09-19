@@ -15,4 +15,10 @@ describe('validateField', () => {
     expect(validateField(field({ required: true }), '')).toBe('Required')
     expect(validateField(field({ required: true }), 3)).toBeNull()
   })
+
+  it('accepts 0 where it switches a constraint off', () => {
+    expect(validateField(field({ min: 1, max: 3, zeroDisables: true }), 0)).toBeNull()
+    expect(validateField(field({ min: 1, max: 3, zeroDisables: true }), 0.5)).toBe('Min 1')
+    expect(validateField(field({ min: 1, max: 3 }), 0)).toBe('Min 1')
+  })
 })
