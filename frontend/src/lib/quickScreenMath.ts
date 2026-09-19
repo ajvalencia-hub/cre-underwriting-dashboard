@@ -41,6 +41,8 @@ export interface QuickScreenInputs {
   hardCostPerUnit: number // $ per unit or per SF, depending on sizeMode
   softCostPct: number // fraction, e.g. 0.20 = 20% of hard cost
   contingencyPct: number // fraction, of (hard + soft)
+  developerFeePct: number // fraction, of (hard + soft + contingency) — the engine's base
+  constructionMonths: number // build period; drives the capitalized-interest estimate
   rent: number // $/unit/month if sizeMode === 'units', else $/SF/year
   noiMarginPct: number // fraction of gross potential rent retained as NOI (simple mode)
   exitCapRatePct: number // fraction
@@ -64,6 +66,9 @@ export interface QuickScreenResults {
   hardCosts: number
   softCosts: number
   contingency: number
+  developerFee: number
+  /** Estimated construction interest, capitalized into cost (see below). */
+  financingCost: number
   totalDevelopmentCost: number
 
   grossPotentialRent: number
@@ -99,11 +104,33 @@ export interface QuickScreenResults {
   totalProfit: number
 }
 
+/** Average share of the construction loan outstanding over the build, for
+ *  the capitalized-interest estimate. Calibrated to the engine's equity-first
+ *  S-curve draws (0.38–0.41 for 12–24 month builds at 60% LTC) rather than
+ *  the 0.5 rule of thumb, so the napkin lands near Compute. */
+export const QUICK_SCREEN_AVG_DRAW_FACTOR = 0.4
+
+/** Capitalized interest as a fraction of total cost:
+ *  interest = (LTC x TDC) x rate x (months / 12) x avg draw. */
+function financingShareOfCost(inputs: QuickScreenInputs): number {
+  const share =
+    inputs.ltcPct * inputs.constructionInterestRatePct * (Math.max(0, inputs.constructionMonths) / 12) *
+    QUICK_SCREEN_AVG_DRAW_FACTOR
+  return Math.min(share, 0.5) // guard: a nonsensical rate/term can't blow up the total
+}
+
 export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResults {
   const hardCosts = inputs.quantity * inputs.hardCostPerUnit
   const softCosts = hardCosts * inputs.softCostPct
   const contingency = (hardCosts + softCosts) * inputs.contingencyPct
-  const totalDevelopmentCost = inputs.landCost + hardCosts + softCosts + contingency
+  const developerFee = (hardCosts + softCosts + contingency) * inputs.developerFeePct
+  // Interest is part of the cost the loan (a share of cost) funds — solve
+  // TDC = costs + TDC x financingShare in closed form. Leaving the developer
+  // fee and financing out used to make the napkin's yield on cost read
+  // higher than Compute's for the same deal.
+  const costsExFinancing = inputs.landCost + hardCosts + softCosts + contingency + developerFee
+  const totalDevelopmentCost = costsExFinancing / (1 - financingShareOfCost(inputs))
+  const financingCost = totalDevelopmentCost - costsExFinancing
 
   const grossPotentialRent =
     inputs.sizeMode === 'units' ? inputs.quantity * inputs.rent * 12 : inputs.quantity * inputs.rent
@@ -166,6 +193,8 @@ export function computeQuickScreen(inputs: QuickScreenInputs): QuickScreenResult
     hardCosts,
     softCosts,
     contingency,
+    developerFee,
+    financingCost,
     totalDevelopmentCost,
     grossPotentialRent,
     vacancyLoss,
@@ -205,6 +234,8 @@ export const QUICK_SCREEN_DEFAULTS: QuickScreenInputs = {
   hardCostPerUnit: 180_000,
   softCostPct: 0.2,
   contingencyPct: 0.05,
+  developerFeePct: 0.04,
+  constructionMonths: 18,
   rent: 1_800,
   noiMarginPct: 0.6,
   exitCapRatePct: 0.055,
@@ -232,6 +263,8 @@ export const QUICK_SCREEN_FIELD_CONFIG: Record<string, QuickScreenFieldConfig> =
   hardCostPerUnit: { min: 0, step: 1_000 },
   softCostPct: { min: 0, max: 1, step: 0.01 },
   contingencyPct: { min: 0, max: 1, step: 0.01 },
+  developerFeePct: { min: 0, max: 0.1, step: 0.005 },
+  constructionMonths: { min: 0, max: 96, step: 1 },
   rent: { min: 0, step: 25 },
   noiMarginPct: { min: 0, max: 1, step: 0.01 },
   vacancyPct: { min: 0, max: 1, step: 0.0025 },
@@ -268,17 +301,20 @@ export function solveRentForSpread(inputs: QuickScreenInputs, targetBps: number)
 /**
  * Hard cost/unit: NOI doesn't depend on hard cost, so solve for the TDC that
  * produces the target yield on cost (TDC_target = NOI / (exitCap + targetSpread)),
- * then invert TDC = land + hard*(1+softCostPct)*(1+contingencyPct) for hard cost:
- *   hardCostPerUnit = (TDC_target - land) / ((1+softCostPct)*(1+contingencyPct)*quantity)
+ * then invert TDC = (land + hard*m*(1+devFee)) / (1 - financingShare), with
+ * m = (1+softCostPct)*(1+contingencyPct), for hard cost:
+ *   hardCostPerUnit = (TDC_target*(1-financingShare) - land) / (m*(1+devFee)*quantity)
  */
 export function solveHardCostForSpread(inputs: QuickScreenInputs, targetBps: number): number | null {
   const targetSpreadFraction = targetBps / 10000
   const results = computeQuickScreen(inputs)
-  const costMultiplier = (1 + inputs.softCostPct) * (1 + inputs.contingencyPct)
+  const costMultiplier =
+    (1 + inputs.softCostPct) * (1 + inputs.contingencyPct) * (1 + inputs.developerFeePct)
   if (results.stabilizedNoi <= 0 || costMultiplier <= 0 || inputs.quantity <= 0) return null
 
   const tdcTarget = results.stabilizedNoi / (inputs.exitCapRatePct + targetSpreadFraction)
-  const requiredHardCosts = (tdcTarget - inputs.landCost) / costMultiplier
+  const requiredHardCosts =
+    (tdcTarget * (1 - financingShareOfCost(inputs)) - inputs.landCost) / costMultiplier
   return requiredHardCosts > 0 ? requiredHardCosts / inputs.quantity : null
 }
 
@@ -406,6 +442,8 @@ export function mapQuickScreenToDealInputs(
     ...(inputs.sizeMode === 'sf' ? { hardCostsPsf: inputs.hardCostPerUnit } : {}),
     softCosts: results.softCosts,
     contingencyPct: inputs.contingencyPct,
+    developerFeePct: inputs.developerFeePct,
+    constructionMonths: inputs.constructionMonths,
     // Exit Assumptions
     exitCapRatePct: inputs.exitCapRatePct,
     // Operating Income
@@ -740,6 +778,8 @@ const QUICK_SCREEN_NUMERIC_KEYS = [
   'hardCostPerUnit',
   'softCostPct',
   'contingencyPct',
+  'developerFeePct',
+  'constructionMonths',
   'rent',
   'noiMarginPct',
   'exitCapRatePct',

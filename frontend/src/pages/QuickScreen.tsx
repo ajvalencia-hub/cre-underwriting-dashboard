@@ -290,6 +290,24 @@ export default function QuickScreen({
             />
           </FieldRow>
 
+          <FieldRow label="Developer Fee (% of hard + soft + contingency)">
+            <ScalarInput
+              type="percent"
+              value={inputs.developerFeePct}
+              onChange={(v) => set('developerFeePct', v)}
+              {...field('developerFeePct')}
+            />
+          </FieldRow>
+
+          <FieldRow label="Construction Period (months)">
+            <ScalarInput
+              type="number"
+              value={inputs.constructionMonths}
+              onChange={(v) => set('constructionMonths', v)}
+              {...field('constructionMonths')}
+            />
+          </FieldRow>
+
           <FieldRow label={inputs.sizeMode === 'units' ? 'Monthly Rent per Unit' : 'Annual Rent per SF'}>
             <ScalarInput type="currency" value={inputs.rent} onChange={(v) => set('rent', v)} {...field('rent')} />
           </FieldRow>
@@ -387,6 +405,8 @@ export default function QuickScreen({
               <Row label="Hard Costs" value={formatMoney(results.hardCosts)} />
               <Row label="Soft Costs" value={formatMoney(results.softCosts)} />
               <Row label="Contingency" value={formatMoney(results.contingency)} />
+              <Row label="Developer Fee" value={formatMoney(results.developerFee)} />
+              <Row label="Construction Interest (est.)" value={formatMoney(results.financingCost)} />
               <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
               <Row label="Total Development Cost" value={formatMoney(results.totalDevelopmentCost)} strong />
             </dl>
