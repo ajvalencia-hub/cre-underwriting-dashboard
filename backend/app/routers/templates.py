@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.schemas import MappingEntry, SheetGrid, TemplateSummary
 from app.services import recalc_agreement, recalc_service, template_service
+from app.api_models import RecalcAgreementOut
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -131,7 +132,7 @@ class RecalcCheckRequest(BaseModel):
     mappings: dict[str, MappingEntry]
 
 
-@router.post("/{template_id}/recalc-check")
+@router.post("/{template_id}/recalc-check", response_model=RecalcAgreementOut)
 def recalc_check(template_id: str, payload: RecalcCheckRequest, db: Session = Depends(get_db)):
     """Recalculate the unmodified template in LibreOffice and compare each
     mapped output with the value Excel saved (see recalc_agreement)."""

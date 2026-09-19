@@ -12,7 +12,16 @@ import type {
   DealMetrics,
   DealNote,
   DealSnapshotMeta,
+  ExternalToolsStatus,
+  GoalSeekResult,
+  HoldSweepResponse,
+  IntegrationStatus,
+  PortfolioRollup,
+  RecalcAgreement,
+  SearchGroup,
+  TornadoResponse,
 } from '../lib/api'
+import type { MappingPreviewRow } from './mappingPreview'
 import type { Deal } from './deal'
 import type { DocumentSummary } from './document'
 import type { ExtractionResult } from './extraction'
@@ -45,4 +54,13 @@ export type ApiContract = [
   Check<Fits<Schemas['BackupListingOut'], BackupListing>>,
   Check<Fits<Schemas['DealMetricsOk'] | Schemas['DealMetricsIncomplete'], DealMetrics>>,
   Check<Fits<Schemas['ComputeResponseOut'], ComputeResponse>>,
+  Check<Fits<Schemas['IntegrationStatusOut'], IntegrationStatus>>,
+  Check<Fits<Schemas['ExternalToolsOut'], ExternalToolsStatus>>,
+  Check<Fits<Schemas['PortfolioOut'], PortfolioRollup>>,
+  Check<Fits<Schemas['SearchGroupOut'], SearchGroup>>,
+  Check<Fits<Schemas['HoldSweepResponseOut'], HoldSweepResponse>>,
+  Check<Fits<Schemas['TornadoOut'], TornadoResponse>>,
+  Check<Fits<Schemas['GoalSeekOut'], GoalSeekResult>>,
+  Check<Fits<Schemas['MappingPreviewRowOut'], MappingPreviewRow>>,
+  Check<Fits<Schemas['RecalcAgreementOut'], RecalcAgreement>>,
 ]

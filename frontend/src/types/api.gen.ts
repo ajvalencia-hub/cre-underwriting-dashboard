@@ -1581,6 +1581,15 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** ClassExposureOut */
+        ClassExposureOut: {
+            /** Assetclass */
+            assetClass: string;
+            /** Equity */
+            equity: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** ClientErrorReport */
         ClientErrorReport: {
             /**
@@ -1705,6 +1714,17 @@ export interface components {
              * @enum {string}
              */
             waterfallStyle: "european" | "american";
+        } & {
+            [key: string]: unknown;
+        };
+        /** ConcentrationOut */
+        ConcentrationOut: {
+            /** Equity */
+            equity: number;
+            /** Market */
+            market: string;
+            /** Sharepct */
+            sharePct: number;
         } & {
             [key: string]: unknown;
         };
@@ -1909,6 +1929,13 @@ export interface components {
              */
             documentType: "offering_memorandum" | "rent_roll" | "t12_operating_statement" | "other";
         };
+        /** ExternalToolsOut */
+        ExternalToolsOut: {
+            libreoffice: components["schemas"]["LibreOfficeStatusOut"];
+            ocr: components["schemas"]["OcrStatusOut"];
+        } & {
+            [key: string]: unknown;
+        };
         /** ExtractedFieldOut */
         ExtractedFieldOut: {
             /**
@@ -2000,6 +2027,37 @@ export interface components {
             /** Values */
             values: Record<string, unknown>;
         };
+        /** GoalSeekInputOut */
+        GoalSeekInputOut: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Type */
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** GoalSeekOut */
+        GoalSeekOut: {
+            /** Outputmetric */
+            outputMetric: string;
+            /** Scannedrange */
+            scannedRange: [
+                number,
+                number
+            ];
+            /** Solvedvalue */
+            solvedValue: number | null;
+            /** Targetinput */
+            targetInput: string;
+            /** Targetvalue */
+            targetValue: number;
+            /** Tolerance */
+            tolerance: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** GoalSeekRequest */
         GoalSeekRequest: {
             /** Bounds */
@@ -2035,6 +2093,39 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HoldSweepOut */
+        HoldSweepOut: {
+            /** Modeledholdyears */
+            modeledHoldYears: number;
+            /** Rows */
+            rows: components["schemas"]["HoldSweepRowOut"][];
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** HoldSweepResponseOut */
+        HoldSweepResponseOut: {
+            refiVsSale: components["schemas"]["RefiVsSaleOut"];
+            sweep: components["schemas"]["HoldSweepOut"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** HoldSweepRowOut */
+        HoldSweepRowOut: {
+            /** Equitymultiple */
+            equityMultiple: number | null;
+            /** Holdyear */
+            holdYear: number;
+            /** Leveredirr */
+            leveredIrr: number | null;
+            /** Netproceeds */
+            netProceeds: number | null;
+            /** Unleveredirr */
+            unleveredIrr: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ImportRequest */
         ImportRequest: {
             /** Csvtext */
@@ -2058,6 +2149,30 @@ export interface components {
              * @default []
              */
             skipRows: number[];
+        };
+        /** IntegrationStatusOut */
+        IntegrationStatusOut: {
+            /** Configured */
+            configured: boolean;
+            /** Envvar */
+            envVar: string;
+            /** Label */
+            label: string;
+            /** Purpose */
+            purpose: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibreOfficeStatusOut */
+        LibreOfficeStatusOut: {
+            /** Available */
+            available: boolean;
+            /** Enables */
+            enables: string[];
+            /** Path */
+            path: string | null;
+        } & {
+            [key: string]: unknown;
         };
         /** MappingEntry */
         MappingEntry: {
@@ -2094,6 +2209,32 @@ export interface components {
              * @default {}
              */
             values: Record<string, unknown>;
+        };
+        /** MappingPreviewOut */
+        MappingPreviewOut: {
+            /** Fields */
+            fields: components["schemas"]["MappingPreviewRowOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** MappingPreviewRowOut */
+        MappingPreviewRowOut: {
+            /** Fieldid */
+            fieldId: string;
+            /** Hasvalue */
+            hasValue: boolean;
+            /** Isoutput */
+            isOutput: boolean;
+            /** Resolvedref */
+            resolvedRef: string | null;
+            /**
+             * Status
+             * @default unmapped
+             * @enum {string}
+             */
+            status: "ok" | "unitWarning" | "blank" | "formula" | "multiCell" | "unresolved" | "tableSkips" | "unmapped" | "output";
+        } & {
+            [key: string]: unknown;
         };
         /** MappingProfileIn */
         MappingProfileIn: {
@@ -2184,6 +2325,15 @@ export interface components {
             /** Submarket */
             submarket: string;
         };
+        /** MarketExposureOut */
+        MarketExposureOut: {
+            /** Equity */
+            equity: number;
+            /** Market */
+            market: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** MarketPricingTrends */
         MarketPricingTrends: {
             /** Capratehigh */
@@ -2270,6 +2420,124 @@ export interface components {
              * Format: date-time
              */
             updatedAt: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** OcrStatusOut */
+        OcrStatusOut: {
+            /** Available */
+            available: boolean;
+            /** Enables */
+            enables: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioDealOut */
+        PortfolioDealOut: {
+            /** Assetclass */
+            assetClass: string;
+            /** Dealtype */
+            dealType: string;
+            /** Equity */
+            equity: number;
+            /** Equitymultiple */
+            equityMultiple: number | null;
+            /** Id */
+            id: string;
+            /** Leveredirr */
+            leveredIrr: number | null;
+            /** Market */
+            market: string;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioExcludedOut */
+        PortfolioExcludedOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Reason */
+            reason: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioOut */
+        PortfolioOut: {
+            /** Blendedequitymultiple */
+            blendedEquityMultiple: number | null;
+            /** Blendedleveredirr */
+            blendedLeveredIrr: number | null;
+            /** Bydealtype */
+            byDealType: components["schemas"]["PortfolioTypeBucketOut"][];
+            /** Bystatus */
+            byStatus: components["schemas"]["PortfolioStatusBucketOut"][];
+            /** Concentration */
+            concentration: components["schemas"]["ConcentrationOut"][];
+            /** Dealcount */
+            dealCount: number;
+            /** Deals */
+            deals: components["schemas"]["PortfolioDealOut"][];
+            /** Excluded */
+            excluded: components["schemas"]["PortfolioExcludedOut"][];
+            /** Excludedcount */
+            excludedCount: number;
+            /** Exposurebyassetclass */
+            exposureByAssetClass: components["schemas"]["ClassExposureOut"][];
+            /** Exposurebymarket */
+            exposureByMarket: components["schemas"]["MarketExposureOut"][];
+            totals: components["schemas"]["PortfolioTotalsOut"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioStatusBucketOut */
+        PortfolioStatusBucketOut: {
+            /** Count */
+            count: number;
+            /** Equity */
+            equity: number;
+            /** Sf */
+            sf: number;
+            /** Status */
+            status: string;
+            /** Totalcost */
+            totalCost: number;
+            /** Units */
+            units: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioTotalsOut */
+        PortfolioTotalsOut: {
+            /** Equity */
+            equity: number;
+            /** Sf */
+            sf: number;
+            /** Totalcost */
+            totalCost: number;
+            /** Units */
+            units: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PortfolioTypeBucketOut */
+        PortfolioTypeBucketOut: {
+            /** Count */
+            count: number;
+            /** Dealtype */
+            dealType: string;
+            /** Equity */
+            equity: number;
+            /** Sf */
+            sf: number;
+            /** Totalcost */
+            totalCost: number;
+            /** Units */
+            units: number;
         } & {
             [key: string]: unknown;
         };
@@ -2375,12 +2643,58 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** RecalcAgreementOut */
+        RecalcAgreementOut: {
+            /** Rows */
+            rows: components["schemas"]["RecalcAgreementRowOut"][];
+            /**
+             * Status
+             * @default agrees
+             * @enum {string}
+             */
+            status: "agrees" | "differs" | "noOutputsMapped" | "noSavedValues";
+        } & {
+            [key: string]: unknown;
+        };
+        /** RecalcAgreementRowOut */
+        RecalcAgreementRowOut: {
+            /** Agrees */
+            agrees: boolean;
+            /** Excelvalue */
+            excelValue: string | number | boolean | null;
+            /** Fieldid */
+            fieldId: string;
+            /** Libreofficevalue */
+            libreOfficeValue: string | number | boolean | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** RecalcCheckRequest */
         RecalcCheckRequest: {
             /** Mappings */
             mappings: {
                 [key: string]: components["schemas"]["MappingEntry"];
             };
+        };
+        /** RefiVsSaleOut */
+        RefiVsSaleOut: {
+            holdThroughRefi: components["schemas"]["RefiVsSaleSideOut"] | null;
+            saleAtStabilization: components["schemas"]["RefiVsSaleSideOut"] | null;
+            /** Warnings */
+            warnings: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** RefiVsSaleSideOut */
+        RefiVsSaleSideOut: {
+            /** Equitymultiple */
+            equityMultiple: number | null;
+            /** Holdyears */
+            holdYears: number;
+            /** Leveredirr */
+            leveredIrr: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** RestoreRequest */
         RestoreRequest: {
@@ -2462,6 +2776,39 @@ export interface components {
             scenarioName: string;
             /** Templateid */
             templateId?: string | null;
+        };
+        /** SearchGroupOut */
+        SearchGroupOut: {
+            /** Items */
+            items: components["schemas"]["SearchItemOut"][];
+            /**
+             * Kind
+             * @default deals
+             * @enum {string}
+             */
+            kind: "deals" | "tenants" | "comps" | "notes";
+        } & {
+            [key: string]: unknown;
+        };
+        /** SearchItemOut */
+        SearchItemOut: {
+            /** Id */
+            id: string;
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SearchOut */
+        SearchOut: {
+            /** Groups */
+            groups: components["schemas"]["SearchGroupOut"][];
+            /** Query */
+            query: string;
+        } & {
+            [key: string]: unknown;
         };
         /** SensitivityDriver */
         SensitivityDriver: {
@@ -2599,6 +2946,32 @@ export interface components {
             reused: boolean;
             /** Sheets */
             sheets: components["schemas"]["SheetMeta"][];
+        };
+        /** TornadoBarOut */
+        TornadoBarOut: {
+            /** High */
+            high: number | null;
+            /** Impact */
+            impact: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Low */
+            low: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** TornadoOut */
+        TornadoOut: {
+            /** Bars */
+            bars: components["schemas"]["TornadoBarOut"][];
+            /** Base */
+            base: number;
+            /** Metric */
+            metric: string;
+        } & {
+            [key: string]: unknown;
         };
         /** TornadoRequest */
         TornadoRequest: {
@@ -2750,7 +3123,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["IntegrationStatusOut"][];
                 };
             };
         };
@@ -2770,7 +3143,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExternalToolsOut"];
                 };
             };
         };
@@ -3097,7 +3470,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["GoalSeekOut"];
                 };
             };
             /** @description Validation Error */
@@ -3126,7 +3499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["GoalSeekInputOut"][];
                 };
             };
         };
@@ -3150,7 +3523,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HoldSweepResponseOut"];
                 };
             };
             /** @description Validation Error */
@@ -3247,7 +3620,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TornadoOut"];
                 };
             };
             /** @description Validation Error */
@@ -4503,7 +4876,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MappingPreviewOut"];
                 };
             };
             /** @description Validation Error */
@@ -4715,7 +5088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PortfolioOut"];
                 };
             };
         };
@@ -5239,7 +5612,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SearchOut"];
                 };
             };
             /** @description Validation Error */
@@ -5422,7 +5795,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RecalcAgreementOut"];
                 };
             };
             /** @description Validation Error */

@@ -4,12 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services import backup_service
-from app.api_models import BackupListingOut
+from app.api_models import BackupListingOut, ExternalToolsOut, IntegrationStatusOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-@router.get("/integrations")
+@router.get("/integrations", response_model=list[IntegrationStatusOut])
 def integration_status():
     """Which optional API keys are configured — FLAGS ONLY, the values never
     leave the server. Feeds the Settings > Integrations panel; every source
@@ -36,7 +36,7 @@ def integration_status():
     ]
 
 
-@router.get("/tools")
+@router.get("/tools", response_model=ExternalToolsOut)
 def external_tools_status():
     """Which optional system programs were found — read-only. Lets the UI
     explain up front why template recalculation / memo PDF / OCR are

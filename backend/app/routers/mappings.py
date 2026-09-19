@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models import MappingProfile, Scenario, Template
 from app.schemas import AutoMatchResult, MappingEntry, MappingProfileIn, MappingProfileOut
 from app.services import mapping_preview, mapping_service
+from app.api_models import MappingPreviewOut
 
 router = APIRouter(prefix="/api/mappings", tags=["mappings"])
 
@@ -50,7 +51,7 @@ class MappingPreviewIn(BaseModel):
     values: dict[str, Any] = {}
 
 
-@router.post("/preview")
+@router.post("/preview", response_model=MappingPreviewOut)
 def preview_mapping(payload: MappingPreviewIn, db: Session = Depends(get_db)):
     """Read-only: where each field's value would land in the template, what
     that cell holds now, and whether Generate would write or skip it. Takes

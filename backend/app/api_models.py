@@ -116,3 +116,200 @@ class ComputeResponseOut(ApiModel):
     debt: DebtBlockOut | None
     irrConvention: str = _enum("periodic_monthly", ["periodic_monthly", "xirr"])
     waterfallStyle: str = _enum("european", ["european", "american"])
+
+
+# ---- admin -----------------------------------------------------------------
+class IntegrationStatusOut(ApiModel):
+    envVar: str
+    label: str
+    configured: bool
+    purpose: str
+
+
+class LibreOfficeStatusOut(ApiModel):
+    available: bool
+    path: str | None
+    enables: list[str]
+
+
+class OcrStatusOut(ApiModel):
+    available: bool
+    enables: list[str]
+
+
+class ExternalToolsOut(ApiModel):
+    libreoffice: LibreOfficeStatusOut
+    ocr: OcrStatusOut
+
+
+# ---- portfolio -------------------------------------------------------------
+class PortfolioTotalsOut(ApiModel):
+    equity: float
+    totalCost: float
+    units: float
+    sf: float
+
+
+class PortfolioStatusBucketOut(PortfolioTotalsOut):
+    status: str
+    count: int
+
+
+class PortfolioTypeBucketOut(PortfolioTotalsOut):
+    dealType: str
+    count: int
+
+
+class MarketExposureOut(ApiModel):
+    market: str
+    equity: float
+
+
+class ClassExposureOut(ApiModel):
+    assetClass: str
+    equity: float
+
+
+class ConcentrationOut(ApiModel):
+    market: str
+    equity: float
+    sharePct: float
+
+
+class PortfolioDealOut(ApiModel):
+    id: str
+    name: str
+    status: str
+    dealType: str
+    market: str
+    assetClass: str
+    equity: float
+    leveredIrr: float | None
+    equityMultiple: float | None
+
+
+class PortfolioExcludedOut(ApiModel):
+    id: str
+    name: str
+    reason: str
+
+
+class PortfolioOut(ApiModel):
+    dealCount: int
+    excludedCount: int
+    totals: PortfolioTotalsOut
+    byStatus: list[PortfolioStatusBucketOut]
+    byDealType: list[PortfolioTypeBucketOut]
+    exposureByMarket: list[MarketExposureOut]
+    exposureByAssetClass: list[ClassExposureOut]
+    blendedLeveredIrr: float | None
+    blendedEquityMultiple: float | None
+    concentration: list[ConcentrationOut]
+    deals: list[PortfolioDealOut]
+    excluded: list[PortfolioExcludedOut]
+
+
+# ---- search ----------------------------------------------------------------
+class SearchItemOut(ApiModel):
+    id: str
+    title: str
+    subtitle: str
+
+
+class SearchGroupOut(ApiModel):
+    kind: str = _enum("deals", ["deals", "tenants", "comps", "notes"])
+    items: list[SearchItemOut]
+
+
+class SearchOut(ApiModel):
+    query: str
+    groups: list[SearchGroupOut]
+
+
+# ---- compute side tools ------------------------------------------------------
+class HoldSweepRowOut(ApiModel):
+    holdYear: float
+    unleveredIrr: float | None
+    leveredIrr: float | None
+    equityMultiple: float | None
+    netProceeds: float | None
+
+
+class HoldSweepOut(ApiModel):
+    rows: list[HoldSweepRowOut]
+    modeledHoldYears: float
+    warnings: list[str]
+
+
+class RefiVsSaleSideOut(ApiModel):
+    holdYears: float
+    leveredIrr: float | None
+    equityMultiple: float | None
+
+
+class RefiVsSaleOut(ApiModel):
+    saleAtStabilization: RefiVsSaleSideOut | None
+    holdThroughRefi: RefiVsSaleSideOut | None
+    warnings: list[str]
+
+
+class HoldSweepResponseOut(ApiModel):
+    sweep: HoldSweepOut
+    refiVsSale: RefiVsSaleOut
+
+
+class TornadoBarOut(ApiModel):
+    key: str
+    label: str
+    low: float | None
+    high: float | None
+    impact: float
+
+
+class TornadoOut(ApiModel):
+    metric: str
+    base: float
+    bars: list[TornadoBarOut]
+
+
+class GoalSeekInputOut(ApiModel):
+    id: str
+    label: str
+    type: str
+
+
+class GoalSeekOut(ApiModel):
+    solvedValue: float | None
+    scannedRange: tuple[float, float]
+    targetInput: str
+    outputMetric: str
+    targetValue: float
+    tolerance: float
+
+
+# ---- templates / mapping -----------------------------------------------------
+class MappingPreviewRowOut(ApiModel):
+    fieldId: str
+    isOutput: bool
+    hasValue: bool
+    status: str = _enum(
+        "unmapped",
+        ["ok", "unitWarning", "blank", "formula", "multiCell", "unresolved", "tableSkips", "unmapped", "output"],
+    )
+    resolvedRef: str | None
+
+
+class MappingPreviewOut(ApiModel):
+    fields: list[MappingPreviewRowOut]
+
+
+class RecalcAgreementRowOut(ApiModel):
+    fieldId: str
+    excelValue: str | float | bool | None
+    libreOfficeValue: str | float | bool | None
+    agrees: bool
+
+
+class RecalcAgreementOut(ApiModel):
+    status: str = _enum("agrees", ["agrees", "differs", "noOutputsMapped", "noSavedValues"])
+    rows: list[RecalcAgreementRowOut]
