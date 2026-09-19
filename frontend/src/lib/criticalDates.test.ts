@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  closingDateOf,
   dateStatus,
   daysUntil,
   readCriticalDates,
@@ -62,5 +63,15 @@ describe('readCriticalDates', () => {
     expect(
       readCriticalDates({ criticalDates: [null, 42, { id: 'a', label: 'x', date: '2026-01-01' }] }),
     ).toHaveLength(1)
+  })
+})
+
+describe('closingDateOf', () => {
+  const row = (label: string, date: string) => ({ id: label, label, date })
+  it('prefers Closing, then Land closing, then any closing label', () => {
+    expect(closingDateOf([row('LOI expiry', '2027-01-01'), row('Closing', '2027-03-15')])).toBe('2027-03-15')
+    expect(closingDateOf([row('Groundbreaking', '2027-06-01'), row('Land closing', '2027-02-01')])).toBe('2027-02-01')
+    expect(closingDateOf([row('Anticipated closing (lender)', '2027-04-30')])).toBe('2027-04-30')
+    expect(closingDateOf([row('DD end', '2027-01-01'), row('Closing', 'soon')])).toBeNull()
   })
 })

@@ -7,6 +7,7 @@ import { fetchBenchmarks, fetchMarketRates, type BenchmarkResult, type MarketRat
 import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
 import { isVisible } from '../lib/visibility'
 import type { InputSchema } from '../types/schema'
+import { closingDateOf, readCriticalDates } from '../lib/criticalDates'
 
 interface DealInputFormProps {
   schema: InputSchema
@@ -66,6 +67,28 @@ function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
         className="rounded border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
       >
         Seed from FRED SOFR ({(sofr * 100).toFixed(2)}%{asOf ? `, ${asOf}` : ''})
+      </button>
+    </div>
+  )
+}
+
+/** Offers the Critical Dates closing as the analysis start (it moves every
+ *  lease date in the model, so it's a one-click suggestion, never automatic). */
+function ClosingDateHint({
+  closing,
+  current,
+  onApply,
+}: {
+  closing: string | null
+  current: string
+  onApply: (date: string) => void
+}) {
+  if (!closing || closing === current) return null
+  return (
+    <div className="-mt-1 mb-2 text-xs text-slate-500">
+      Critical Dates has closing on {closing}.{' '}
+      <button type="button" className="text-sky-700 underline" onClick={() => onApply(closing)}>
+        Use it
       </button>
     </div>
   )
@@ -184,6 +207,13 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                     hideTemplateOnlyNote={allTemplateOnly}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'analysisStartDate' && (
+                    <ClosingDateHint
+                      closing={closingDateOf(readCriticalDates(values))}
+                      current={typeof values.analysisStartDate === 'string' ? values.analysisStartDate : ''}
+                      onApply={(date) => onFieldChange('analysisStartDate', date)}
+                    />
+                  )}
                   {field.id === 'currentIndexPct' && (
                     <SofrSeed onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
                   )}
