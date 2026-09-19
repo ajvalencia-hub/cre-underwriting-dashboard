@@ -1,7 +1,7 @@
 // App-wide transient notices (saved files, failed actions). A tiny pub/sub
 // so any module can raise one without prop-drilling; <Toaster/> renders them.
 
-import type { SaveResult } from './platform'
+import { fileBrowserLabel, type SaveResult } from './platform'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -61,7 +61,7 @@ export function toastSaved(
   actions: { reveal: (path: string) => void; open: (path: string) => void },
 ): void {
   if (result.status === 'saved') {
-    const name = result.path.split('/').pop() ?? result.path
+    const name = result.path.split(/[\/]/).pop() ?? result.path
     showToast(
       {
         kind: 'success',
@@ -69,7 +69,7 @@ export function toastSaved(
         detail: result.path,
         actions: [
           { label: 'Open', run: () => actions.open(result.path) },
-          { label: 'Show in Finder', run: () => actions.reveal(result.path) },
+          { label: `Show in ${fileBrowserLabel()}`, run: () => actions.reveal(result.path) },
         ],
       },
       10000,

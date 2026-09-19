@@ -18,7 +18,7 @@ import {
   type ExternalToolsStatus,
   type IntegrationStatus,
 } from '../lib/api'
-import { isDesktop, openExternal, type UpdateCheckResult } from '../lib/platform'
+import { isDesktop, openExternal, secretStoreLabel, type UpdateCheckResult } from '../lib/platform'
 import { checkForUpdates, describeUpdateCheck, setUpdateChecks } from '../lib/updateCheck'
 import { useDesktopSettings } from '../lib/useDesktopSettings'
 import { loadThemePref, setThemePref, type ThemePref } from '../lib/uiPrefs'
@@ -466,7 +466,7 @@ function SettingsPage({ active }: SettingsPageProps) {
         {desktop ? (
           <p className="mt-3 text-[11px] text-slate-400">
             All optional — every source degrades gracefully when unset. Keys are stored in
-            your macOS Keychain, never in a file, and are never shown again after saving.
+            your {secretStoreLabel()}, never in a file, and are never shown again after saving.
           </p>
         ) : (
           <p className="mt-3 text-[11px] text-slate-400">

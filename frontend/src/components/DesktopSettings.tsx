@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ExternalToolsStatus, IntegrationStatus } from '../lib/api'
-import { desktopApi, openExternal, type DesktopSettings } from '../lib/platform'
+import { desktopApi, openExternal, secretStoreLabel, type DesktopSettings } from '../lib/platform'
 import { toastError } from '../lib/toast'
 
 const LIBREOFFICE_DOWNLOAD = 'https://www.libreoffice.org/download/download-libreoffice/'
@@ -54,7 +54,7 @@ export function KeychainKeyRow({
   // (which is what the next launch will use).
   const status = stored
     ? item.configured
-      ? { text: 'saved in Keychain', cls: 'text-emerald-600' }
+      ? { text: `saved in ${secretStoreLabel().replace(/^(macOS|Windows) /, '')}`, cls: 'text-emerald-600' }
       : { text: 'saved — restart to apply', cls: 'text-amber-600' }
     : item.configured
       ? { text: 'removed — restart to apply', cls: 'text-amber-600' }

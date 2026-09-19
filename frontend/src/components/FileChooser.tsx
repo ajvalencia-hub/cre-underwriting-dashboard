@@ -25,7 +25,7 @@ export interface FileChooserHandle {
 
 /**
  * Browser: exactly the previous <input type="file">. Desktop app: a button
- * that opens the native macOS Open dialog. Either way the caller gets File[].
+ * that opens the native Open dialog (macOS or Windows). Either way the caller gets File[].
  */
 const FileChooser = forwardRef<FileChooserHandle, FileChooserProps>(function FileChooser(
   { accept, multiple, disabled, description, label, className, hidden, onFiles },
