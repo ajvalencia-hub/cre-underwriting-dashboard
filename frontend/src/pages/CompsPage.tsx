@@ -13,6 +13,7 @@ import {
 import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import FileChooser from '../components/FileChooser'
+import { formatMoney } from '../lib/money'
 
 const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
 const VIEWPORT_HEIGHT = 480
@@ -79,7 +80,7 @@ interface CompsPageProps {
 }
 
 const money = (v: number | null | undefined) =>
-  typeof v === 'number' ? `$${Math.round(v).toLocaleString()}` : '—'
+  typeof v === 'number' ? formatMoney(v) : '—'
 const pct = (v: number | null | undefined) =>
   typeof v === 'number' ? `${(v * 100).toFixed(2)}%` : '—'
 const text = (v: string | null | undefined) => (v ? v : '—')

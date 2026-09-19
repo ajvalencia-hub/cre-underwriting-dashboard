@@ -3,12 +3,13 @@ import { fetchPortfolio, type PortfolioRollup } from '../lib/api'
 import { STAGE_LABELS } from '../lib/dealStages'
 import type { DealStatus } from '../types/deal'
 import ServerFileLink from '../components/ServerFileLink'
+import { formatMoney } from '../lib/money'
 
 interface PortfolioPageProps {
   active: boolean
 }
 
-const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
+const fmtMoney = (v: number) => formatMoney(v)
 const fmtPct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
 const fmtX = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}x`)
 

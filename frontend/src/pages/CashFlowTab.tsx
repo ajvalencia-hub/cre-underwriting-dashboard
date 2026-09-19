@@ -15,6 +15,7 @@ import {
 } from '../lib/cashflowStatement'
 import { saveOutput, textBlob } from '../lib/saveOutput'
 import { toastError } from '../lib/toast'
+import { formatMoney } from '../lib/money'
 
 interface CashFlowTabProps {
   statement: Statement | null
@@ -29,7 +30,7 @@ interface CashFlowTabProps {
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`)
 const mult = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
 const money = (v: number | null | undefined) =>
-  v == null ? '—' : `$${Math.round(v).toLocaleString()}`
+  v == null ? '—' : formatMoney(v)
 
 function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
   const rows = response.sweep.rows

@@ -1,9 +1,10 @@
 import type { InputField } from '../types/schema'
+import { formatMoney } from './money'
 
 /** A bound in the units the user types: 0.25 on a percent field is "25%". */
 function formatBound(field: InputField, bound: number): string {
   if (field.type === 'percent') return `${+(bound * 100).toFixed(4)}%`
-  if (field.type === 'currency') return `$${bound.toLocaleString('en-US')}`
+  if (field.type === 'currency') return formatMoney(bound, { round: false })
   return bound.toLocaleString('en-US')
 }
 

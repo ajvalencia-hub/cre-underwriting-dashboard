@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchMarketContext, type BenchmarkResult, type BenchmarkVerdict } from '../lib/api'
 import DemographicsPanel from './DemographicsPanel'
 import type { DataSection, MarketContext } from '../types/marketContext'
+import { formatMoney } from '../lib/money'
 
 interface MarketContextPanelProps {
   market: string
@@ -80,7 +81,7 @@ function pct(v: number): string {
 }
 
 function money(v: number): string {
-  return `$${Math.round(v).toLocaleString()}`
+  return formatMoney(v)
 }
 
 type FieldFormat = 'percent' | 'money' | 'text'

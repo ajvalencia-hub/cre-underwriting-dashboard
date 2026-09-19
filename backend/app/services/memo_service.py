@@ -20,6 +20,7 @@ from docx.shared import Inches, Pt, RGBColor
 
 from app.config import FIRM_NAME, MEMO_BRAND_COLOR
 from app.services import memo_charts
+from app.services.money_format import money
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "data" / "input_schema.json"
 _OUTPUT_META: dict[str, dict] = {
@@ -65,7 +66,7 @@ def format_value(value, value_type: str) -> str:
     if value is None:
         return "—"
     if value_type == "currency":
-        return f"${value:,.0f}"
+        return money(value)
     if value_type == "percent":
         return f"{value * 100:.2f}%"
     if value_type == "multiple":

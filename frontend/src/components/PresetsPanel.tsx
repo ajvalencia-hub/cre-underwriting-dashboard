@@ -9,6 +9,7 @@ import {
 import { presetDiff, selectedChanges, type PresetDiffRow } from '../lib/presetDiff'
 import { flattenFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
+import { formatMoney } from '../lib/money'
 
 interface PresetsPanelProps {
   schema: InputSchema
@@ -19,7 +20,7 @@ interface PresetsPanelProps {
 function formatValue(v: unknown, type: string | undefined): string {
   if (v === undefined || v === null || v === '') return '—'
   if (typeof v === 'number' && type === 'percent') return `${(v * 100).toFixed(2)}%`
-  if (typeof v === 'number' && type === 'currency') return `$${v.toLocaleString()}`
+  if (typeof v === 'number' && type === 'currency') return formatMoney(v, { round: false })
   return String(v)
 }
 

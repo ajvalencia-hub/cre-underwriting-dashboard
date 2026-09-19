@@ -13,6 +13,7 @@ import type { OutputMetric, InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { SensitivityPoint } from '../types/sensitivity'
 import type { TemplateSummary } from '../types/template'
+import { formatMoney } from '../lib/money'
 
 interface SensitivityPanelProps {
   schema: InputSchema
@@ -44,7 +45,7 @@ function toRawValue(field: FlatField | undefined, display: number): number {
 
 function formatDriverValue(field: FlatField | undefined, raw: number): string {
   if (field?.type === 'percent') return `${(raw * 100).toFixed(2)}%`
-  if (field?.type === 'currency') return `$${raw.toLocaleString()}`
+  if (field?.type === 'currency') return formatMoney(raw, { round: false })
   return raw.toLocaleString()
 }
 

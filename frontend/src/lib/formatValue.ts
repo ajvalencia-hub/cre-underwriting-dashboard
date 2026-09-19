@@ -1,5 +1,6 @@
 import type { FlatField } from './schemaFields'
 import type { OutputMetric } from '../types/schema'
+import { formatMoney } from './money'
 
 export function formatOutputValue(metric: OutputMetric, value: unknown): string {
   if (value === undefined || value === null || value === '') return '—'
@@ -12,7 +13,7 @@ export function formatOutputValue(metric: OutputMetric, value: unknown): string 
     case 'percent':
       return `${(num * 100).toFixed(2)}%`
     case 'currency':
-      return `$${Math.round(num).toLocaleString()}`
+      return formatMoney(num)
     case 'multiple':
       return `${num.toFixed(2)}x`
     case 'years':
@@ -30,7 +31,7 @@ export function formatValue(field: FlatField | undefined, value: unknown): strin
 
   switch (field.type) {
     case 'currency':
-      return `$${Number(value).toLocaleString()}`
+      return formatMoney(Number(value), { round: false })
     case 'percent':
       return `${(Number(value) * 100).toFixed(2)}%`
     case 'boolean':

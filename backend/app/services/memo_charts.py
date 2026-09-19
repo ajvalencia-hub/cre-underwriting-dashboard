@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 
 from app.config import MEMO_BRAND_COLOR
+from app.services.money_format import money
 
 _BRAND = f"#{MEMO_BRAND_COLOR}"
 _DPI = 150
@@ -90,7 +91,7 @@ def annual_cashflow_bars(statement: dict | None) -> bytes | None:
     ax.axhline(0, color="#94a3b8", linewidth=0.8)
     ax.set_title("Levered cash flow by year", fontsize=9)
     ax.tick_params(labelsize=7)
-    ax.yaxis.set_major_formatter(lambda v, _: f"${v / 1000:,.0f}k")
+    ax.yaxis.set_major_formatter(lambda v, _: money(v / 1000, "{:,.0f}k"))
     return _to_png(fig)
 
 
@@ -110,7 +111,7 @@ def sources_uses_bars(sources_and_uses: dict | None) -> bytes | None:
         ax.set_title(title, fontsize=9)
         ax.tick_params(labelsize=6.5)
         ax.invert_yaxis()
-        ax.xaxis.set_major_formatter(lambda v, _: f"${v / 1e6:,.1f}M")
+        ax.xaxis.set_major_formatter(lambda v, _: money(v / 1e6, "{:,.1f}M"))
     fig.tight_layout()
     return _to_png(fig)
 
@@ -142,7 +143,7 @@ def demographics_bars(demographics: dict | None) -> bytes | None:
         ax.set_xticks([])
         pretty = (
             f"{value * 100:.0f}%" if "%" in label
-            else f"${value:,.0f}" if "income" in label or "rent" in label.lower()
+            else money(value) if "income" in label or "rent" in label.lower()
             else f"{value:,.0f}"
         )
         ax.annotate(pretty, xy=(value, 0), xytext=(4, 0), textcoords="offset points",

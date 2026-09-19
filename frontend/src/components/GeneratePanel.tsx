@@ -17,6 +17,7 @@ import { fieldIdFromMissing, goToField } from '../lib/goToField'
 import { saveOutput } from '../lib/saveOutput'
 import type { ComputeFailure, NativeResult } from '../lib/useComputeResults'
 import type { TemplateSummary } from '../types/template'
+import { formatMoney } from '../lib/money'
 
 interface GeneratePanelProps {
   schema: InputSchema
@@ -37,7 +38,7 @@ interface GeneratePanelProps {
   onCompute: () => void
 }
 
-const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
+const fmtMoney = (v: number) => formatMoney(v)
 
 /** J5: tiny inline sparkline of the floating loan's all-in monthly rate. */
 function RateSparkline({ rates }: { rates: number[] }) {

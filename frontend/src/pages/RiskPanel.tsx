@@ -11,6 +11,7 @@ import {
 import { visibleFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
+import { formatMoney } from '../lib/money'
 
 interface RiskPanelProps {
   schema: InputSchema
@@ -48,7 +49,7 @@ function defaultDriver(path: string, values: Record<string, unknown>): McDriver 
 
 const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`
 const fmtX = (v: number) => `${v.toFixed(2)}x`
-const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
+const fmtMoney = (v: number) => formatMoney(v)
 
 function Histogram({ bins }: { bins: { lo: number; hi: number; count: number }[] }) {
   const max = Math.max(...bins.map((b) => b.count), 1)

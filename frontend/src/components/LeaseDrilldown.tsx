@@ -7,12 +7,13 @@ import {
 } from '../lib/leaseSlice'
 import { saveOutput, textBlob } from '../lib/saveOutput'
 import { toastError } from '../lib/toast'
+import { formatMoney } from '../lib/money'
 
 interface LeaseDrilldownProps {
   perLease: LeaseSlice[]
 }
 
-const money = (v: number) => `$${Math.round(v).toLocaleString()}`
+const money = (v: number) => formatMoney(v)
 
 function downloadCsv(slice: LeaseSlice, mode: 'monthly' | 'annual') {
   const filename = `lease-${slice.suiteId}-${mode}.csv`

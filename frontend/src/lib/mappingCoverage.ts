@@ -3,6 +3,7 @@
 // which mirrors exactly what generation writes or skips.
 
 import type { MappingPreviewRow, PreviewStatus } from '../types/mappingPreview'
+import { withDollar } from './money'
 
 export type Tone = 'ok' | 'warn' | 'error' | 'muted' | 'info'
 
@@ -147,7 +148,7 @@ export function formatCellValue(value: unknown, numberFormat?: string): string {
     maximumFractionDigits: decimals,
     useGrouping: grouped,
   })
-  return fmt.includes('$') ? `$${text}` : text
+  return fmt.includes('$') ? withDollar(text) : text
 }
 
 export interface GenerateCheckResult {
