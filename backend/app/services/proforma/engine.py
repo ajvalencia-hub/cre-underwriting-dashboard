@@ -161,7 +161,13 @@ def compute(inputs: dict) -> dict:
     inputs, input_warnings, input_errors = input_validation.validate_inputs(inputs)
     if input_errors:
         raise InsufficientInputsError(input_errors)
-    with analysis_calendar(start):
+    # [FIN] Growth during construction (roadmap #23, opt-in): development
+    # rents/expenses normally start growing at delivery (flat through the
+    # build — conservative); growDuringConstruction trends them from close.
+    growth_offset = 0
+    if inputs.get("dealType") == "development" and inputs.get("growDuringConstruction"):
+        growth_offset = int(_num(inputs, "constructionMonths"))
+    with analysis_calendar(start), operations.growth_clock_offset(growth_offset):
         result = _compute(inputs)
     result["warnings"][:0] = ([start_warning] if start_warning else []) + input_warnings
     return result
@@ -976,6 +982,13 @@ def _compute(inputs: dict) -> dict:
         yoc_noi = post_reno_noi - (in_place_stabilized_noi - stabilized_noi)
     yield_on_cost = yoc_noi / total_cost_basis if total_cost_basis > 0 else None
     put("yieldOnCost", yield_on_cost)
+    # Trended yield on cost: the first 12 stabilized months of the modeled
+    # NOI (with growth) over the same basis — shown next to the untrended
+    # figure above so the convention is explicit (roadmap #23).
+    stab_index = timeline.stabilization_month - 1
+    trended_window = ops["noi"][stab_index : stab_index + 12]
+    if total_cost_basis > 0 and len(trended_window) == 12:
+        put("trendedYieldOnCost", sum(trended_window) / total_cost_basis)
     # Per-component yield on cost (H2): basis allocated pro-rata to component
     # value at the component caps (blended cap when unset). See DECISIONS.md.
     if components and total_cost_basis > 0 and total >= 1:

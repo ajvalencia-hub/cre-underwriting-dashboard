@@ -24,6 +24,7 @@
   "stabilizedCashOnCash": 0.063,
   "terminalValue": 7844516.129032257,
   "totalProfit": 2364516.129032257,
+  "trendedYieldOnCost": 0.063,
   "unleveredEquityMultiple": 1.2955645161290323,
   "unleveredIrr": 0.06131262015552719,
   "yieldOnCost": 0.063

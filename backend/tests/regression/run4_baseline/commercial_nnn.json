@@ -118,6 +118,7 @@
   "stressedDscr": 1.7035436766745362,
   "terminalValue": 3750000.0,
   "totalProfit": 1635000.0,
+  "trendedYieldOnCost": 0.1,
   "unleveredEquityMultiple": 1.725,
   "unleveredIrr": 0.1402966634108227,
   "yieldOnCost": 0.1

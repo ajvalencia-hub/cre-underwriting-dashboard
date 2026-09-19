@@ -169,6 +169,15 @@ stated reason.
   budget) and as loan draws (the engine's funding order decides those).
   The Excel export refuses a custom schedule (its Draws sheet mirrors the
   S-curve). Blank = S-curve; baseline unchanged.
+- **[FIN] Trended vs untrended yield on cost; optional growth during
+  construction** (roadmap #23). yieldOnCost stays untrended (today's rents,
+  the sizing view) and is now labelled so; `trendedYieldOnCost` is the
+  first 12 stabilized months of the modeled NOI (with growth, after
+  reserves) over the same basis. Development rents/expenses still start
+  growing at delivery by default (flat through the build — conservative);
+  `growDuringConstruction` (development only) trends them from close,
+  implemented as an offset on the single growth-clock helper, set per
+  compute like the analysis calendar. Baseline: key-only additions.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

@@ -17,6 +17,8 @@ Conventions (see DECISIONS.md):
   convention of underwriting NOI net of reserves).
 """
 
+import contextvars
+from contextlib import contextmanager
 from app.services.proforma import leases
 from app.services.proforma.timeline import Timeline, analysis_epoch
 
@@ -118,8 +120,24 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
     return gpr, other, "grossPotentialRent", warnings
 
 
+# Months already elapsed on the growth clock at operating month 1. 0 = growth
+# starts at delivery (the default: development rents are flat through the
+# build); a development can opt to grow from closing (growDuringConstruction),
+# which sets this to its construction months for the compute in progress.
+_growth_offset: contextvars.ContextVar[int] = contextvars.ContextVar("growth_offset", default=0)
+
+
+@contextmanager
+def growth_clock_offset(months: int):
+    token = _growth_offset.set(max(0, int(months)))
+    try:
+        yield
+    finally:
+        _growth_offset.reset(token)
+
+
 def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
-    return (1 + annual_growth) ** ((month_1_based - 1) // 12)
+    return (1 + annual_growth) ** ((month_1_based - 1 + _growth_offset.get()) // 12)
 
 
 # Detail-mode (H3) category ids -> the statement's legacy category keys, so

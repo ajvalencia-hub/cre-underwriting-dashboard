@@ -25,7 +25,7 @@
     { "id": "paybackPeriodYears", "label": "Payback Period", "type": "years", "group": "Returns" },
 
     { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
-    { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
+    { "id": "yieldOnCost", "label": "Yield on Cost (untrended — today's rents)", "type": "percent", "group": "Yield & Value" },
     { "id": "postRenoAvgRent", "label": "Post-Reno Avg Rent (unit/mo)", "type": "currency", "group": "Yield & Value" },
     { "id": "year1LossToLease", "label": "Year-1 Loss to Lease", "type": "currency", "group": "Yield & Value" },
     { "id": "gpFeesTotal", "label": "GP Fees (acq + dev + AM)", "type": "currency", "group": "Returns" },
@@ -44,6 +44,7 @@
 
     { "id": "minDscr", "label": "Min DSCR (lowest loan year)", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "minMonthlyDscr", "label": "Min Monthly DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "trendedYieldOnCost", "label": "Yield on Cost (trended — first stabilized year, with growth)", "type": "percent", "group": "Yield & Value" },
     { "id": "goingInDebtYield", "label": "Going-In Debt Yield (year-1 NOI)", "type": "percent", "group": "Debt & Leverage" },
     { "id": "avgDscr", "label": "Avg DSCR", "type": "multiple", "group": "Debt & Leverage" },
     { "id": "debtYield", "label": "Debt Yield (stabilized NOI)", "type": "percent", "group": "Debt & Leverage" },
@@ -297,6 +298,7 @@
         { "id": "contingencyPct", "label": "Contingency", "type": "percent", "min": 0, "max": 0.3, "default": 0.05 },
         { "id": "developerFeePct", "label": "Developer Fee", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
         { "id": "constructionMonths", "label": "Construction Period (mo)", "type": "number", "min": 0, "max": 96 },
+        { "id": "growDuringConstruction", "label": "Grow rents & expenses from closing (not from delivery)", "type": "boolean", "default": false },
         { "id": "leaseUpMonths", "label": "Lease-Up / Absorption Period (mo)", "type": "number", "min": 0, "max": 60 },
         { "id": "stabilizationMonth", "label": "Stabilization Month", "type": "number", "min": 0, "max": 120 },
         { "id": "constructionDrawSchedule", "label": "Construction Draw Schedule (monthly spend; blank = S-curve)", "type": "table",
