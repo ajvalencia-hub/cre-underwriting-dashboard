@@ -44,7 +44,7 @@ def get_db():
 # (roadmap #21): a build refuses a database written by a newer build instead
 # of silently opening it, and an existing database is backed up before it
 # is migrated to a newer version.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseTooNewError(RuntimeError):
@@ -112,6 +112,35 @@ def _run_migration_steps(eng) -> None:
     _migrate_deals_status(eng)
     _migrate_documents_deal_id(eng)
     _migrate_search_indexes(eng)
+    # Schema version 2 (Run 6 port): archive + tags. The agent_* tables need
+    # no step — create_all adds them.
+    _migrate_deals_archived_at(eng)
+    _migrate_deals_tags(eng)
+
+
+def _migrate_deals_tags(eng) -> None:
+    """Deals gained a JSON `tags` list (Run 6). Existing rows get []."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "tags" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN tags JSON DEFAULT '[]'"))
+        conn.execute(text("UPDATE deals SET tags = '[]' WHERE tags IS NULL"))
+
+
+def _migrate_deals_archived_at(eng) -> None:
+    """Deals gained a nullable archived_at (Run 6 soft delete)."""
+    inspector = inspect(eng)
+    if "deals" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("deals")}
+    if "archived_at" in columns:
+        return
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE deals ADD COLUMN archived_at DATETIME"))
 
 
 def _migrate_search_indexes(eng) -> None:
@@ -301,11 +330,15 @@ def _backfill_orphan_scenarios_onto_default_deal(eng) -> None:
             deal_columns = {c["name"] for c in inspector.get_columns("deals")}
             status_col = ", status" if "status" in deal_columns else ""
             status_val = ", 'screening'" if "status" in deal_columns else ""
+            # Same probe for tags (Run 6): a Run-6-built table has it NOT NULL
+            # with no DB default.
+            tags_col = ", tags" if "tags" in deal_columns else ""
+            tags_val = ", '[]'" if "tags" in deal_columns else ""
             conn.execute(
                 text(
                     "INSERT INTO deals (id, name, inputs, active_template_id, active_mapping_profile_id, created_at, updated_at"
-                    f"{status_col}) "
-                    f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val})"
+                    f"{status_col}{tags_col}) "
+                    f"VALUES (:id, 'Default Deal', '{{}}', NULL, NULL, :now, :now{status_val}{tags_val})"
                 ),
                 {"id": default_deal_id, "now": now},
             )

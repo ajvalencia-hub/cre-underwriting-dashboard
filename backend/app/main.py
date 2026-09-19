@@ -1,11 +1,14 @@
 import logging
 import os
+import re
 import time
 import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app import auth
 from app.config import CORS_ORIGINS
 from app.database import Base, SessionLocal, engine, prepare_migrations, run_migrations
 from app.routers import (
@@ -31,6 +34,9 @@ from app.routers import (
     search,
     sensitivity,
     templates,
+)
+from app.routers import (
+    auth as auth_router,
 )
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
@@ -58,12 +64,35 @@ if os.environ.get("CRE_ENABLE_BACKUP_SCHEDULER") == "1":
 app = FastAPI(title="CRE Underwriting Dashboard API")
 
 
+# Starlette runs the LAST-registered middleware outermost, so this gate is
+# registered before request_id_middleware: the request-id layer wraps it and
+# a 401 is still logged and echoed with its id (and gets nosniff).
+@app.middleware("http")
+async def api_token_middleware(request: Request, call_next):
+    """Optional CRE_API_TOKEN gate (app/auth.py). A no-op when the token is
+    unset (the default, and the desktop app, whose launcher already gates
+    every request with a per-launch cookie — the two gates are
+    complementary). When set: health, the auth routes and the static SPA
+    stay public; everything else under /api needs the token or the session
+    cookie."""
+    if not auth.is_public_path(request.url.path) and not auth.is_authorized(request):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "API token required"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """H13: every request gets an id (client-supplied X-Request-ID honored),
     logged with method/path/status/duration and echoed on the response so a
     UI error report can be matched to its server-side line."""
-    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    supplied = request.headers.get("X-Request-ID") or ""
+    # Client ids are echoed into logs: keep them short and free of separators
+    # so a crafted header can't forge log lines.
+    request_id = re.sub(r"[^A-Za-z0-9._-]", "", supplied)[:64] or uuid.uuid4().hex[:12]
     start = time.perf_counter()
     try:
         response = await call_next(request)
@@ -97,9 +126,12 @@ app.add_middleware(
         "X-Generation-Outputs",
         "X-Deck-Skipped",
         "Content-Disposition",
+        "ETag",
+        "Retry-After",
     ],
 )
 
+app.include_router(auth_router.router)
 app.include_router(schema.router)
 app.include_router(deals.router)
 app.include_router(ic.router)

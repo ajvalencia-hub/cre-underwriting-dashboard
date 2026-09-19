@@ -24,6 +24,26 @@ for d in (TEMPLATES_DIR, GENERATED_DIR, DOCUMENTS_DIR, DB_DIR, BACKUPS_DIR):
 DATA_DIR = BACKEND_ROOT / "app" / "data"
 INPUT_SCHEMA_PATH = DATA_DIR / "input_schema.json"
 
+# Optional shared API token (see app/auth.py). Unset = no gate. Set it when
+# the API is reachable beyond localhost. The desktop app does not need it:
+# its launcher gates every request with a per-launch cookie.
+CRE_API_TOKEN = os.environ.get("CRE_API_TOKEN", "").strip()
+
+
+# Run 6: per-route token bucket for the routes that fan out to external
+# public-data APIs (FRED, Census, Nominatim, ...). Requests per minute per
+# route; 0 disables the gate. Read at REQUEST time by
+# services/rate_limit.py so tests can monkeypatch it.
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+CRE_EXTERNAL_RATE_LIMIT_PER_MIN = _int_env("CRE_EXTERNAL_RATE_LIMIT_PER_MIN", 60)
+
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -57,3 +77,18 @@ ANTHROPIC_CLASSIFIER_MODEL = os.environ.get("ANTHROPIC_CLASSIFIER_MODEL", "claud
 # Structured extraction is a harder task than classification, so it defaults
 # to a stronger model.
 ANTHROPIC_EXTRACTION_MODEL = os.environ.get("ANTHROPIC_EXTRACTION_MODEL", "claude-sonnet-5")
+
+# OpenAI API — optional, billed usage. Only used by the Underwriting Agent
+# (see app/services/agent/) when AGENT_PROVIDER=openai. Degrades the same
+# way the Anthropic key does: missing key -> agent reports itself as
+# unavailable rather than erroring.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_AGENT_MODEL = os.environ.get("OPENAI_AGENT_MODEL", "gpt-5.1")
+
+# Underwriting Agent — which provider drives the agent chat by default for
+# a new thread ("anthropic" | "openai"; "scripted" is the deterministic
+# e2e stub and is only ever set by the Playwright config). Both adapters
+# are implemented; this just picks which one is live. The per-thread
+# provider can be switched from the UI without a restart.
+AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "anthropic")
+ANTHROPIC_AGENT_MODEL = os.environ.get("ANTHROPIC_AGENT_MODEL", "claude-sonnet-5")
