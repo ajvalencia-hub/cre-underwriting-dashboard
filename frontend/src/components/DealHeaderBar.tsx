@@ -3,6 +3,8 @@ import FileChooser, { type FileChooserHandle } from './FileChooser'
 import type { AutosaveState } from '../lib/dealPersistence'
 import { dateStatus, readCriticalDates, sortByDate } from '../lib/criticalDates'
 import { dealTypeOf, type DealType } from '../lib/dealStages'
+import type { IcState } from '../lib/api'
+import { IC_STATE_LABELS, IC_STATE_STYLES } from '../lib/icWorkflow'
 import type { Deal } from '../types/deal'
 
 const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
@@ -21,6 +23,9 @@ interface Props {
   /** The saved scenario the inputs were loaded from, if any. */
   loadedScenario: { name: string; modified: boolean } | null
   autosaveState: AutosaveState
+  /** Investment-committee state; draft shows nothing. */
+  icState: IcState | null
+  onOpenIc: () => void
   onSwitchDeal: (dealId: string) => void
   /** Resolves true when the name was saved (the rename box then closes). */
   onRename: (name: string) => Promise<boolean>
@@ -41,6 +46,8 @@ export default function DealHeaderBar({
   values,
   loadedScenario,
   autosaveState,
+  icState,
+  onOpenIc,
   onSwitchDeal,
   onRename,
   onNewDeal,
@@ -120,6 +127,15 @@ export default function DealHeaderBar({
         >
           {type === 'development' ? 'DEV' : 'ACQ'}
         </span>
+      )}
+      {icState && icState !== 'draft' && (
+        <button
+          onClick={onOpenIc}
+          title="Investment committee — open the IC Approval tab"
+          className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${IC_STATE_STYLES[icState]}`}
+        >
+          {IC_STATE_LABELS[icState]}
+        </button>
       )}
       <div className="relative">
         <button

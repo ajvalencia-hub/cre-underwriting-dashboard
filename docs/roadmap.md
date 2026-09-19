@@ -71,7 +71,7 @@ DECISIONS.md under "Engine audit fixes".
 | 25 | **Hotel model** (keys, ADR, occupancy, departmental and undistributed expenses, FF&E) | The inputs already exist and are labelled template-only | L |
 | 26 | **For-sale / build-to-sell** (homes, absorption, sale price) | The inputs already exist; needs a sales-absorption cash-flow engine | L |
 | 27 | **Market leasing profiles per tenant or space type** | ARGUS-style market leasing assumptions; today there is one global rollover profile | M–L |
-| 28 | **Investment committee workflow** | Approvals, sign-off, change log with reasons, several users (Dealpath and Rockport VAL audit trail) | L |
+| 28 | ~~**Investment committee workflow**~~ **Done, local sign-off** (74e4cbe and the UI commit) | Approvals, sign-off, change log with reasons, several users (Dealpath and Rockport VAL audit trail) | L |
 | 29 | **Market data feeds for comps** | CoStar, CompStak or MSCI integrations; licensing-dependent | L |
 | 30 | ~~**⌘K for fields, tabs and actions**~~ **Done** | Linear-style: Compute, Generate, or jump to any field | M |
 | 31 | **Signing, notarization and auto-update for the desktop app** | Previously out of scope; needed before wider distribution (Developer ID with hardened runtime, then Sparkle) | L |

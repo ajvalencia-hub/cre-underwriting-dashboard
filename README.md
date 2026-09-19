@@ -210,7 +210,9 @@ value-add multifamily fixture):
 - **Workflow.** An **OM-to-deal wizard** (upload → confirm types → extract →
   the existing review gate → a new deal with provenance rows; resumable
   draft), **critical dates** (deadline strip + header chips + share),
-  a **file cabinet + notes** timeline per deal, a **command palette** (Cmd+K:
+  an **investment-committee sign-off** (submit with the computed version,
+  approvals by name, reasons to reject / return / reopen, locked inputs while
+  under review), a **file cabinet + notes** timeline per deal, a **command palette** (Cmd+K:
   run Compute and other actions, jump to any tab or Deal Inputs field, and
   search deals / tenants / comps / notes), a **full 8-slide IC deck**, a
   **portfolio roll-up** (equity-weighted blended returns, exposure and

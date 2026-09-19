@@ -27,7 +27,9 @@ import {
   fetchTemplate,
   importDeal,
   updateDeal,
+  fetchIc,
   type DealExportBundle,
+  type IcSummary,
 } from './lib/api'
 import {
   ACTIVE_DEAL_STORAGE_KEY,
@@ -67,6 +69,8 @@ import ModuleNav from './components/ModuleNav'
 import DealHeaderBar from './components/DealHeaderBar'
 import DealImportNotices from './components/DealImportNotices'
 import { buildPaletteCommands } from './app/paletteCommands'
+import { isLockedField } from './lib/icWorkflow'
+import IcApprovalPage from './pages/IcApprovalPage'
 
 type LoadState =
   | { status: 'loading' }
@@ -99,6 +103,11 @@ function App() {
   const [sharedFromLink, setSharedFromLink] = useState<SharedScreen | null>(null)
   // The saved scenario the working inputs were loaded from (header chip).
   const [loadedScenario, setLoadedScenario] = useState<{ name: string; key: string } | null>(null)
+  // Roadmap #28: the active deal's investment-committee record. While it's
+  // locked the server refuses underwriting-input changes, so the UI doesn't
+  // make any (an autosave it refused would retry forever).
+  const [ic, setIc] = useState<IcSummary | null>(null)
+  const icLocked = ic?.locked ?? false
   // J7: which sidebar metric the Goal Seek modal is open for.
   const [goalSeekMetric, setGoalSeekMetric] = useState<OutputMetric | null>(null)
   // J10: OM-to-deal wizard visibility.
@@ -317,6 +326,32 @@ function App() {
     return ok
   }
 
+  useEffect(() => {
+    setIc(null)
+    if (!activeDealId) return
+    let current = true
+    fetchIc(activeDealId)
+      .then((summary) => {
+        if (current) setIc(summary)
+      })
+      .catch((err) => toastError("Couldn't load this deal's investment-committee record", err))
+    return () => {
+      current = false
+    }
+  }, [activeDealId])
+
+  /** True (after saying why) when a change would touch underwriting inputs
+   *  the investment committee has locked. */
+  function blockedByIcLock(fieldIds: string[]): boolean {
+    if (!icLocked || !fieldIds.some(isLockedField)) return false
+    showToast({
+      kind: 'error',
+      message: 'Inputs are locked for the investment committee',
+      detail: 'Reopen the deal with a reason on the IC Approval tab to change them.',
+    })
+    return true
+  }
+
   // Only the most recent switch applies: picking two deals in quick
   // succession used to open whichever fetch finished last.
   const switchRequestRef = useRef(0)
@@ -526,6 +561,7 @@ function App() {
   /** Apply napkin values to the full form — after confirming any field that
    *  already holds a different value (it used to be overwritten silently). */
   function sendToDealInputs(patch: Record<string, unknown>) {
+    if (blockedByIcLock(Object.keys(patch))) return
     if (!confirmInputChanges(patch, 'Sending the Quick Screen', false)) return
     applyFromSource(patch, sameSourceFor(Object.keys(patch), { source: 'quickScreen', at: new Date().toISOString() }))
     setTab('dashboard')
@@ -537,6 +573,7 @@ function App() {
     // Over the schema defaults, like a deal load: a scenario saved before a
     // field existed shouldn't clear that field's default.
     const next = state.status === 'ready' ? { ...defaultValuesFor(state.schema), ...inputs } : inputs
+    if (blockedByIcLock(Object.keys(next))) return
     if (!confirmInputChanges(next, `Loading scenario "${name}"`, true)) return
     setFormValues(next)
     setLoadedScenario({ name, key: inputsKey(next) })
@@ -599,12 +636,14 @@ function App() {
   /** A user edit: the value is now theirs, so any "filled by the app"
    *  marker on the field goes. */
   function handleFieldChange(fieldId: string, value: unknown) {
+    if (blockedByIcLock([fieldId])) return
     setFormValues((prev) => clearProvenance({ ...prev, [fieldId]: value }, fieldId))
   }
 
   /** Values the app filled in — recorded so the form can say where each
    *  came from (roadmap #14). */
   function applyFromSource(patch: Record<string, unknown>, entries: Record<string, FieldProvenance>) {
+    if (blockedByIcLock(Object.keys(patch))) return
     setFormValues((prev) => recordProvenance({ ...prev, ...patch }, entries))
   }
 
@@ -713,6 +752,8 @@ function App() {
             loadedScenario && { name: loadedScenario.name, modified: currentInputsKey !== loadedScenario.key }
           }
           autosaveState={autosaveState}
+          icState={ic?.state ?? null}
+          onOpenIc={() => setTab('approval')}
           onSwitchDeal={(dealId) => void switchDeal(dealId)}
           onRename={handleRenameDeal}
           onNewDeal={handleNewDeal}
@@ -900,17 +941,35 @@ function App() {
             setDeals((prev) => prev.map((d) => (d.id === deal.id ? deal : d)))
           }}
         />
-        <PresetsPanel
-          schema={schema}
-          values={formValues}
-          onApply={(patch, presetName) =>
-            applyFromSource(
-              patch,
-              sameSourceFor(Object.keys(patch), { source: 'preset', label: presetName, at: new Date().toISOString() }),
-            )
-          }
-        />
-        <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        {icLocked && ic && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <span>
+              {ic.state === 'approved'
+                ? 'Approved by the investment committee'
+                : ic.state === 'rejected'
+                  ? 'Rejected by the investment committee'
+                  : 'With the investment committee'}
+              {' '}— these inputs are locked so they match the version the committee saw.
+            </span>
+            <button onClick={() => setTab('approval')} className="text-xs font-medium underline">
+              Open IC Approval
+            </button>
+          </div>
+        )}
+        {/* A disabled fieldset makes every control inside read-only. */}
+        <fieldset disabled={icLocked} className="min-w-0">
+          <PresetsPanel
+            schema={schema}
+            values={formValues}
+            onApply={(patch, presetName) =>
+              applyFromSource(
+                patch,
+                sameSourceFor(Object.keys(patch), { source: 'preset', label: presetName, at: new Date().toISOString() }),
+              )
+            }
+          />
+          <DealInputForm key={`form-${dealScope}`} schema={schema} values={formValues} onFieldChange={handleFieldChange} />
+        </fieldset>
         <GeneratePanel
           key={dealScope}
           schema={schema}
@@ -969,6 +1028,18 @@ function App() {
           outputsStale={anyStale}
           onLoadScenario={loadScenario}
           onLoadQuickScreenScenario={handleLoadQuickScreenScenario}
+        />
+      </div>
+
+      <div style={{ display: tab === 'approval' ? 'block' : 'none' }}>
+        <IcApprovalPage
+          dealId={activeDealId}
+          schema={schema}
+          values={formValues}
+          currentOutputs={latestOutputs}
+          summary={ic}
+          onBeforeStep={ensureSaved}
+          onSummary={setIc}
         />
       </div>
 

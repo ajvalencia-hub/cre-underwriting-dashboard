@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { exportBatchDeck, fetchDealMetrics, type DealMetrics } from '../lib/api'
+import { exportBatchDeck, fetchDealMetrics, fetchIcStates, type DealMetrics, type IcState } from '../lib/api'
+import { IC_STATE_LABELS, IC_STATE_STYLES } from '../lib/icWorkflow'
 import { formatMoneyCompact } from '../lib/money'
 import { upcomingDeadlines } from '../lib/criticalDates'
 import {
@@ -103,13 +104,15 @@ interface BoardProps {
   onStatusChange: (dealId: string, status: DealStatus) => void
   onNewDeal: (type: DealType) => void
   metrics: Record<string, DealMetrics> | null
+  /** Investment-committee state of deals past draft. */
+  icStates: Record<string, IcState>
   columns: MetricColumn[]
 }
 
 /** One dealflow board: its own stage chips, counts, and stage dropdowns. */
 function Board({
   type, deals, hiddenCount, activeDealId, selected,
-  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal, metrics, columns,
+  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal, metrics, icStates, columns,
 }: BoardProps) {
   const stages = stagesFor(type)
   const counts = new Map<DealStatus, number>()
@@ -198,6 +201,11 @@ function Board({
                     </button>
                     {deal.id === activeDealId && (
                       <span className="ml-2 text-[10px] text-sky-600">active</span>
+                    )}
+                    {icStates[deal.id] && (
+                      <span className={`ml-2 rounded px-1 py-0.5 text-[10px] font-semibold ${IC_STATE_STYLES[icStates[deal.id]]}`}>
+                        {IC_STATE_LABELS[icStates[deal.id]]}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-slate-500">{dealMarket(deal) || '—'}</td>
@@ -303,11 +311,13 @@ export default function PipelinePage({
   active,
 }: PipelinePageProps) {
   const [metrics, setMetrics] = useState<Record<string, DealMetrics> | null>(null)
+  const [icStates, setIcStates] = useState<Record<string, IcState>>({})
   const [columns, setColumns] = useState<MetricColumn[]>(loadColumns)
   const dealsKey = deals.map((d) => `${d.id}:${d.updatedAt}`).join('|')
   useEffect(() => {
     if (!active) return
     fetchDealMetrics().then(setMetrics).catch(() => setMetrics(null))
+    fetchIcStates().then(setIcStates).catch(() => setIcStates({}))
   }, [active, dealsKey])
   function toggleColumn(id: MetricColumn, on: boolean) {
     const next = METRIC_COLUMNS.map((c) => c.id).filter((c) => (c === id ? on : columns.includes(c)))
@@ -600,6 +610,7 @@ export default function PipelinePage({
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
         metrics={metrics}
+        icStates={icStates}
         columns={columns}
       />
 
@@ -615,6 +626,7 @@ export default function PipelinePage({
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
         metrics={metrics}
+        icStates={icStates}
         columns={columns}
       />
 

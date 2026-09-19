@@ -260,6 +260,21 @@ stated reason.
     components (1,321 → 968 lines). The deal lifecycle stays in App.
   - The `.app` is built, self-tested and uploaded by a `desktop-app` CI job
     on pull requests and main (not every push: several macOS minutes).
+- **Investment-committee sign-off** (roadmap #28; owner chose local
+  sign-off over accounts and logins). An append-only IcEvent log per deal
+  (submit, approve, reject, return, reopen, comment: who, when, why); the
+  state is derived from it. A submit computes the deal and stores those
+  inputs and outputs, so an approval signs a specific version; a deal that
+  can't compute can't be submitted. N distinct approvers (case- and
+  space-insensitive names) approve a submission. While submitted, approved
+  or rejected, the server refuses underwriting-input changes (409), and the
+  UI makes none (a disabled fieldset, and guards on presets, goal seek,
+  scenario loads, extraction and Quick Screen sends) so autosave never
+  loops on a refusal; each IC step saves pending edits first. The Quick
+  Screen napkins, critical dates and provenance stay editable. The log is
+  exported/imported with the deal. Rejected: a lock that also froze the
+  napkin (it shares the inputs blob, but isn't underwriting); making
+  "rejected" editable without a reopen (the reason trail would have gaps).
 - **Owner decisions, 2026-09-19** (raised by the #32 tests):
   - Quick Screen → Send to Deal Inputs now carries the napkin's operating
     expenses as one Opex Detail row (category other, annual dollars, note

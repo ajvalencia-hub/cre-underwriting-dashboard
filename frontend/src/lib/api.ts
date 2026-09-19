@@ -10,6 +10,7 @@ import type { ExtractionResult } from '../types/extraction'
 import type { SensitivityDriver, SensitivityResponse } from '../types/sensitivity'
 import type { MappingPreviewRow } from '../types/mappingPreview'
 import { isDesktop } from './platform'
+import type { components } from '../types/api.gen'
 
 const API_BASE = '/api'
 
@@ -1118,4 +1119,26 @@ export interface TornadoResponse {
 
 export function fetchTornado(values: Record<string, unknown>, metric: string) {
   return postJson<TornadoResponse>('/compute/tornado', { values, metric }, 'POST')
+}
+
+// ---- Roadmap #28: investment-committee sign-off ----
+// Types come straight from the generated API schema (no hand copy to drift).
+export type IcSummary = components['schemas']['IcSummaryOut']
+export type IcEvent = components['schemas']['IcEventOut']
+export type IcState = IcSummary['state']
+export type IcStepKind = IcEvent['kind']
+
+export function fetchIc(dealId: string) {
+  return getJson<IcSummary>(`/deals/${dealId}/ic`)
+}
+
+export function addIcStep(
+  dealId: string,
+  step: { kind: IcStepKind; actor: string; comment: string; requiredApprovals?: number },
+) {
+  return postJson<IcSummary>(`/deals/${dealId}/ic/events`, step)
+}
+
+export function fetchIcStates() {
+  return getJson<Record<string, IcState>>('/ic/states')
 }
