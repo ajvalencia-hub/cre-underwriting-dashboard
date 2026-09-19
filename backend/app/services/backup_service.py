@@ -36,7 +36,8 @@ log = logging.getLogger(__name__)
 DAILY_KEEP = 7  # days
 WEEKLY_KEEP = 4
 PRE_RESTORE_KEEP = 5
-KINDS = ("daily", "weekly", "pre_restore")
+PRE_MIGRATION_KEEP = 3
+KINDS = ("daily", "weekly", "pre_restore", "pre_migration")
 AUTO_BACKUP_MIN_AGE_HOURS = 20
 _SNAPSHOT_NAME = "app.sqlite3"
 _MANIFEST_NAME = "manifest.json"
@@ -148,7 +149,8 @@ def _rotate(kind_dir: Path, kind: str) -> None:
     if kind == "daily":
         doomed = prune_daily_names(names, DAILY_KEEP)
     else:
-        doomed = prune_names(names, WEEKLY_KEEP if kind == "weekly" else PRE_RESTORE_KEEP)
+        keep = {"weekly": WEEKLY_KEEP, "pre_restore": PRE_RESTORE_KEEP}.get(kind, PRE_MIGRATION_KEEP)
+        doomed = prune_names(names, keep)
     for name in doomed:
         shutil.rmtree(kind_dir / name, ignore_errors=True)
 

@@ -40,6 +40,7 @@ const KIND_LABEL: Record<BackupKind, string> = {
   daily: 'Daily',
   weekly: 'Weekly',
   pre_restore: 'Before restore',
+  pre_migration: 'Before app update',
 }
 
 function SnapshotTable({
@@ -250,6 +251,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <SnapshotTable kind="weekly" snapshots={backups.weekly} onRestore={handleRestore} busy={busy} />
             {backups.pre_restore.length > 0 && (
               <SnapshotTable kind="pre_restore" snapshots={backups.pre_restore} onRestore={handleRestore} busy={busy} />
+            )}
+            {backups.pre_migration.length > 0 && (
+              <SnapshotTable kind="pre_migration" snapshots={backups.pre_migration} onRestore={handleRestore} busy={busy} />
             )}
           </div>
         )}

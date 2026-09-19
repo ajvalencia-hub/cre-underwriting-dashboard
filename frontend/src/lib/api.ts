@@ -834,7 +834,7 @@ export interface BackupSnapshot {
   hasDb: boolean
 }
 
-export type BackupKind = 'daily' | 'weekly' | 'pre_restore'
+export type BackupKind = 'daily' | 'weekly' | 'pre_restore' | 'pre_migration'
 
 /** Outcome of the last automatic (launch / daily) backup attempt. */
 export interface AutomaticBackupStatus {
@@ -850,6 +850,8 @@ export interface BackupListing {
   weekly: BackupSnapshot[]
   /** Taken automatically before each restore, so a restore can be undone. */
   pre_restore: BackupSnapshot[]
+  /** Taken before an app update migrated the database. */
+  pre_migration: BackupSnapshot[]
   lastAutomatic: AutomaticBackupStatus | null
 }
 

@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
-from app.database import Base, SessionLocal, engine, run_migrations
+from app.database import Base, SessionLocal, engine, prepare_migrations, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
@@ -40,6 +40,7 @@ logging.basicConfig(
 )
 request_logger = logging.getLogger("app.request")
 
+prepare_migrations()  # refuse a newer database; back up before migrating
 Base.metadata.create_all(bind=engine)
 run_migrations()
 sweep_generated_files()

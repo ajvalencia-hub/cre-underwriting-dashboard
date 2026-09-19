@@ -200,6 +200,18 @@ stated reason.
   the file (rel/abs 1e-6). On demand, not on upload: it costs a
   LibreOffice cold start and needs the output mapping. Recalc behavior and
   the downloaded workbook are unchanged.
+- **Database schema version** (roadmap #21). SQLite `user_version` holds
+  SCHEMA_VERSION (1 = the current set of hand-rolled migrations; bump it
+  with each new step). Startup: `prepare_migrations()` BEFORE create_all
+  refuses a database written by a newer build (DatabaseTooNewError, shown
+  on the desktop app's error page) and backs up an existing database
+  about to move to a newer version ("pre_migration", keep 3, listed in
+  Settings as "Before app update"); a brand-new database needs neither.
+  `run_migrations()` then runs the steps and stamps the version. The
+  pre-migration backup is also the safety net for the old scenarios
+  table rebuild, whose RENAME/CREATE aren't transactional under the
+  sqlite3 driver. Rejected: adopting Alembic now (a new dependency the
+  current migrations don't need).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
