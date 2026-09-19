@@ -579,9 +579,9 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
 
     helper_rows = [
         ("Monthly payment (PMT)",
-         f"=IF({pmt_loan}<=0,0,IF({pmt_rate}=0,"
-         f"{pmt_loan}/ROUND({R['amort']}*12,0),"
-         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-ROUND({R['amort']}*12,0))))"),
+         f"=IF({pmt_loan}<=0,0,IF(ROUND({R['amort']}*12,0)<=0,{pmt_loan}*{pmt_rate}/12,"
+         f"IF({pmt_rate}=0,{pmt_loan}/ROUND({R['amort']}*12,0),"
+         f"{pmt_loan}*{pmt_rate}/12/(1-(1+{pmt_rate}/12)^-ROUND({R['amort']}*12,0)))))"),
         ("Total cost basis", basis_formula),
         ("Loan fees", fees_formula),
         ("Initial equity", equity_formula),

@@ -16,12 +16,16 @@ from dataclasses import dataclass
 
 
 def monthly_payment(principal: float, annual_rate: float, amort_years: float) -> float:
-    """Standard level-payment mortgage PMT."""
+    """Standard level-payment mortgage PMT. No amortization period (0 years)
+    means interest-only, as annual_loan_constant already assumed."""
     if principal <= 0:
         return 0.0
     n = round(amort_years * 12)
     if n <= 0:
-        return principal  # degenerate: no amortization period -> due now
+        # [FIN] Owner decision 2026-09-19: 0 years = interest-only. It used
+        # to repay the whole loan in month 1 here while sizing treated it as
+        # interest-only.
+        return principal * annual_rate / 12
     r = annual_rate / 12
     discount = 1 - (1 + r) ** -n
     if r == 0 or discount == 0:

@@ -171,6 +171,8 @@ def _load_cases() -> list[tuple[str, dict]]:
         ("export_development_no_build_period", {**DEVELOPMENT_SCURVE_INPUTS, "constructionMonths": 0}),
         # Exit NOI below zero: the sale price floors at $0 in both.
         ("export_negative_exit_noi", {**analytic, "insurance": 80_001}),
+        # No amortization period = interest-only (owner decision 2026-09-19).
+        ("export_zero_amortization", {**AMORTIZING_GROWTH_INPUTS, "amortYears": 0}),
     ]
 
 

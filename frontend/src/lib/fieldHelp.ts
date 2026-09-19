@@ -21,7 +21,7 @@ export const FIELD_HELP: Record<string, string> = {
   rateCapStrikePct: 'Rate cap: the index level above which the cap pays; DSCR at the strike is reported.',
   rateCapTermMonths: 'Rate cap: how long the cap lasts, in months.',
   rateCapPremium: 'Rate cap: upfront cost, paid by equity at closing.',
-  amortYears: 'Amortization period in years (after any interest-only months). 30 = standard.',
+  amortYears: 'Amortization period in years (after any interest-only months). 30 = standard; 0 = interest-only for the whole loan.',
   loanTermYears:
     'Loan maturity in years (from closing; for developments from the permanent takeout). If it ends before the exit, the balloon is refinanced. Blank = no maturity.',
   ioMonths: 'Interest-only months at the start of the loan before amortization begins.',
