@@ -4,7 +4,7 @@ Every public method here is callable from JavaScript, so keep the surface
 small and validate inputs. Each one (except reveal_logs, which the built-in
 error page offers) first checks the window is showing the app itself —
 http://127.0.0.1:<port>/ — so no other page that ends up in the window can
-reach the file system, the Keychain or the shell. File contents cross the bridge as base64; the
+reach the file system, the Keychain / Credential Manager or the shell. File contents cross the bridge as base64; the
 backend's upload limit is 50 MB per file, so that's the ceiling here too.
 """
 
@@ -12,12 +12,11 @@ import base64
 import json
 import logging
 import re
-import subprocess
 from pathlib import Path
 
 import webview
 
-from . import keys, updates
+from . import keys, osutil, updates
 
 log = logging.getLogger(__name__)
 
@@ -116,14 +115,14 @@ class DesktopBridge:
         if not self._from_app():
             return
         if path in self._saved_paths:
-            subprocess.run(["/usr/bin/open", "-R", path], check=False)
+            osutil.reveal_in_file_browser(path)
 
     def open_path(self, path: str) -> None:
         """Open a file this session saved in its default app (e.g. Excel)."""
         if not self._from_app():
             return
         if path in self._saved_paths:
-            subprocess.run(["/usr/bin/open", path], check=False)
+            osutil.open_with_default_app(path)
 
     def set_unsaved(self, unsaved: bool) -> None:
         """The page reports whether it holds edits the backend hasn't saved;
@@ -145,19 +144,24 @@ class DesktopBridge:
             "extraToolDir": settings.get("extraToolDir") or None,
             "restartNeeded": self._restart_needed,
             "dataFolder": str(self._paths.support),
+            # Lets the UI name things per OS ("Credential Manager", "Explorer").
+            "platform": "windows" if osutil.IS_WINDOWS else "macos",
+            "secretStore": osutil.SECRET_STORE_LABEL,
+            "fileBrowser": osutil.FILE_BROWSER_LABEL,
         }
 
     def set_api_key(self, name: str, value: str) -> dict:
-        """Store (or, with an empty value, remove) a key in the Keychain."""
+        """Store (or, with an empty value, remove) a key in the Keychain /
+        Credential Manager."""
         if not self._from_app():
             return {"error": "Not available on this page."}
         try:
             keys.set_key(str(name), str(value or ""))
         except ValueError as exc:
             return {"error": str(exc)}
-        except Exception as exc:  # noqa: BLE001 — Keychain denied/locked
-            log.exception("Keychain write failed for %s", name)
-            return {"error": f"The Keychain refused the change: {exc}"}
+        except Exception as exc:  # noqa: BLE001 — secret store denied/locked
+            log.exception("%s write failed for %s", osutil.SECRET_STORE_LABEL, name)
+            return {"error": f"The {osutil.SECRET_STORE_LABEL} refused the change: {exc}"}
         self._restart_needed = True
         return self.get_settings()
 
@@ -173,6 +177,9 @@ class DesktopBridge:
         # Accept the .app bundle itself and dig to the binary folder.
         if folder.suffix == ".app" and (folder / "Contents" / "MacOS").is_dir():
             folder = folder / "Contents" / "MacOS"
+        # Windows: accept the LibreOffice install folder and dig to program\.
+        elif osutil.IS_WINDOWS and (folder / "program" / "soffice.exe").is_file():
+            folder = folder / "program"
         self._write_settings({**self._read_settings(), "extraToolDir": str(folder)})
         self._restart_needed = True
         return self.get_settings()
@@ -204,7 +211,7 @@ class DesktopBridge:
         return {"enabled": bool(enabled), "currentVersion": updates.VERSION}
 
     def restart(self) -> None:
-        """Quit and relaunch so Keychain keys / tool folder take effect."""
+        """Quit and relaunch so stored keys / tool folder take effect."""
         if not self._from_app():
             return
         self.restart_requested = True
@@ -216,7 +223,7 @@ class DesktopBridge:
         if not self._from_app():
             return
         if isinstance(url, str) and url.startswith("https://"):
-            subprocess.run(["/usr/bin/open", url], check=False)
+            osutil.open_with_default_app(url)
 
     def _read_settings(self) -> dict:
         try:
@@ -228,4 +235,4 @@ class DesktopBridge:
         self._paths.settings_file.write_text(json.dumps(settings, indent=2))
 
     def reveal_logs(self) -> None:
-        subprocess.run(["/usr/bin/open", "-R", str(self._paths.log_file)], check=False)
+        osutil.reveal_in_file_browser(str(self._paths.log_file))

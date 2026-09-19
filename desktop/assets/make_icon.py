@@ -1,13 +1,18 @@
-"""Generate desktop/assets/AppIcon.icns (run once; the result is committed).
+"""Generate desktop/assets/AppIcon.icns and AppIcon.ico (run once; the
+results are committed).
 
-    desktop/.venv/bin/python desktop/assets/make_icon.py
+    macOS:   desktop/.venv/bin/python desktop/assets/make_icon.py
+    Windows: desktop/.venv/Scripts/python desktop/assets/make_icon.py --ico
 
 Draws a simple building-and-rising-bars mark in the app's slate/sky palette
-with Pillow, renders the sizes macOS expects, and packs them with iconutil.
+with Pillow, renders the sizes macOS expects, and packs them with iconutil
+(macOS only). The Windows .ico is written everywhere (Pillow only); `--ico`
+writes just that, for Windows where iconutil doesn't exist.
 """
 
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -49,8 +54,24 @@ def draw_master() -> Image.Image:
     return img
 
 
+ICO_SIZES = [(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (128, 128), (256, 256)]
+
+
+def write_ico(master: Image.Image) -> Path:
+    """Windows icon. Windows icons fill their square (no macOS-style margin),
+    so crop to the rounded tile first; the smallest sizes stay legible."""
+    tile = master.crop((92, 92, 932, 932))
+    out = HERE / "AppIcon.ico"
+    tile.resize((256, 256), Image.LANCZOS).save(out, format="ICO", sizes=ICO_SIZES)
+    print(f"Wrote {out}")
+    return out
+
+
 def main() -> None:
     master = draw_master()
+    write_ico(master)
+    if "--ico" in sys.argv[1:]:
+        return
     iconset = Path(tempfile.mkdtemp()) / "AppIcon.iconset"
     iconset.mkdir()
     for size in (16, 32, 128, 256, 512):

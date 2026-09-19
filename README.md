@@ -8,56 +8,129 @@ assumptions against public data, and render an IC memo.
 **Stack:** React / TypeScript / Vite / Tailwind (`frontend/`), FastAPI /
 SQLAlchemy / SQLite / openpyxl (`backend/`).
 
-## Desktop app (macOS)
+## Desktop app (macOS and Windows)
 
-**CRE Underwriting.app** runs the whole dashboard as a normal Mac app. You
-don't need a terminal or a browser tab.
+**CRE Underwriting** runs the whole dashboard as a normal desktop app on a
+Mac or a Windows PC. You don't need a terminal or a browser tab.
 
-### Before you start: two things to know
+### Install on Windows (10 and 11, 64-bit)
 
-1. **The first launch needs one extra click.** The app isn't signed by Apple
-   yet, so macOS blocks the first double-click.
-   - **macOS 15 (Sequoia) and later:** double-click the app and choose
-     **Done** on the warning. Open **System Settings → Privacy & Security**,
-     scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
-     and confirm.
-   - **macOS 14 and earlier:** right-click (or Control-click) the app,
-     choose **Open**, then click **Open** again.
+1. Download `CRE-Underwriting-Setup-<version>.exe` from the
+   [Releases page](https://github.com/ajvalencia-hub/cre-underwriting-dashboard/releases).
+2. Double-click it. It installs just for you, so no administrator password
+   is needed. It adds a Start-menu entry and, if you leave the box ticked,
+   a desktop shortcut. Leave **Launch CRE Underwriting** ticked on the last
+   page to start it straight away.
+3. Later, open it from the **Start menu → CRE Underwriting**. To quit, close
+   the window.
 
-   From then on, a normal double-click works.
-2. **Install LibreOffice (free) if you use your own Excel template.**
-   [Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
-   drag it to Applications, then restart CRE Underwriting. **It's the only
-   way the app can recalculate your workbook and show *your template's*
-   results.** It's also needed for template-verified sensitivity runs and
-   for the IC memo as PDF. Without it:
-   - generated workbooks are still correct when you open them in Excel,
-     because Excel recalculates on open;
-   - the built-in engine (Compute), the Excel model export, the .docx memo
-     and the decks all work normally;
-   - **Settings → External tools** shows whether LibreOffice was found.
+**First launch: "Windows protected your PC".** The installer isn't
+code-signed yet, so Microsoft Defender SmartScreen may warn you. Click
+**More info**, then **Run anyway**. You only need to do this once per
+download.
 
-   OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
-   (`brew install tesseract poppler`). It's optional; text PDFs, Excel and
-   CSV work without it.
+**The window needs the Microsoft Edge WebView2 Runtime.** Windows 11 and
+up-to-date Windows 10 already have it. If it's missing, the installer offers
+to download it from Microsoft, and the app explains how to get it rather
+than failing.
 
-### Install and run
+**No installer?** `CRE-Underwriting-windows-portable.zip` holds the same app.
+Unzip it anywhere and run `CRE Underwriting.exe` from the folder.
 
-Unzip `CRE-Underwriting-mac.zip` and drag **CRE Underwriting** into
-Applications. Double-click it to start; quit it with ⌘Q or by closing the
-window.
+### Install on macOS (12 or later)
 
-- **Your data** (deals, templates, documents, daily backups) is stored in
-  `~/Library/Application Support/CRE Underwriting/`. Logs are in
-  `~/Library/Logs/CRE Underwriting/`. Replacing the app with a newer build
-  keeps your data.
+1. Download `CRE-Underwriting-mac.dmg` from the
+   [Releases page](https://github.com/ajvalencia-hub/cre-underwriting-dashboard/releases).
+2. Open it and drag **CRE Underwriting** onto the **Applications** folder
+   shown next to it. Then eject the disk image.
+3. Open it from **Applications** (or Launchpad or Spotlight). Quit with ⌘Q
+   or by closing the window.
+
+**First launch needs one extra click.** The app isn't signed by Apple yet,
+so macOS blocks the first double-click.
+- **macOS 15 (Sequoia) and later:** double-click the app and choose
+  **Done** on the warning. Open **System Settings → Privacy & Security**,
+  scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
+  and confirm.
+- **macOS 14 and earlier:** right-click (or Control-click) the app, choose
+  **Open**, then click **Open** again.
+
+From then on, a normal double-click works. `CRE-Underwriting-mac.zip` holds
+the same app if you prefer a zip: unzip it and drag the app into
+Applications.
+
+### Optional: LibreOffice and OCR
+
+**Install LibreOffice (free) if you use your own Excel template.**
+[Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
+install it with the default options, then restart CRE Underwriting. **It's
+the only way the app can recalculate your workbook and show *your
+template's* results.** It's also needed for template-verified sensitivity
+runs and for the IC memo as PDF. Without it:
+- generated workbooks are still correct when you open them in Excel,
+  because Excel recalculates on open;
+- the built-in engine (Compute), the Excel model export, the .docx memo and
+  the decks all work normally;
+- **Settings → External tools** shows whether LibreOffice was found, and
+  lets you point at a non-standard install folder.
+
+OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
+(macOS: `brew install tesseract poppler`; Windows: the
+[Tesseract installer](https://github.com/UB-Mannheim/tesseract/wiki) and
+`winget install oschwartz10612.Poppler`). It's optional; text PDFs, Excel
+and CSV work without it. The app finds the standard install locations on
+both systems.
+
+### Where your data lives
+
+| | macOS | Windows |
+|---|---|---|
+| Deals, templates, documents, daily backups | `~/Library/Application Support/CRE Underwriting/` | `%LOCALAPPDATA%\CRE Underwriting\data\` |
+| Logs | `~/Library/Logs/CRE Underwriting/` | `%LOCALAPPDATA%\CRE Underwriting\logs\` |
+| Optional API keys | macOS Keychain | Windows Credential Manager |
+
+- Installing a newer version over the old one keeps your data.
 - **Optional API keys** (FRED, Census, HUD, BEA, BLS, Anthropic): enter them
-  in **Settings → Integrations**. They're stored in your macOS Keychain.
-- **Files** open and save through the standard Mac dialogs.
+  in **Settings → Integrations**. They're stored in the Keychain or
+  Credential Manager, never in a file.
+- **Files** open and save through the standard system dialogs.
 - The app runs its own private server on a random local port that only its
-  window can use. Quitting the app stops the server.
+  window can use. Quitting the app stops the server. Only one copy runs at a
+  time; opening it again just says it's already open.
 
-### Building the app
+### Uninstall
+
+- **Windows:** **Settings → Apps → Installed apps → CRE Underwriting →
+  Uninstall** (or *Add or remove programs*). This removes the program only.
+  Your data folder stays, so a reinstall picks it up again. Delete
+  `%LOCALAPPDATA%\CRE Underwriting` yourself if you no longer need it.
+- **macOS:** drag **CRE Underwriting** from Applications to the Trash. Your
+  data stays in `~/Library/Application Support/CRE Underwriting/` until you
+  delete that folder.
+
+### Build from source: Windows
+
+```powershell
+winget install Python.Python.3.12 OpenJS.NodeJS.LTS
+py -3.12 -m venv desktop\.venv
+desktop\.venv\Scripts\python -m pip install -r backend\requirements.txt -r desktop\requirements.txt
+winget install JRSoftware.InnoSetup      # optional: builds the installer
+powershell -ExecutionPolicy Bypass -File desktop\build_windows.ps1
+```
+
+This produces `desktop\dist\CRE Underwriting\CRE Underwriting.exe`,
+`desktop\dist\CRE-Underwriting-windows-portable.zip` and, with Inno Setup
+installed, `desktop\dist\CRE-Underwriting-Setup-<version>.exe`
+(`desktop\windows\installer.iss`). Without Inno Setup the script says how
+to install it and skips that step. `-SkipFrontend` reuses an existing
+`frontend\dist`. The script runs the shell tests first and `--self-test`
+inside the finished app before packaging.
+
+Unsigned, the installer triggers the SmartScreen prompt above. Signing it
+takes a code-signing certificate (an OV/EV certificate or Azure Trusted
+Signing). Sign `CRE Underwriting.exe` and the setup `.exe` with `signtool`.
+
+### Build from source: macOS
 
 ```bash
 brew install node python@3.12
@@ -66,23 +139,29 @@ desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirement
 desktop/build_mac.sh
 ```
 
-This produces `desktop/dist/CRE Underwriting.app` and
-`desktop/dist/CRE-Underwriting-mac.zip` (about 62 MB) for the architecture
-you build on. The build runs `--self-test` inside the finished app before
-zipping. The self-test checks compute, the Excel export, the decks, the
-memo with charts, PDF reading and the Keychain, so a bad freeze fails the
-build instead of reaching a colleague.
+This produces `desktop/dist/CRE Underwriting.app`,
+`desktop/dist/CRE-Underwriting-mac.dmg` (drag-to-Applications disk image)
+and `desktop/dist/CRE-Underwriting-mac.zip` for the architecture you build
+on.
 
-The shell's own tests (access gate, dialogs, PATH, quit cleanup) run with
-`desktop/.venv/bin/python -m pytest desktop/tests -q`, and first in every build.
+On both systems the build runs `--self-test` inside the finished app before
+packaging. The self-test checks compute, the Excel export, the decks, the
+memo with charts, PDF reading and the Keychain / Credential Manager, so a
+bad freeze fails the build instead of reaching a colleague.
 
-### Signing and notarizing
+The shell's own tests (access gate, dialogs, PATH, data folders,
+single-instance lock, quit cleanup, WebView2 check) run first in every
+build. To run them by hand, use
+`desktop/.venv/bin/python -m pytest desktop/tests -q`, or
+`desktop\.venv\Scripts\python -m pytest desktop\tests -q` on Windows.
 
-Unsigned, the zip opens on other Macs only via right-click → Open. To
-distribute it properly you need an Apple Developer account ($99/year) and
-a **Developer ID Application** certificate in your login keychain. Then,
-once, store notarization credentials (an app-specific password from
-appleid.apple.com):
+### Signing and notarizing (macOS)
+
+Unsigned, the app opens on other Macs only via the first-launch steps
+above. To distribute it properly you need an Apple Developer account
+($99/year) and a **Developer ID Application** certificate in your login
+keychain. Then, once, store notarization credentials (an app-specific
+password from appleid.apple.com):
 
 ```bash
 xcrun notarytool store-credentials cre-notary --apple-id you@example.com --team-id TEAMID --password xxxx-xxxx-xxxx-xxxx
@@ -96,30 +175,39 @@ SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=cre-
 
 `desktop/sign_mac.sh` signs every binary with the hardened runtime
 (`desktop/entitlements.plist`), verifies the signature, reruns the
-self-test on the signed app, then notarizes and staples. `SIGN_IDENTITY=-`
-makes a local ad-hoc signature to test the hardened runtime without an
-account (not distributable).
+self-test on the signed app, then notarizes and staples it. It then builds
+the DMG from the signed app, signs it, and notarizes and staples the DMG
+too. `SIGN_IDENTITY=-` makes a local ad-hoc signature to test the hardened
+runtime without an account (not distributable).
 
 ### Publishing an update
 
 The app checks GitHub Releases for this repository at launch (at most once
 a day; Settings → Updates turns it off or checks now) and offers a newer
-version's download. It sends nothing but its version in the User-Agent and
+version's download. A Windows copy gets the setup `.exe`, and a Mac gets the
+DMG (or the zip). It sends nothing but its version in the User-Agent and
 never installs anything itself. To publish one:
 
 1. Bump `VERSION` in `desktop/cre_desktop/version.py` (e.g. `1.1.0`).
-2. Build (signed, ideally) with `desktop/build_mac.sh`.
-3. Publish a release tagged with the same version and the zip attached:
+2. Build on each OS (signed, ideally): `desktop/build_mac.sh` and
+   `desktop\build_windows.ps1`. The CI `desktop-app` and
+   `desktop-app-windows` jobs also build both and keep them as artifacts.
+3. Publish a release tagged with the same version and the files attached:
 
 ```bash
-gh release create v1.1.0 desktop/dist/CRE-Underwriting-mac.zip --title "CRE Underwriting 1.1.0" --notes "What changed"
+gh release create v1.1.0 desktop/dist/CRE-Underwriting-mac.dmg desktop/dist/CRE-Underwriting-mac.zip \
+  "desktop/dist/CRE-Underwriting-Setup-1.1.0.exe" desktop/dist/CRE-Underwriting-windows-portable.zip \
+  --title "CRE Underwriting 1.1.0" --notes "What changed"
 ```
 
 Earlier versions then show a banner with Download, What's new and Not now.
 
 To run the desktop shell from source without building, first run
 `npm run build` in `frontend/`, then run
-`desktop/.venv/bin/python desktop/launcher.py`.
+`desktop/.venv/bin/python desktop/launcher.py`, or
+`desktop\.venv\Scripts\python desktop\launcher.py` on Windows. Set
+`CRE_DESKTOP_DATA_DIR` to a scratch folder to keep a test run's data out of
+your real data folder.
 
 The browser workflow below (uvicorn + `npm run dev`) is unchanged.
 
@@ -562,8 +650,10 @@ CI (`.github/workflows/ci.yml`) runs the full backend suite (with
 LibreOffice + Tesseract installed), the parity CLI, ruff and mypy, the
 frontend build/lint/test gates, the API-types check, a Playwright e2e job,
 and a Docker job (`docker compose config` + image build) on every push/PR.
-Pull requests and main also build the desktop `.app` on macOS, run its
-self-test, and keep the zip as a build artifact for a week.
+Pull requests and main also build the desktop apps (macOS: `.app`, DMG and
+zip; Windows: installer and portable zip), run their self-tests, and keep
+them as build artifacts for a week. The desktop shell tests run on both
+macOS and Windows on every push.
 
 ## Run 5 defaults-compatibility statement
 

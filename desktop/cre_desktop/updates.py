@@ -9,6 +9,7 @@ switch to turn it off."""
 
 import json
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -30,9 +31,42 @@ def parse_version(text: str) -> tuple[int, int, int] | None:
     return tuple(int(part or 0) for part in match.groups())  # type: ignore[return-value]
 
 
-def fetch_latest(opener=urllib.request.urlopen) -> dict | None:
-    """The latest published release as {tag, url, zipUrl, publishedAt}, or
-    None when the repo has none yet. Raises OSError on network trouble."""
+def select_asset(assets: list[dict], platform: str | None = None) -> dict | None:
+    """The release download for this OS: on Windows the installer
+    (CRE-Underwriting-Setup-<version>.exe), else the portable Windows zip; on
+    macOS the DMG, else the mac zip. None when the release has nothing for
+    this OS (the UI then links to the release page)."""
+    platform = platform or sys.platform
+
+    def name(asset: dict) -> str:
+        return str(asset.get("name", "")).lower()
+
+    if platform == "win32":
+        preferences = [
+            lambda n: n.endswith(".exe") and "setup" in n,
+            lambda n: n.endswith(".exe"),
+            lambda n: n.endswith(".zip") and "windows" in n,
+        ]
+    elif platform == "darwin":
+        preferences = [
+            lambda n: n.endswith(".dmg"),
+            lambda n: n.endswith(".zip") and "mac" in n,
+            lambda n: n.endswith(".zip") and "windows" not in n,
+        ]
+    else:
+        return None
+    for matches in preferences:
+        found = next((a for a in assets if matches(name(a))), None)
+        if found is not None:
+            return found
+    return None
+
+
+def fetch_latest(opener=urllib.request.urlopen, platform: str | None = None) -> dict | None:
+    """The latest published release as {tag, url, downloadUrl, zipUrl,
+    publishedAt}, or None when the repo has none yet. Raises OSError on
+    network trouble. downloadUrl is this OS's asset (see select_asset);
+    zipUrl carries the same value for UIs that predate Windows support."""
     request = urllib.request.Request(
         LATEST_URL,
         headers={"Accept": "application/vnd.github+json", "User-Agent": f"CRE-Underwriting/{VERSION}"},
@@ -44,13 +78,13 @@ def fetch_latest(opener=urllib.request.urlopen) -> dict | None:
         if exc.code == 404:
             return None
         raise
-    zip_asset = next(
-        (a for a in data.get("assets") or [] if str(a.get("name", "")).endswith(".zip")), None
-    )
+    asset = select_asset(list(data.get("assets") or []), platform)
+    download_url = asset.get("browser_download_url") if asset else None
     return {
         "tag": str(data.get("tag_name") or ""),
         "url": str(data.get("html_url") or RELEASES_PAGE),
-        "zipUrl": zip_asset.get("browser_download_url") if zip_asset else None,
+        "downloadUrl": download_url,
+        "zipUrl": download_url,
         "publishedAt": data.get("published_at"),
     }
 

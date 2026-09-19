@@ -6,7 +6,9 @@ addressed, plus most Medium/Low ones (table-row removal got Undo rather than a c
 Not done, by choice: two-browser-tab last-write-wins (can't happen in the single-window desktop
 app) and arrow-key stepping in the main form (the schema defines no step sizes). Out of scope as agreed:
 signing/notarization, auto-update, Windows. The sections below are the original proposal.
-Target platform: macOS on Apple Silicon (this machine is arm64). Windows is out of scope.
+Target platform: macOS on Apple Silicon (this machine is arm64). Windows was out of scope for the
+first pass. Signing/notarization and the update check (roadmap #31) landed later, and so did the
+Windows build (see "Windows build: done" below).
 
 ---
 
@@ -331,8 +333,24 @@ Then UI work in the order you gave, with one proposed change:
 |---|---|---|
 | Code signing + notarization (macOS) | 1-2 days, plus the $99/yr Apple Developer Program | Hardened runtime entitlements for the embedded Python; every nested `.so`/`.dylib` signed; `notarytool` plus stapling. **This is the only real fix for the Gatekeeper conflict above.** |
 | Auto-update | 1 day for "a new version is available" with a download link; 3-5 days for true in-place updates | Sparkle through pyobjc is awkward |
-| Windows build | 3-5 days | WebView2 runtime check, PyInstaller on Windows, Credential Manager (keyring supports it), an installer (Inno Setup). The LibreOffice and Tesseract Windows paths already exist. Long-path issues are already noted in `soffice.py`. |
+| Windows build | **Done** (see below) | WebView2 runtime check, PyInstaller on Windows, Credential Manager (keyring supports it), an installer (Inno Setup). The LibreOffice and Tesseract Windows paths already exist. Long-path issues are already noted in `soffice.py`. |
 | Intel Mac / universal2 | 1-2 days | A separate Intel build is simpler than universal2, which needs every wheel to be universal |
+
+### Windows build: done
+
+What was built, following the estimate above:
+
+- **Platform layer** (`desktop/cre_desktop/osutil.py`). The single-instance lock uses `msvcrt.locking` on Windows and `fcntl.flock` on macOS. Quit cleanup finds our child processes from a Toolhelp32 snapshot (stdlib ctypes, with a start-time check against PID reuse) and runs `taskkill /T /F` on each, so LibreOffice's `soffice.exe` → `soffice.bin` tree goes too. WebView2's own processes are left to exit by themselves. Relaunch is a detached `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` start with `PYINSTALLER_RESET_ENVIRONMENT=1`. Explorer replaces Finder for "show file". The macOS quit hook is imported only on macOS.
+- **Data locations** (`paths.py`): `%LOCALAPPDATA%\CRE Underwriting\{data,logs,cache,webview}`. The macOS paths are unchanged. `CRE_DESKTOP_DATA_DIR` points a test run at a scratch folder. The Windows LibreOffice, Tesseract and Poppler folders (globs expanded) are added to `PATH` the same way the macOS ones are. `soffice.py` and `ocr.py` needed no change.
+- **WebView2**: the launcher checks the Evergreen runtime's registry keys (HKLM WOW6432Node, HKLM, HKCU) before opening a window. If the runtime is missing, a native message box explains and offers the download page. Any other unexpected start-up crash also gets a message box that points at the log.
+- **Secrets**: `keyring` uses Windows Credential Manager. User-visible text says "Credential Manager" there. `get_settings` returns `platform`, `secretStore` and `fileBrowser` so the web UI can label things per OS.
+- **Build**: the PyInstaller spec is cross-platform. On Windows it makes a onedir windowed `CRE Underwriting.exe` with a generated `.ico` (`assets/make_icon.py --ico`) and a version resource from `version.py`. `desktop/build_windows.ps1` (Windows PowerShell 5.1 compatible) runs the shell tests, the frontend build and PyInstaller, then the frozen `--self-test` and a portable zip, and compiles the installer when Inno Setup is present.
+- **Installer** (`desktop/windows/installer.iss`): per-user by default (no UAC; an all-users choice is available), installs to `%LOCALAPPDATA%\Programs\CRE Underwriting`, adds Start-menu and optional desktop shortcuts, has a launch checkbox, checks WebView2 and downloads Microsoft's bootstrapper when needed, and shows an optional-LibreOffice page. The uninstaller keeps the data folder and says so.
+- **Updates**: release-asset selection picks the setup `.exe` on Windows and the DMG (then the zip) on macOS.
+- **macOS friendliness**: `build_mac.sh` also makes `CRE-Underwriting-mac.dmg` with an Applications shortcut (`make_dmg.sh`). `sign_mac.sh` signs, notarizes and staples the DMG.
+- **CI**: the desktop shell tests run on a macOS + Windows matrix. `desktop-app-windows` builds, self-tests, installs Inno Setup, compiles the installer and uploads it with the portable zip. `desktop-app` uploads the DMG.
+
+Still open: Authenticode signing (SmartScreen shows "More info → Run anyway" until the exe and installer are signed with a code-signing certificate), and a Windows-on-ARM native build (the x64 build runs under emulation).
 
 ---
 

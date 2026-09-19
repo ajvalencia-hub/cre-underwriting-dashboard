@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign (and optionally notarize) "CRE Underwriting.app" — roadmap #31.
+# Sign (and optionally notarize) "CRE Underwriting.app" and its DMG — roadmap #31.
 #
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 #   NOTARY_PROFILE=cre-notary ./desktop/sign_mac.sh
@@ -15,12 +15,15 @@
 #
 # Signs every nested binary first, then the bundle (Apple advises against
 # --deep), with the hardened runtime and a secure timestamp, verifies the
-# result, runs the frozen self-test again, and re-zips.
+# result, runs the frozen self-test again, and re-zips. Then builds the DMG
+# from the signed (and, with NOTARY_PROFILE, stapled) app, signs the DMG, and
+# notarizes + staples it too.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${APP:-$REPO/desktop/dist/CRE Underwriting.app}"
 ZIP="${ZIP:-$REPO/desktop/dist/CRE-Underwriting-mac.zip}"
+DMG="${DMG:-$REPO/desktop/dist/CRE-Underwriting-mac.dmg}"
 IDENTITY="${SIGN_IDENTITY:?Set SIGN_IDENTITY (a Developer ID Application identity, or - for ad-hoc)}"
 
 if [[ ! -d "$APP" ]]; then
@@ -73,6 +76,19 @@ elif [[ "$IDENTITY" != "-" ]]; then
   echo "(NOTARY_PROFILE not set — signed but not notarized; Gatekeeper will still warn on other Macs.)"
 fi
 
+echo "==> Disk image"
+APP="$APP" DMG="$DMG" bash "$REPO/desktop/make_dmg.sh"
+# A DMG takes a plain signature (no hardened runtime / entitlements).
+codesign --force "${TIMESTAMP[@]}" --sign "$IDENTITY" "$DMG"
+codesign --verify --verbose=1 "$DMG"
+if [[ -n "${NOTARY_PROFILE:-}" && "$IDENTITY" != "-" ]]; then
+  echo "==> Notarizing the disk image"
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DMG"
+  xcrun stapler validate "$DMG"
+fi
+
 echo
 echo "Signed: $APP"
+echo "        $DMG ($(du -h "$DMG" | cut -f1))"
 echo "        $ZIP ($(du -h "$ZIP" | cut -f1))"

@@ -3,7 +3,8 @@
 Hits the code paths whose dependencies are hardest to freeze (native
 extensions, data files loaded by path): the pro-forma engine, openpyxl
 export, python-pptx decks, python-docx memo with matplotlib charts,
-reportlab + pdfplumber/pypdfium2, and the Keychain backend. Runs against a
+reportlab + pdfplumber/pypdfium2, and the Keychain / Credential Manager
+backend. Runs against a
 throwaway storage folder so the user's deals are never touched.
 Prints one line per check; exit code 1 if any check fails.
 """
@@ -17,6 +18,7 @@ import traceback
 from io import BytesIO
 from pathlib import Path
 
+from .osutil import SECRET_STORE_LABEL
 from .paths import bundle_root, backend_dir, frontend_dist
 
 # The backend test suite's analytic acquisition fixture (bundled by the spec).
@@ -126,8 +128,11 @@ def run() -> int:
     def keychain():
         import keyring
 
+        from .keys import EXPECTED_BACKENDS
+
         backend = keyring.get_keyring()
-        assert type(backend).__module__ == "keyring.backends.macOS", type(backend).__module__
+        expected = EXPECTED_BACKENDS.get(sys.platform)
+        assert expected is None or type(backend).__module__ == expected, type(backend).__module__
         return type(backend).__module__
 
     def external_tools():
@@ -147,7 +152,7 @@ def run() -> int:
         check("deck + IC deck + share page (python-pptx, matplotlib)", decks)
         check("IC memo .docx with charts (python-docx, matplotlib)", memo)
     check("PDF write/read/render (reportlab, pdfplumber, pypdfium2)", pdf_roundtrip)
-    check("Keychain backend", keychain)
+    check(f"{SECRET_STORE_LABEL} backend", keychain)
     check("external tools", external_tools)
 
     shutil.rmtree(scratch, ignore_errors=True)

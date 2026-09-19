@@ -11,6 +11,12 @@ here. **✓** means I reproduced or read the problem in code.
 
 Effort: **S** is under a day, **M** is a few days, **L** is a week or more.
 
+## Done: Windows desktop app and friendlier installs
+
+| Item | What was built |
+|---|---|
+| Windows build + installers (both OSes) | The desktop shell now runs on Windows 10/11 x64: Edge WebView2 window (with a friendly "install WebView2" prompt when the runtime is missing), Windows Credential Manager for API keys, data in `%LOCALAPPDATA%\CRE Underwriting`, a single-instance lock, process-tree cleanup on quit, and a detached relaunch (`desktop/cre_desktop/osutil.py`). `desktop/build_windows.ps1` builds the app folder, runs the frozen self-test and zips a portable copy. `desktop/windows/installer.iss` (Inno Setup) makes a per-user installer with Start-menu and desktop shortcuts, a WebView2 check and download, and an optional-LibreOffice note. Its uninstaller keeps the user's deals. On macOS, `build_mac.sh` now also makes a drag-to-Applications DMG, which `sign_mac.sh` signs and notarizes. The update check offers each OS its own download. CI runs the shell tests on macOS and Windows, and a `desktop-app-windows` job builds the installer. |
+
 ## Done: Run 6 port (from the desktop audit branch `run6-desktop-audit`)
 
 Ported feature by feature onto this line; where this line already had an

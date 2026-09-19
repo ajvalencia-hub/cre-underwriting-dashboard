@@ -1,9 +1,10 @@
-"""Optional API keys stored in the macOS Keychain.
+"""Optional API keys stored in the OS secret store: the macOS Keychain, or
+Windows Credential Manager (keyring picks the backend by platform).
 
 The backend reads keys from the environment at import time (app.config), so
-the launcher copies them from the Keychain into os.environ before importing
-it. Changing a key therefore takes effect on the next launch — the Settings
-screen offers a restart.
+the launcher copies them from the secret store into os.environ before
+importing it. Changing a key therefore takes effect on the next launch — the
+Settings screen offers a restart.
 """
 
 import logging
@@ -12,7 +13,11 @@ import os
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
+from .osutil import SECRET_STORE_LABEL
 from .paths import KEYCHAIN_SERVICE
+
+# keyring's backend module per platform (the self-test checks it's in use).
+EXPECTED_BACKENDS = {"darwin": "keyring.backends.macOS", "win32": "keyring.backends.Windows"}
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +43,7 @@ def load_into_environ() -> list[str]:
         try:
             value = keyring.get_password(KEYCHAIN_SERVICE, name)
         except KeyringError:
-            log.exception("Keychain read failed for %s", name)
+            log.exception("%s read failed for %s", SECRET_STORE_LABEL, name)
             continue
         if value:
             os.environ[name] = value
@@ -53,7 +58,7 @@ def stored_names() -> list[str]:
             if keyring.get_password(KEYCHAIN_SERVICE, name):
                 names.append(name)
         except KeyringError:
-            log.exception("Keychain read failed for %s", name)
+            log.exception("%s read failed for %s", SECRET_STORE_LABEL, name)
     return names
 
 

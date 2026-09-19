@@ -87,8 +87,14 @@ def test_fetch_reads_the_github_payload_and_sends_no_user_data():
         seen["url"] = request.full_url
         return Response(json.dumps(payload).encode())
 
-    latest = updates.fetch_latest(opener)
-    assert latest == {"tag": "v1.1.0", "url": payload["html_url"], "zipUrl": "https://example/zip", "publishedAt": None}
+    latest = updates.fetch_latest(opener, platform="darwin")
+    assert latest == {
+        "tag": "v1.1.0",
+        "url": payload["html_url"],
+        "downloadUrl": "https://example/zip",
+        "zipUrl": "https://example/zip",
+        "publishedAt": None,
+    }
     assert seen["url"] == updates.LATEST_URL
     assert set(seen["headers"]) == {"Accept", "User-agent"}
 
@@ -103,3 +109,48 @@ def test_fetch_treats_404_as_no_releases():
 @pytest.mark.parametrize("tag", ["v1.0.1", "1.1", "v2.0.0"])
 def test_any_higher_version_counts(tag):
     assert updates.check({}, fetch=lambda: {**RELEASE, "tag": tag})[0]["status"] == "available"
+
+
+ASSETS = [
+    {"name": "CRE-Underwriting-mac.zip", "browser_download_url": "https://example/mac.zip"},
+    {"name": "CRE-Underwriting-mac.dmg", "browser_download_url": "https://example/mac.dmg"},
+    {"name": "CRE-Underwriting-windows-portable.zip", "browser_download_url": "https://example/win.zip"},
+    {"name": "CRE-Underwriting-Setup-1.1.0.exe", "browser_download_url": "https://example/setup.exe"},
+]
+
+
+def _url(asset):
+    return asset["browser_download_url"] if asset else None
+
+
+def test_each_os_gets_its_own_download():
+    assert _url(updates.select_asset(ASSETS, "win32")) == "https://example/setup.exe"
+    assert _url(updates.select_asset(ASSETS, "darwin")) == "https://example/mac.dmg"
+    assert updates.select_asset(ASSETS, "linux") is None
+
+
+def test_download_fallbacks_when_the_preferred_asset_is_missing():
+    no_installer = [a for a in ASSETS if not a["name"].endswith(".exe")]
+    assert _url(updates.select_asset(no_installer, "win32")) == "https://example/win.zip"
+    no_dmg = [a for a in ASSETS if not a["name"].endswith(".dmg")]
+    assert _url(updates.select_asset(no_dmg, "darwin")) == "https://example/mac.zip"
+    # A mac-only release offers Windows nothing (the UI links to the release page).
+    mac_only = [a for a in ASSETS if "mac" in a["name"]]
+    assert updates.select_asset(mac_only, "win32") is None
+    # A Windows-only release never hands a Mac the Windows zip.
+    win_only = [a for a in ASSETS if "mac" not in a["name"]]
+    assert updates.select_asset(win_only, "darwin") is None
+
+
+def test_fetch_picks_the_windows_installer_on_windows():
+    payload = {"tag_name": "v1.1.0", "html_url": "https://github.com/r/releases/tag/v1.1.0", "assets": ASSETS}
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    latest = updates.fetch_latest(lambda request, timeout: Response(json.dumps(payload).encode()), platform="win32")
+    assert latest["downloadUrl"] == latest["zipUrl"] == "https://example/setup.exe"

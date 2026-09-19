@@ -8,7 +8,8 @@
 #
 # Output:
 #   desktop/dist/CRE Underwriting.app
-#   desktop/dist/CRE-Underwriting-mac.zip   (what you hand to a colleague)
+#   desktop/dist/CRE-Underwriting-mac.dmg   (what you hand to a colleague: open, drag to Applications)
+#   desktop/dist/CRE-Underwriting-mac.zip   (the same app, zipped)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,6 +34,7 @@ echo "==> Building app bundle"
 
 APP="$REPO/desktop/dist/CRE Underwriting.app"
 ZIP="$REPO/desktop/dist/CRE-Underwriting-mac.zip"
+DMG="$REPO/desktop/dist/CRE-Underwriting-mac.dmg"
 
 echo "==> Self-test of the built app (frozen dependencies, no window)"
 "$APP/Contents/MacOS/CRE Underwriting" --self-test
@@ -43,12 +45,16 @@ rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 # Roadmap #31: sign (and notarize) when an identity is given — see
-# desktop/sign_mac.sh. Unsigned builds are unchanged.
+# desktop/sign_mac.sh, which also builds and signs the DMG from the signed app.
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
-  APP="$APP" ZIP="$ZIP" "$REPO/desktop/sign_mac.sh"
+  APP="$APP" ZIP="$ZIP" DMG="$DMG" "$REPO/desktop/sign_mac.sh"
+else
+  echo "==> Packaging disk image"
+  APP="$APP" DMG="$DMG" bash "$REPO/desktop/make_dmg.sh"
 fi
 
 echo
 echo "Built: $APP"
+echo "       $DMG ($(du -h "$DMG" | cut -f1))"
 echo "       $ZIP ($(du -h "$ZIP" | cut -f1))"
 echo "App size: $(du -sh "$APP" | cut -f1)"

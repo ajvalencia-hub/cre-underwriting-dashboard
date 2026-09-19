@@ -195,11 +195,16 @@ jobs:
           path: frontend/test-results/
           retention-days: 7
 
-  # Desktop shell (pywebview/pyobjc need macOS): access gate, dialog filters,
-  # PATH handling, quit cleanup. The desktop-app job below builds the .app.
+  # Desktop shell on both desktop OSes: access gate, dialog filters, PATH
+  # handling, app-data locations, single-instance lock, quit cleanup, WebView2
+  # check, update-asset choice. The desktop-app jobs below build the apps.
   desktop-shell:
     timeout-minutes: 20
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -242,9 +247,60 @@ jobs:
           desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirements.txt
       - name: Build the app and run its self-test
         run: ./desktop/build_mac.sh
-      - name: Upload the zipped app
+      - name: Upload the disk image and zipped app
         uses: actions/upload-artifact@v4
         with:
           name: CRE-Underwriting-mac
-          path: desktop/dist/CRE-Underwriting-mac.zip
+          path: |
+            desktop/dist/CRE-Underwriting-mac.dmg
+            desktop/dist/CRE-Underwriting-mac.zip
+          retention-days: 7
+
+  # Windows: build the app folder exactly as desktop/build_windows.ps1 does
+  # locally (shell tests, frontend, PyInstaller, frozen self-test, portable
+  # zip) and compile the Inno Setup installer. Run under Windows PowerShell
+  # 5.1 (shell: powershell) - the version every Windows PC has.
+  desktop-app-windows:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    timeout-minutes: 45
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            desktop/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Create the desktop venv the build script expects
+        shell: powershell
+        run: |
+          python -m venv desktop/.venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          desktop/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt -r desktop/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build the app, run its self-test, compile the installer
+        shell: powershell
+        run: |
+          ./desktop/build_windows.ps1 -RequireInstaller
+          if (-not $?) { exit 1 }
+      - name: Upload the installer and portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: CRE-Underwriting-windows
+          path: |
+            desktop/dist/CRE-Underwriting-Setup-*.exe
+            desktop/dist/CRE-Underwriting-windows-portable.zip
+          if-no-files-found: error
           retention-days: 7
