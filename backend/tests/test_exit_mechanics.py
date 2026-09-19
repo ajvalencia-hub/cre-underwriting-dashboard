@@ -50,3 +50,19 @@ def test_excel_export_refuses_what_it_does_not_mirror(growing):
     for extra in ({"exitNoiBasis": "trailing"}, {"prepaymentPenaltyPct": 0.01}):
         assert excel_model_export.unsupported_features(dict(growing, **extra)), extra
     assert excel_model_export.unsupported_features(growing) == []
+
+
+def test_negative_exit_noi_floors_the_sale_price_at_zero():
+    # Opex above income: exit NOI is negative and the capitalized value
+    # would be a negative sale price (owner decision 2026-09-19: floor at 0).
+    import json
+    from pathlib import Path
+
+    from app.services.proforma.engine import compute
+
+    deal = json.loads((Path(__file__).parent / "fixtures" / "analytic_acquisition.json").read_text())
+    deal.pop("_comment", None)
+    deal["insurance"] = 80_001  # NOI = 90,000 EGI - 90,001 opex
+    result = compute(deal)
+    assert result["outputs"]["terminalValue"] == 0
+    assert any("floored at $0" in w for w in result["warnings"])

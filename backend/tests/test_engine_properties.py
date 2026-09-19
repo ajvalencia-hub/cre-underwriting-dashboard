@@ -5,7 +5,7 @@ ranges and checks what must hold for every deal the form accepts:
 - compute returns a result or a typed InsufficientInputsError, nothing else;
 - no headline metric is NaN or infinite;
 - sources equal uses;
-- a higher exit cap never moves the terminal value away from zero, and a
+- a higher exit cap never raises the terminal value (floored at zero), and a
   higher purchase price never moves the going-in cap rate away from zero.
 """
 
@@ -118,9 +118,9 @@ def test_higher_exit_cap_never_raises_terminal_value(deal, low, bump):
     tv_high = higher["outputs"].get("terminalValue")
     if tv_low is None or tv_high is None:
         return
-    # With negative exit NOI the terminal value is negative and a higher cap
-    # moves it towards zero, so compare magnitudes.
-    assert abs(tv_high) <= abs(tv_low) + 1e-6
+    # Negative exit NOI floors the sale price at zero (owner decision), so
+    # the terminal value is never negative.
+    assert 0 <= tv_high <= tv_low + 1e-6
 
 
 @PROFILE

@@ -4,6 +4,7 @@ ids out. Orchestration only — every formula lives in the sibling modules
 outside this package reimplements any of them.
 """
 
+from app.services.money_format import money
 from app.services.proforma import debt, development, equity, input_validation, operations, returns
 from app.services.proforma.timeline import (
     ANALYSIS_EPOCH,
@@ -274,6 +275,15 @@ def _compute(inputs: dict) -> dict:
         terminal_value = trailing_noi / exit_cap
     else:
         terminal_value = forward_noi_12 / exit_cap
+    if terminal_value < 0:
+        # [FIN] A negative capitalized value isn't a sale price: a buyer pays
+        # nothing (at worst) for an asset losing money. Owner decision
+        # 2026-09-19: floor at zero and say so.
+        warnings.append(
+            f"Exit NOI is negative, so the capitalized sale price would be "
+            f"{money(terminal_value)}; it is floored at $0."
+        )
+        terminal_value = 0.0
     gross_sale_net_of_costs = terminal_value * (1 - cost_of_sale)
 
     ltc_or_ltv = _num(inputs, "ltvOrLtc", 0.65)

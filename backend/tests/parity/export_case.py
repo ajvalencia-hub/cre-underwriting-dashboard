@@ -169,6 +169,8 @@ def _load_cases() -> list[tuple[str, dict]]:
         # No construction period: the whole budget lands at close (the export
         # used to carry land only there and drop every other cost).
         ("export_development_no_build_period", {**DEVELOPMENT_SCURVE_INPUTS, "constructionMonths": 0}),
+        # Exit NOI below zero: the sale price floors at $0 in both.
+        ("export_negative_exit_noi", {**analytic, "insurance": 80_001}),
     ]
 
 
