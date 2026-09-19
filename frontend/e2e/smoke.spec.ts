@@ -124,3 +124,42 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.getByText('ASSUMPTION PRESETS')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Input history' })).toBeVisible()
 })
+
+// Assigning a dealflow to the ACTIVE untyped deal. Regression canary for two
+// bugs: choosing "Acquisition" never persisted (the schema default already put
+// dealType=acquisition in the hydrated form, so autosave saw no diff), and the
+// board didn't move the deal — then a stage change replaced it with the stale
+// server copy and it fell back into the untyped list.
+//
+// Self-contained and LAST in this file: specs share one scratch db per run and
+// the tests above assume a fresh one (only the Default Deal), so this creates
+// and activates its own untyped deal after they have run.
+test('active untyped deal moves boards and keeps its dealflow', async ({ page, request }) => {
+  const name = `Untyped ${Date.now()}`
+  const created = await (await request.post('/api/deals', { data: { name } })).json()
+  expect(created.inputs?.dealType).toBeUndefined()
+  await page.addInitScript((id) => localStorage.setItem('cre-active-deal-id', id), created.id)
+
+  await page.goto('/')
+  await expect(page.locator('select').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Deals' }).click()
+
+  const untypedItem = page.locator('li', { hasText: name })
+  await untypedItem.getByRole('button', { name: 'Acquisition', exact: true }).click()
+
+  // Moves to the Acquisitions board immediately, no reload.
+  await expect(untypedItem).toHaveCount(0)
+  const dealRow = page.locator('tr', { hasText: name }).first()
+  await expect(dealRow).toBeVisible()
+
+  // A stage change right away (inside the autosave debounce) keeps the type.
+  await dealRow.locator('select').selectOption('underwriting')
+  await expect(dealRow.locator('select')).toHaveValue('underwriting')
+  await expect(untypedItem).toHaveCount(0)
+  await expect(dealRow).toBeVisible()
+
+  // ...and both were persisted server-side.
+  const saved = await (await request.get(`/api/deals/${created.id}`)).json()
+  expect(saved.inputs.dealType).toBe('acquisition')
+  expect(saved.status).toBe('underwriting')
+})
