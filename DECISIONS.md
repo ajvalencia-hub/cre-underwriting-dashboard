@@ -3,6 +3,43 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Charts across the app, and the desktop app on Windows (post-Run 6)
+
+- **Charts are hand-rolled SVG on one small in-house kit**
+  (`frontend/src/components/charts/`: line, bar, scatter, strip/dot plot,
+  stat tiles, shared frame). Rejected: a chart library — it would add a
+  large dependency to the desktop bundle for a dozen chart types, and the
+  app already drew its own SVG charts; one kit keeps them consistent.
+- **Colour is computed, not eyeballed.** The palette is the dataviz
+  reference instance (categorical slots in a fixed, colour-blind-checked
+  order; sequential, diverging and status ramps), validated with the
+  palette script against the app's own cards (#ffffff light, #1e293b
+  dark). One dark step was lifted (green #008300 -> #008a00) to clear 3:1
+  on the dark card. Tokens live once in `index.css` (`--viz-*`, under
+  `:root` and `.dark`); components never hard-code hex.
+- **Every chart ships with a table view, a hover tooltip, one keyboard tab
+  stop with arrow-key navigation, and an empty state** — so identity is
+  never colour-alone and the numbers stay readable where contrast warns.
+- **One y-axis per chart.** The hold sweep's dual-axis plot became two
+  charts (IRR %, equity multiple x); mixed-unit comparisons (Scenarios,
+  Compare) are split by metric family.
+- **Colour follows the entity**: a deal or scenario keeps its slot while it
+  stays selected, shared between the chart and the table header.
+- **Skipped on purpose**: sources & uses (the statement has only total
+  costs — rebuilding the split would duplicate engine math in the
+  browser), IC approval (a history reads better as a list), sidebar
+  sparklines.
+- **Windows desktop app**: the same PyInstaller shell, with a platform
+  layer (`desktop/cre_desktop/osutil.py`) for the single-instance lock,
+  quit cleanup, relaunch and reveal-in-Explorer; data in
+  `%LOCALAPPDATA%\CRE Underwriting`; keys in Windows Credential Manager;
+  a WebView2 check that explains instead of failing. Installer: Inno Setup,
+  per-user (no admin prompt), Start-menu and desktop shortcuts, launch on
+  finish, uninstall keeps the deal data. Rejected: MSIX (needs signing to
+  install at all) and a single-file exe (slow start: it unpacks ~200 MB on
+  every launch). The installer is compiled in CI; macOS gains a
+  drag-to-Applications DMG.
+
 ## Run 6 port onto later-items — frontend
 
 Run 6's frontend work was ported into this line's structure (left-rail

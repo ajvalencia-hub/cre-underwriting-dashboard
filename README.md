@@ -357,6 +357,31 @@ The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
 
+### Charts
+
+Graphs appear where they help read the numbers. Every chart has a
+**Show table** toggle, hover details, keyboard navigation, and follows the
+light / dark theme.
+
+- **Cash Flow:** NOI vs debt service vs cash flow by year, DSCR by year
+  (1.25x line), loan balance, cumulative cash flow with the payback year;
+  hold-period IRR and equity multiple; lease expirations; renovation
+  progress.
+- **Quick Screen:** development cost build-up; where an acquisition's NOI
+  goes (debt service vs cash flow).
+- **Sensitivity:** one line per output for single-driver runs; the
+  two-driver grid is a colour-blind-safe heat map.
+- **Risk:** P50 / tail-probability tiles, the IRR distribution split at the
+  hurdle, and the chance of reaching each IRR.
+- **Scenarios / Compare:** side-by-side bars per metric family, one colour
+  per scenario or deal.
+- **Portfolio:** equity, IRR and multiple tiles; IRR vs equity by dealflow;
+  exposure by market and asset class.
+- **Deals:** a collapsible overview of equity by stage per board.
+- **Comps:** distributions of price, rent and cap rate with the median and
+  your deal marked.
+- **Deal Inputs:** the floating-rate index path with cap / floor.
+
 ### Added by the Run 6 port
 
 - **Compare tab (Portfolio group):** pick 2–4 deals (archived ones are excluded) and see their outputs side by side.
