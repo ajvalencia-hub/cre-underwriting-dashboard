@@ -37,26 +37,13 @@ import {
   type Autosaver,
   type AutosaveState,
 } from './lib/dealPersistence'
-import { formatValue } from './lib/formatValue'
-import { flattenFields } from './lib/schemaFields'
+import { defaultValuesFor, flattenFields } from './lib/schemaFields'
 import { isVisible } from './lib/visibility'
-import {
-  ACQUISITION_QUICK_SCREEN_DEFAULTS,
-  QUICK_SCREEN_DEFAULTS,
-  QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS,
-  computeAcquisitionQuickScreen,
-  computeQuickScreen,
-  mapAcquisitionQuickScreenToOutputMetrics,
-  mapQuickScreenToDealInputs,
-  mapQuickScreenToOutputMetrics,
-  type AcquisitionQuickScreenInputs,
-  type QuickScreenInputs,
-} from './lib/quickScreenMath'
+import { mapQuickScreenToDealInputs, type QuickScreenInputs } from './lib/quickScreenMath'
 import type { Deal } from './types/deal'
 import CommandPalette from './components/CommandPalette'
 import CriticalDatesEditor from './components/CriticalDatesEditor'
 import FileCabinet from './components/FileCabinet'
-import FileChooser, { type FileChooserHandle } from './components/FileChooser'
 import { saveOutput } from './lib/saveOutput'
 import { showToast, toastError } from './lib/toast'
 import { isDesktop, reportUnsavedToShell } from './lib/platform'
@@ -64,81 +51,28 @@ import MetricsSidebar from './components/MetricsSidebar'
 import ResultsStatus from './components/ResultsStatus'
 import { focusUnparsedEntry, goToField } from './lib/goToField'
 import { orderSections } from './lib/sectionOrder'
-import { presetDiff } from './lib/presetDiff'
+import { describeInputChanges, inputChangesPrompt } from './lib/inputChanges'
 import { inputsKey, isStale, latestStamp, pickMetric } from './lib/resultFreshness'
 import { useComputeResults } from './lib/useComputeResults'
-import { parseShareLink, shareParams, type SharedScreen } from './lib/shareLink'
+import { useQuickScreens } from './app/useQuickScreens'
+import { parseShareLink, type SharedScreen } from './lib/shareLink'
 import GoalSeekModal from './components/GoalSeekModal'
 import OmWizard from './components/OmWizard'
-import { dateStatus, readCriticalDates, sortByDate } from './lib/criticalDates'
-import { dealTypeOf, type DealType } from './lib/dealStages'
+import type { DealType } from './lib/dealStages'
 import type { InputSchema, OutputMetric } from './types/schema'
 import type { TemplateSummary } from './types/template'
 import { clearProvenance, recordProvenance, sameSourceFor, type FieldProvenance } from './lib/provenance'
+import { MULTI_DEAL_TABS, loadLastTab, rememberTab, type Tab } from './app/navigation'
+import ModuleNav from './components/ModuleNav'
+import DealHeaderBar from './components/DealHeaderBar'
+import DealImportNotices from './components/DealImportNotices'
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; schema: InputSchema; apiOk: boolean }
 
-const TABS = [
-  'pipeline',
-  'quickscreen',
-  'documents',
-  'setup',
-  'dashboard',
-  'cashflow',
-  'sensitivity',
-  'risk',
-  'scenarios',
-  'comps',
-  'portfolio',
-  'settings',
-] as const
-type Tab = (typeof TABS)[number]
-
-/** Views that span many deals — no one-deal summary panel beside them. */
-const MULTI_DEAL_TABS: ReadonlySet<Tab> = new Set<Tab>(['pipeline', 'portfolio', 'comps', 'settings'])
-
-// Left-rail module navigation. Grouped (workflow steps under "This deal"),
-// no step numbers — "0." / "5b." implied a strict order that doesn't exist.
-const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string])[] }[] = [
-  {
-    label: 'Portfolio',
-    items: [
-      ['pipeline', 'Deals'],
-      ['portfolio', 'Portfolio'],
-      ['comps', 'Comps'],
-    ],
-  },
-  {
-    label: 'This deal',
-    items: [
-      ['quickscreen', 'Quick Screen'],
-      ['documents', 'Documents'],
-      ['setup', 'Template & Mapping'],
-      ['dashboard', 'Deal Inputs'],
-      ['cashflow', 'Cash Flow'],
-      ['sensitivity', 'Sensitivity'],
-      ['risk', 'Risk'],
-      ['scenarios', 'Scenarios'],
-    ],
-  },
-  { label: '', items: [['settings', 'Settings']] },
-]
-
-// Reopen where the user was (per browser / desktop profile). Storage can be
-// unavailable (private mode); the app then just starts on Quick Screen.
-const LAST_TAB_KEY = 'cre.lastTab'
 const HEALTH_POLL_MS = 30_000
-function loadLastTab(): Tab {
-  try {
-    const stored = localStorage.getItem(LAST_TAB_KEY)
-    return (TABS as readonly string[]).includes(stored ?? '') ? (stored as Tab) : 'quickscreen'
-  } catch {
-    return 'quickscreen'
-  }
-}
 
 function blockedByUnparsedEntry(): boolean {
   if (!focusUnparsedEntry()) return false
@@ -150,42 +84,15 @@ function blockedByUnparsedEntry(): boolean {
   return true
 }
 
-function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  for (const field of flattenFields(schema)) {
-    if (field.default !== undefined) values[field.id] = field.default
-  }
-  return values
-}
-
-const AUTOSAVE_LABEL: Record<AutosaveState, string> = {
-  idle: '',
-  pending: 'Saving…',
-  saving: 'Saving…',
-  saved: 'Saved',
-  error: 'Not saved — retrying automatically',
-}
-
 function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>(loadLastTab)
-  useEffect(() => {
-    try {
-      localStorage.setItem(LAST_TAB_KEY, tab)
-    } catch {
-      // storage unavailable — not remembering the tab is harmless
-    }
-  }, [tab])
+  useEffect(() => rememberTab(tab), [tab])
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
   const [activeTemplate, setActiveTemplate] = useState<TemplateSummary | null>(null)
   const [activeMappingProfileId, setActiveMappingProfileId] = useState<string | null>(null)
   const [mappingUnsaved, setMappingUnsaved] = useState(false)
-  const [quickScreenInputs, setQuickScreenInputs] = useState<QuickScreenInputs>(QUICK_SCREEN_DEFAULTS)
-  // The acquisition-side napkin (lifted here for URL sharing + sidebar
-  // estimates, same as the development inputs above).
-  const [acquisitionQuickScreenInputs, setAcquisitionQuickScreenInputs] =
-    useState<AcquisitionQuickScreenInputs>(ACQUISITION_QUICK_SCREEN_DEFAULTS)
-  const [quickScreenMode, setQuickScreenMode] = useState<'development' | 'acquisition'>('development')
+  const quickScreens = useQuickScreens()
   // A Quick Screen link the app was opened with, waiting for the user to
   // open it (it replaces this deal's napkin) or dismiss it.
   const [sharedFromLink, setSharedFromLink] = useState<SharedScreen | null>(null)
@@ -199,24 +106,12 @@ function App() {
   const [datesEditorOpen, setDatesEditorOpen] = useState(false)
   // J13: Cmd+K command palette.
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Typed New Deal chooser (header button popover).
-  const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
-  useEffect(() => {
-    if (!newDealMenuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setNewDealMenuOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [newDealMenuOpen])
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
   const [autosaveState, setAutosaveState] = useState<AutosaveState>('idle')
-  const [renamingName, setRenamingName] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<DealExportBundle | null>(null)
   const [importNotice, setImportNotice] = useState<string | null>(null)
-  const importInputRef = useRef<FileChooserHandle>(null)
 
   const activeDealIdRef = useRef<string | null>(null)
   // Computed results (engine + Excel read-back), each stamped with the deal
@@ -233,26 +128,6 @@ function App() {
     })
   }
 
-  const quickScreenResults = useMemo(() => computeQuickScreen(quickScreenInputs), [quickScreenInputs])
-  const acquisitionQuickScreenResults = useMemo(
-    () => computeAcquisitionQuickScreen(acquisitionQuickScreenInputs),
-    [acquisitionQuickScreenInputs],
-  )
-  // Sidebar estimates follow the ACTIVE napkin.
-  const quickScreenOutputs = useMemo(
-    () =>
-      quickScreenMode === 'acquisition'
-        ? mapAcquisitionQuickScreenToOutputMetrics(
-            acquisitionQuickScreenResults, acquisitionQuickScreenInputs,
-          )
-        : mapQuickScreenToOutputMetrics(quickScreenResults, quickScreenInputs),
-    [quickScreenMode, quickScreenResults, quickScreenInputs,
-     acquisitionQuickScreenResults, acquisitionQuickScreenInputs],
-  )
-  const quickScreenFullModelOnlyIds = useMemo(
-    () => new Set<string>(QUICK_SCREEN_FULL_MODEL_ONLY_OUTPUT_IDS),
-    [],
-  )
 
   // Freshness of what's on screen vs the inputs on screen.
   const currentInputsKey = useMemo(() => inputsKey(formValues), [formValues])
@@ -308,8 +183,8 @@ function App() {
   function applyDealState(schema: InputSchema, deal: Deal) {
     const hydrated = hydrateDealState(defaultValuesFor(schema), deal.inputs)
     setFormValues(hydrated.formValues)
-    setQuickScreenInputs(hydrated.quickScreen)
-    setAcquisitionQuickScreenInputs(hydrated.acquisitionQuickScreen)
+    quickScreens.setDevelopment(hydrated.quickScreen)
+    quickScreens.setAcquisition(hydrated.acquisitionQuickScreen)
     results.reset()
     setLoadedScenario(null)
     setActiveMappingProfileId(deal.activeMappingProfileId)
@@ -366,7 +241,7 @@ function App() {
             setSharedFromLink(shared)
             setTab('quickscreen') // so the offer is seen
           } else {
-            setQuickScreenMode(shared.mode)
+            quickScreens.setMode(shared.mode)
           }
         }
         setDeals(list)
@@ -419,21 +294,13 @@ function App() {
   // Debounced autosave of the whole working state into the active deal.
   useEffect(() => {
     if (!hydratedRef.current || activeDealId === null) return
-    const blob = serializeDealInputs(formValues, quickScreenInputs, acquisitionQuickScreenInputs)
+    const blob = serializeDealInputs(formValues, quickScreens.development, quickScreens.acquisition)
     const json = JSON.stringify(blob)
     if (json === lastPersistedJsonRef.current) return
     lastPersistedJsonRef.current = json
     autosaverRef.current!.schedule({ dealId: activeDealId, inputs: blob })
-  }, [formValues, quickScreenInputs, acquisitionQuickScreenInputs, activeDealId])
+  }, [formValues, quickScreens.development, quickScreens.acquisition, activeDealId])
 
-  // Keep the sharable URL in sync with BOTH napkins + the active screen.
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      const params = shareParams(quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode)
-      window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
-    }, 500)
-    return () => clearTimeout(handle)
-  }, [quickScreenInputs, acquisitionQuickScreenInputs, quickScreenMode])
 
   /** Before leaving the current deal: make sure its edits reached the
    *  server. If they didn't, stay put — otherwise the retry would be
@@ -473,10 +340,9 @@ function App() {
   // development) in inputs from birth, so server-side surfaces (share, deck,
   // portfolio, hold-sweep) agree with the form instead of splitting between
   // "missing dealType" and a silent acquisition default.
-  async function handleNewDeal(type: DealType) {
-    if (state.status !== 'ready') return
-    if (!(await ensureSaved())) return
-    setNewDealMenuOpen(false)
+  async function handleNewDeal(type: DealType): Promise<boolean> {
+    if (state.status !== 'ready') return false
+    if (!(await ensureSaved())) return false
     const label = type === 'development' ? 'Development' : 'Acquisition'
     try {
       const deal = await createDeal({
@@ -496,6 +362,7 @@ function App() {
     } catch (err) {
       toastError("Couldn't create the deal", err)
     }
+    return true
   }
 
   // Assign a dealflow to an untyped (legacy) deal. The active deal routes
@@ -513,8 +380,8 @@ function App() {
         dealId,
         inputs: serializeDealInputs(
           { ...formValuesRef.current, dealType: type },
-          quickScreenInputs,
-          acquisitionQuickScreenInputs,
+          quickScreens.development,
+          quickScreens.acquisition,
         ),
       })
       setDeals((prev) =>
@@ -555,18 +422,15 @@ function App() {
     setTab('dashboard')
   }
 
-  async function handleRenameDeal(name: string) {
-    if (!activeDealId || !name.trim()) {
-      setRenamingName(null)
-      return
-    }
+  async function handleRenameDeal(name: string): Promise<boolean> {
+    if (!activeDealId) return true
     try {
-      const updated = await updateDeal(activeDealId, { name: name.trim() })
+      const updated = await updateDeal(activeDealId, { name })
       setDeals((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-      setRenamingName(null)
+      return true
     } catch (err) {
-      // Keep the rename box open with what was typed so nothing is lost.
       toastError("Couldn't rename the deal", err)
+      return false
     }
   }
 
@@ -654,28 +518,8 @@ function App() {
    *  about or the user agreed. */
   function confirmInputChanges(next: Record<string, unknown>, what: string, replaceAll: boolean): boolean {
     if (state.status !== 'ready') return true
-    const hasValue = (v: unknown) => v !== undefined && v !== null && v !== ''
-    const overwrites = presetDiff(formValues, next).filter((row) => row.changed && hasValue(row.current))
-    const cleared = replaceAll
-      ? Object.keys(formValues).filter((id) => hasValue(formValues[id]) && !hasValue(next[id]))
-      : []
-    if (overwrites.length === 0 && cleared.length === 0) return true
-    const byId = new Map(flattenFields(state.schema).map((f) => [f.id, f]))
-    const lines = [
-      ...overwrites.map((row) => {
-        const field = byId.get(row.fieldId)
-        return `• ${field?.label ?? row.fieldId}: ${formatValue(field, row.current)} → ${formatValue(field, row.proposed)}`
-      }),
-      ...cleared.map((id) => {
-        const field = byId.get(id)
-        return `• ${field?.label ?? id}: ${formatValue(field, formValues[id])} → (cleared)`
-      }),
-    ]
-    const shown = lines.slice(0, 12).join('\n')
-    const more = lines.length > 12 ? `\n…and ${lines.length - 12} more` : ''
-    return window.confirm(
-      `${what} changes ${lines.length} value(s) already in Deal Inputs:\n\n${shown}${more}\n\nContinue?`,
-    )
+    const lines = describeInputChanges(state.schema, formValues, next, replaceAll)
+    return lines.length === 0 || window.confirm(inputChangesPrompt(what, lines))
   }
 
   /** Apply napkin values to the full form — after confirming any field that
@@ -699,7 +543,7 @@ function App() {
   }
 
   function handleSendQuickScreenToDealInputs() {
-    sendToDealInputs(mapQuickScreenToDealInputs(quickScreenInputs, quickScreenResults))
+    sendToDealInputs(mapQuickScreenToDealInputs(quickScreens.development, quickScreens.developmentResults))
   }
 
   // Acquisition-side quick screen send (the mapped values arrive already
@@ -708,14 +552,8 @@ function App() {
     sendToDealInputs(values)
   }
 
-  function applySharedScreen(shared: SharedScreen) {
-    if (shared.development) setQuickScreenInputs(shared.development)
-    if (shared.acquisition) setAcquisitionQuickScreenInputs(shared.acquisition)
-    setQuickScreenMode(shared.mode)
-  }
-
   function handleLoadQuickScreenScenario(inputs: QuickScreenInputs) {
-    setQuickScreenInputs(inputs)
+    quickScreens.setDevelopment(inputs)
     setTab('quickscreen')
   }
 
@@ -756,7 +594,6 @@ function App() {
   }
 
   const { schema, apiOk } = state
-  const activeDeal = deals.find((d) => d.id === activeDealId) ?? null
 
   /** A user edit: the value is now theirs, so any "filled by the app"
    *  marker on the field goes. */
@@ -782,48 +619,7 @@ function App() {
   return (
     <Layout
       nav={
-        // Module navigation lives here: the old top tab strip was 1,298px
-        // wide in an 800px column, hiding six modules at 1440px.
-        <div className="space-y-4 pb-4">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label}>
-              {group.label && (
-                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  {group.label}
-                </div>
-              )}
-              <ul className="space-y-0.5">
-                {group.items.map(([id, label]) => (
-                  <li key={id}>
-                    <button
-                      onClick={() => setTab(id)}
-                      aria-current={tab === id ? 'page' : undefined}
-                      className={`w-full rounded px-2 py-1.5 text-left text-sm ${
-                        tab === id ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                    {id === 'dashboard' && tab === 'dashboard' && (
-                      <ul aria-label="Deal Inputs sections" className="mt-0.5 mb-1 ml-3 border-l border-slate-200 pl-2">
-                        {visibleSections.map((section) => (
-                          <li key={section.id}>
-                            <button
-                              onClick={() => goToSection(section.id)}
-                              className="w-full rounded px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100"
-                            >
-                              {section.label}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <ModuleNav tab={tab} onSelect={setTab} sections={visibleSections} onGoToSection={goToSection} />
       }
       summary={
         // The one-deal summary and Compute button don't apply on views that
@@ -860,7 +656,7 @@ function App() {
               // read-back), labelled with its source. On the Quick Screen the
               // napkin leads — its estimates move as you edit it — and full
               // results only fill metrics the napkin can't estimate.
-              const estimate = tab === 'quickscreen' ? quickScreenOutputs[metric.id] : undefined
+              const estimate = tab === 'quickscreen' ? quickScreens.outputs[metric.id] : undefined
               const picked = estimate === undefined ? pickMetric(metric.id, resultSets) : null
               const value = picked ? picked.value : estimate
               return {
@@ -868,10 +664,10 @@ function App() {
                 provenance: picked ? picked.stamp.source : estimate !== undefined ? 'estimate' : 'none',
                 stale: picked ? isStale(picked.stamp, currentInputsKey, activeDealId) : false,
                 fullModelOnly:
-                  tab === 'quickscreen' && value === undefined && quickScreenFullModelOnlyIds.has(metric.id),
+                  tab === 'quickscreen' && value === undefined && quickScreens.fullModelOnlyIds.has(metric.id),
               }
             }}
-            dealType={tab === 'quickscreen' ? quickScreenMode : formValues.dealType}
+            dealType={tab === 'quickscreen' ? quickScreens.mode : formValues.dealType}
             irrConvention={nativeResponse?.irrConvention ?? null}
             onGoalSeek={setGoalSeekMetric}
           />
@@ -908,178 +704,29 @@ function App() {
           the bar; z-30 sits above the statement's sticky cells (z-10) and
           below modals (z-50). */}
       <div data-app-header className="sticky -top-6 z-30 -mx-8 -mt-6 bg-slate-50 px-8 pt-6">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <label className="text-xs font-semibold tracking-wide text-slate-400">DEAL</label>
-        <select
-          value={activeDealId ?? ''}
-          onChange={(e) => void switchDeal(e.target.value)}
-          className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
-        >
-          {deals.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-        {renamingName === null ? (
-          <button
-            onClick={() => setRenamingName(activeDeal?.name ?? '')}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            Rename
-          </button>
-        ) : (
-          <input
-            autoFocus
-            value={renamingName}
-            onChange={(e) => setRenamingName(e.target.value)}
-            onBlur={() => void handleRenameDeal(renamingName)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleRenameDeal(renamingName)
-              if (e.key === 'Escape') setRenamingName(null)
-            }}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
-          />
-        )}
-        {/* Type badge: which dealflow the active deal belongs to. */}
-        {(() => {
-          const type = dealTypeOf({ inputs: formValues })
-          if (!type) return null
-          return (
-            <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                type === 'development'
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-sky-100 text-sky-700'
-              }`}
-            >
-              {type === 'development' ? 'DEV' : 'ACQ'}
-            </span>
-          )
-        })()}
-        <div className="relative">
-          <button
-            onClick={() => setNewDealMenuOpen((v) => !v)}
-            aria-haspopup="menu"
-            aria-expanded={newDealMenuOpen}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            New Deal ▾
-          </button>
-          {newDealMenuOpen && (
-            <div className="absolute left-0 top-full z-40 mt-1 w-36 rounded border border-slate-200 bg-white py-1 shadow-lg">
-              <button
-                onClick={() => void handleNewDeal('acquisition')}
-                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-sky-50"
-              >
-                Acquisition
-              </button>
-              <button
-                onClick={() => void handleNewDeal('development')}
-                className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-orange-50"
-              >
-                Development
-              </button>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => void handleDeleteDeal()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-        >
-          Delete
-        </button>
-        <button
-          onClick={() => void handleExportDeal()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Export
-        </button>
-        <button
-          onClick={() => importInputRef.current?.open()}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Import
-        </button>
-        <FileChooser
-          ref={importInputRef}
-          accept="application/json,.json"
-          description="Deal export bundles"
-          hidden
-          onFiles={(files) => handleImportFile(files[0])}
+        <DealHeaderBar
+          deals={deals}
+          activeDealId={activeDealId}
+          values={formValues}
+          loadedScenario={
+            loadedScenario && { name: loadedScenario.name, modified: currentInputsKey !== loadedScenario.key }
+          }
+          autosaveState={autosaveState}
+          onSwitchDeal={(dealId) => void switchDeal(dealId)}
+          onRename={handleRenameDeal}
+          onNewDeal={handleNewDeal}
+          onDelete={() => void handleDeleteDeal()}
+          onExport={() => void handleExportDeal()}
+          onImportFile={handleImportFile}
+          onOpenDates={() => setDatesEditorOpen(true)}
         />
-        {/* J11: date chips for the active deal + editor. */}
-        {sortByDate(readCriticalDates(formValues)).slice(0, 3).map((row) => {
-          const status = dateStatus(row.date, new Date())
-          return (
-            <span
-              key={row.id}
-              title={row.notes || row.label}
-              className={`rounded px-1.5 py-0.5 text-[11px] ${
-                status === 'overdue'
-                  ? 'bg-red-100 text-red-700'
-                  : status === 'upcoming'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-slate-100 text-slate-500'
-              }`}
-            >
-              {row.label} {row.date}
-            </span>
-          )
-        })}
-        <button
-          onClick={() => setDatesEditorOpen(true)}
-          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        >
-          Dates
-        </button>
-        {loadedScenario && (
-          <span
-            className="ml-auto rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600"
-            title="The Deal Inputs were loaded from this saved scenario."
-          >
-            Working from scenario “{loadedScenario.name}”
-            {inputsKey(formValues) !== loadedScenario.key && ' · modified'}
-          </span>
-        )}
-        <span
-          className={`${loadedScenario ? '' : 'ml-auto '}text-xs ${
-            autosaveState === 'error' ? 'text-red-500' : 'text-slate-400'
-          }`}
-        >
-          {AUTOSAVE_LABEL[autosaveState]}
-        </span>
-      </div>
 
-      {importNotice && (
-        <div className="mb-3 rounded border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
-          {importNotice}
-        </div>
-      )}
-      {importPreview && (
-        <div className="mb-3 flex items-center gap-3 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-700">
-          <span>
-            Import <span className="font-semibold">{importPreview.deal.name}</span> —{' '}
-            {importPreview.scenarios.length} scenario(s), exported{' '}
-            {new Date(importPreview.exportedAt).toLocaleString()}
-            {importPreview.activeTemplate &&
-              ` · used template "${importPreview.activeTemplate.filename}" (not bundled)`}
-            ?
-          </span>
-          <button
-            onClick={() => void handleConfirmImport()}
-            className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
-          >
-            Create new deal
-          </button>
-          <button
-            onClick={() => setImportPreview(null)}
-            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-white"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+        <DealImportNotices
+          notice={importNotice}
+          preview={importPreview}
+          onConfirm={() => void handleConfirmImport()}
+          onCancel={() => setImportPreview(null)}
+        />
 
       </div>
 
@@ -1159,7 +806,7 @@ function App() {
             <span className="flex gap-2">
               <button
                 onClick={() => {
-                  applySharedScreen(sharedFromLink)
+                  quickScreens.applyShared(sharedFromLink)
                   setSharedFromLink(null)
                 }}
                 className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
@@ -1173,16 +820,16 @@ function App() {
           </div>
         )}
         <QuickScreen
-          inputs={quickScreenInputs}
-          onInputsChange={setQuickScreenInputs}
-          results={quickScreenResults}
-          mode={quickScreenMode}
-          onModeChange={setQuickScreenMode}
-          acquisitionInputs={acquisitionQuickScreenInputs}
-          onAcquisitionInputsChange={setAcquisitionQuickScreenInputs}
+          inputs={quickScreens.development}
+          onInputsChange={quickScreens.setDevelopment}
+          results={quickScreens.developmentResults}
+          mode={quickScreens.mode}
+          onModeChange={quickScreens.setMode}
+          acquisitionInputs={quickScreens.acquisition}
+          onAcquisitionInputsChange={quickScreens.setAcquisition}
           onSendToDealInputs={handleSendQuickScreenToDealInputs}
           onSendAcquisitionToDealInputs={handleSendAcquisitionToDealInputs}
-          onOpenShared={applySharedScreen}
+          onOpenShared={quickScreens.applyShared}
           dealId={activeDealId}
         />
       </div>

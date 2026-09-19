@@ -37,3 +37,12 @@ export function visibleFields(
         })),
     )
 }
+
+/** Each field's schema default — what a new deal's form holds. */
+export function defaultValuesFor(schema: InputSchema): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  for (const field of flattenFields(schema)) {
+    if (field.default !== undefined) values[field.id] = field.default
+  }
+  return values
+}
