@@ -117,6 +117,8 @@
           "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
         { "id": "refiCostsPct", "label": "Refi / Takeout Costs (% of new loan)", "type": "percent", "min": 0, "max": 0.05, "default": 0.01,
           "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
+        { "id": "permanentLtvPct", "label": "Permanent Loan Max LTV (blank = same as LTC)", "type": "percent", "min": 0, "max": 1,
+          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
         { "id": "juniorTrancheKind", "label": "Junior Tranche", "type": "select",
           "options": ["none", "mezz", "pref_equity"], "default": "none" },
         { "id": "juniorAmount", "label": "Tranche Amount (0 = use fill-to-LTC)", "type": "currency", "min": 0,

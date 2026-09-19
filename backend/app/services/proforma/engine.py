@@ -233,6 +233,12 @@ def compute(inputs: dict) -> dict:
     gross_sale_net_of_costs = terminal_value * (1 - cost_of_sale)
 
     ltc_or_ltv = _num(inputs, "ltvOrLtc", 0.65)
+    # Development: the permanent takeout can size to its own max LTV (a 60%
+    # LTC construction loan often refis into a 65-70% LTV perm). Blank keeps
+    # the shared ltvOrLtc. Acquisitions have one loan: always ltvOrLtc.
+    perm_ltv = ltc_or_ltv
+    if (inputs.get("dealType") or "acquisition") == "development" and inputs.get("permanentLtvPct") not in (None, ""):
+        perm_ltv = _num(inputs, "permanentLtvPct", ltc_or_ltv)
     interest_rate = _num(inputs, "interestRate", 0.065)
     amort_years = _num(inputs, "amortYears", 30)
     io_months = int(_num(inputs, "ioMonths"))
@@ -469,9 +475,9 @@ def compute(inputs: dict) -> dict:
             # capital call (-). An all-equity build (LTC = 0) never takes on
             # permanent debt.
             sizing = debt.size_permanent_loan(
-                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                sizing_noi, value_for_ltv, perm_ltv, dscr_constraint,
                 debt_yield_constraint, perm_rate, amort_years,
-            ) if ltc_or_ltv > 0 else debt.PermSizing(0.0, "none", {})
+            ) if perm_ltv > 0 else debt.PermSizing(0.0, "none", {})
             if sizing.amount > 0:
                 perm_loan = sizing.amount
                 governing_constraint = sizing.governing_constraint
@@ -516,7 +522,7 @@ def compute(inputs: dict) -> dict:
         else:
             # Sold before stabilizing: sweep through exit, pay off then.
             sizing = debt.size_permanent_loan(
-                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                sizing_noi, value_for_ltv, perm_ltv, dscr_constraint,
                 debt_yield_constraint, interest_rate, amort_years,
             )
             for m in range(takeout_month, total + 1):
@@ -1002,7 +1008,7 @@ def compute(inputs: dict) -> dict:
             governing_constraint, governing_constraint
         )
         stress = debt.stress_matrix(
-            sizing_noi, value_for_ltv, perm_loan, ltc_or_ltv, dscr_constraint,
+            sizing_noi, value_for_ltv, perm_loan, perm_ltv, dscr_constraint,
             debt_yield_constraint, interest_rate_for_perm, amort_years,
         )
         worst = next(

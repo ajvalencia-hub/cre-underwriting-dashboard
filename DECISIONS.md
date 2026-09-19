@@ -42,6 +42,11 @@ stated reason.
   IRR 27.36% -> 26.88%, equity multiple 3.58 -> 3.48, yield on cost 8.77%
   -> 8.73%, loan fee ~$2.7k -> $107k; 89 values in that case. The other
   five cases have no construction loan and are unchanged.
+- **[FIN] Development permanent takeout can have its own max LTV**
+  (`permanentLtvPct`, development only, blank = the shared ltvOrLtc). One
+  input used to set both the construction LTC and the perm LTV, so a 60%
+  LTC build couldn't refi into a 70% LTV perm. Acquisitions (one loan)
+  ignore it. Baseline unchanged (blank everywhere).
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case
