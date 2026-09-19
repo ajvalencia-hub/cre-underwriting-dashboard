@@ -48,21 +48,21 @@ DECISIONS.md under "Engine audit fixes".
 
 | # | Item | Why | Effort |
 |---|---|---|---|
-| 10 | **General vacancy and credit reserve on lease-roll deals, and free rent on speculative leases** | NOI and exit value are overstated for well-leased office and retail; ARGUS layers general vacancy on top of rollover downtime | M |
-| 11 | **Loan maturity, balloon and refinance within the hold** | `loanTermYears` is ignored, so a 10-year hold on a 5-year loan never refinances | M |
-| 12 | **User-defined construction draw schedule** | `constructionDrawSchedule` is ignored today (S-curve only) | M |
-| 13 | **Template results say "Excel" but are LibreOffice recalculations** | LibreOffice's IRR can differ. Label them honestly, and check a template on upload by recalculating it unmodified and comparing mapped outputs with Excel's saved values | M |
-| 14 | **Where each value came from** | After applying OM extraction, presets or goal seek, a field doesn't show that the app filled it. Add a source chip and an "unreviewed extraction" filter | M |
-| 15 | **Field definitions** | None of the 151 inputs explains its units or meaning. Add a frontend help map with an accessible ⓘ popover | M |
-| 16 | **Scenario comparison with a base and Δ column** | Today it shows absolute values only (Causal and Pigment show variance to a base) | S–M |
-| 17 | **Sensitivity grid anchored on the base case** | Pre-fill ± steps, outline the base cell, use a colour-blind-safe scale around the base value and an optional user hurdle | S–M |
-| 18 | **Pipeline columns with numbers** | Price, equity, IRR and yield on cost from each deal's last result, with a stale dot (Dealpath-style configurable fields) | M |
-| 19 | **Per-tab side panels** | The deal-inputs rail and the single-deal summary take 576px on Portfolio, Comps and Settings | M |
-| 20 | **Accessibility** | Tie error messages to inputs (`aria-describedby`), make Goal Seek reachable by keyboard, add Esc and `aria-expanded` to the New Deal menu | S |
-| 21 | **Database migrations: versioning and backup before migrating** | No `user_version`; an older build silently opens a newer database | M |
-| 22 | **Typed API contract** | 29 of 89 routes declare a response model; the frontend casts JSON to hand-written types. Generate TS types from OpenAPI and check them in CI | M |
-| 23 | **Trended vs untrended yield on cost; growth during construction** | Development rents are flat through construction; show both conventions explicitly | S |
-| 24 | **Exit mechanics** | Prepayment, defeasance and yield maintenance at sale; exit cap on NOI after reserves; trailing vs forward NOI as a choice | S–M |
+| 10 | ~~**General vacancy and credit reserve on lease-roll deals, and free rent on speculative leases**~~ **Done** (f4fa54b) | NOI and exit value are overstated for well-leased office and retail; ARGUS layers general vacancy on top of rollover downtime | M |
+| 11 | ~~**Loan maturity, balloon and refinance within the hold**~~ **Done** (25d58c8) | `loanTermYears` is ignored, so a 10-year hold on a 5-year loan never refinances | M |
+| 12 | ~~**User-defined construction draw schedule**~~ **Done** (2077d3c) | `constructionDrawSchedule` is ignored today (S-curve only) | M |
+| 13 | ~~**Template results say "Excel" but are LibreOffice recalculations**~~ **Done** (347c22c) | LibreOffice's IRR can differ. Label them honestly, and check a template on upload by recalculating it unmodified and comparing mapped outputs with Excel's saved values | M |
+| 14 | ~~**Where each value came from**~~ **Done** (74ca9bb) | After applying OM extraction, presets or goal seek, a field doesn't show that the app filled it. Add a source chip and an "unreviewed extraction" filter | M |
+| 15 | ~~**Field definitions**~~ **Done** (a839b30) | None of the 151 inputs explains its units or meaning. Add a frontend help map with an accessible ⓘ popover | M |
+| 16 | ~~**Scenario comparison with a base and Δ column**~~ **Done** (917a466) | Today it shows absolute values only (Causal and Pigment show variance to a base) | S–M |
+| 17 | ~~**Sensitivity grid anchored on the base case**~~ **Done** (bd167f8) | Pre-fill ± steps, outline the base cell, use a colour-blind-safe scale around the base value and an optional user hurdle | S–M |
+| 18 | ~~**Pipeline columns with numbers**~~ **Done** (acb2422) | Price, equity, IRR and yield on cost from each deal's last result, with a stale dot (Dealpath-style configurable fields) | M |
+| 19 | ~~**Per-tab side panels**~~ **Done** (ede84ff) | The deal-inputs rail and the single-deal summary take 576px on Portfolio, Comps and Settings | M |
+| 20 | ~~**Accessibility**~~ **Done** (877cfc2) | Tie error messages to inputs (`aria-describedby`), make Goal Seek reachable by keyboard, add Esc and `aria-expanded` to the New Deal menu | S |
+| 21 | ~~**Database migrations: versioning and backup before migrating**~~ **Done** (6c3ff9f) | No `user_version`; an older build silently opens a newer database | M |
+| 22 | **Typed API contract** **Waiting for approval: adds the dev dependency openapi-typescript** | 29 of 89 routes declare a response model; the frontend casts JSON to hand-written types. Generate TS types from OpenAPI and check them in CI | M |
+| 23 | ~~**Trended vs untrended yield on cost; growth during construction**~~ **Done** (cf54772) | Development rents are flat through construction; show both conventions explicitly | S |
+| 24 | ~~**Exit mechanics**~~ **Done** (d67fb79) | Prepayment, defeasance and yield maintenance at sale; exit cap on NOI after reserves; trailing vs forward NOI as a choice | S–M |
 
 ## Later: new capability
 
