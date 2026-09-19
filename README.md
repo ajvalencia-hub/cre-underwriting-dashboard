@@ -293,15 +293,20 @@ Environment variables of note:
 
 - **Automatic:** a daily SQLite snapshot (online-backup API, safe during
   writes) under `/data/backups/daily/`, promoted to a weekly snapshot on the
-  first run of each ISO week. Rotation keeps the last **7 daily** and **4
-  weekly**. Each snapshot is a timestamped directory with `app.sqlite3` plus a
+  first run of each ISO week. It skips a run when the newest daily snapshot
+  is under 20 hours old (the desktop app backs up at launch). Rotation keeps
+  **one snapshot per day for 7 days**, **4 weekly**, and the last **5
+  "before restore"** snapshots. A failed automatic backup is logged and
+  shown in Settings. Each snapshot is a timestamped directory with `app.sqlite3` plus a
   `manifest.json` listing uploads by name/hash (upload bytes are **not**
   copied — they already share the data volume; the manifest lets you confirm
   none went missing after a restore).
 - **On demand:** `POST /api/admin/backups/run`; list with
   `GET /api/admin/backups`.
 - **Restore:** `POST /api/admin/backups/restore` with `{"kind","name"}`
-  overwrites the live DB from that snapshot, then **restart the backend** so
+  first snapshots the live DB as `pre_restore` (returned as
+  `preRestoreSnapshot`, so a wrong restore can be undone), then overwrites
+  the live DB from that snapshot. **Restart the backend** afterwards so
   SQLAlchemy reopens the file. The response returns the uploads manifest so
   you can verify every referenced file is still present on the volume. (To
   restore into a fresh volume, copy the snapshot dir into `/data/backups/…`

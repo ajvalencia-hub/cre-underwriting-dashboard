@@ -84,3 +84,10 @@ def test_external_tools_status_reports_discovery(client, monkeypatch):
 
     monkeypatch.setattr(soffice, "LIBREOFFICE_BIN", None)
     assert client.get("/api/admin/tools").json()["libreoffice"]["available"] is False
+
+
+def test_restore_rejects_a_path_like_snapshot_name(client):
+    bad = client.post("/api/admin/backups/restore", json={"kind": "daily", "name": "../../db"})
+    assert bad.status_code == 400
+    unknown_kind = client.post("/api/admin/backups/restore", json={"kind": "..", "name": "20260101T000000Z"})
+    assert unknown_kind.status_code == 400

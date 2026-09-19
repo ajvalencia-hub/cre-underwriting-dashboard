@@ -6,6 +6,9 @@ import {
   fetchIntegrations,
   restoreBackup,
   runBackupNow,
+  type AutomaticBackupStatus,
+  type BackupKind,
+  type BackupListing,
   type BackupSnapshot,
   type ExternalToolsStatus,
   type IntegrationStatus,
@@ -33,24 +36,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+const KIND_LABEL: Record<BackupKind, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  pre_restore: 'Before restore',
+}
+
 function SnapshotTable({
   kind,
   snapshots,
   onRestore,
   busy,
 }: {
-  kind: 'daily' | 'weekly'
+  kind: BackupKind
   snapshots: BackupSnapshot[]
-  onRestore: (kind: string, name: string) => void
+  onRestore: (kind: BackupKind, name: string) => void
   busy: boolean
 }) {
   return (
     <div>
       <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-        {kind} ({snapshots.length})
+        {KIND_LABEL[kind]} ({snapshots.length})
       </div>
       {snapshots.length === 0 ? (
-        <div className="mt-1 text-xs text-slate-400">No {kind} snapshots yet.</div>
+        <div className="mt-1 text-xs text-slate-500">No {KIND_LABEL[kind].toLowerCase()} snapshots yet.</div>
       ) : (
         <table className="mt-1 w-full text-xs">
           <thead>
@@ -89,10 +98,28 @@ function SnapshotTable({
   )
 }
 
+/** Automatic backups used to fail silently — say when one did. */
+function AutomaticBackupLine({ status }: { status: AutomaticBackupStatus }) {
+  const when = new Date(status.at).toLocaleString()
+  if (!status.ok) {
+    return (
+      <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+        The automatic backup at {when} failed: {status.error}. Use “Back up now”, and check free disk space.
+      </div>
+    )
+  }
+  return (
+    <div className="mt-2 text-xs text-slate-500">
+      Last automatic backup check: {when} —{' '}
+      {status.result?.startsWith('skipped') ? 'a recent daily snapshot already existed' : `saved ${status.result}`}.
+    </div>
+  )
+}
+
 /** Settings v1: appearance (theme), backups (J16 endpoints), integrations. */
 export default function SettingsPage({ active }: SettingsPageProps) {
   const [theme, setTheme] = useState<ThemePref>(() => loadThemePref(window.localStorage))
-  const [backups, setBackups] = useState<{ daily: BackupSnapshot[]; weekly: BackupSnapshot[] } | null>(null)
+  const [backups, setBackups] = useState<BackupListing | null>(null)
   const [integrations, setIntegrations] = useState<IntegrationStatus[] | null>(null)
   const [tools, setTools] = useState<ExternalToolsStatus | null>(null)
   const [desktopSettings, setDesktopSettings] = useDesktopSettings(active)
@@ -129,11 +156,11 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     }
   }
 
-  async function handleRestore(kind: string, name: string) {
+  async function handleRestore(kind: BackupKind, name: string) {
     const sure = window.confirm(
-      `Restore snapshot ${kind}/${name}?\n\nThis OVERWRITES the live database with the ` +
-        `snapshot state. You must restart ${desktop ? 'the app' : 'the backend'} afterward so the restored ` +
-        'database is loaded.',
+      `Restore snapshot ${kind}/${name}?\n\nThis replaces the live database with the snapshot. ` +
+        'Your current data is saved first as a "Before restore" snapshot, so you can undo this. ' +
+        `Restart ${desktop ? 'the app' : 'the backend'} afterward so the restored database is loaded.`,
     )
     if (!sure) return
     setBusy(true)
@@ -143,6 +170,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
       const result = await restoreBackup(kind, name)
       setNotice(
         `Restored ${result.restored}. ${desktop ? 'Restart the app to load it.' : result.note} ` +
+          (result.preRestoreSnapshot
+            ? `Your data from before the restore is saved as "Before restore" ${result.preRestoreSnapshot}. `
+            : '') +
           `The snapshot's manifest lists ${result.uploads.length} upload file(s) that should still exist on disk.`,
       )
       if (desktop) setRestoredNeedsRestart(true)
@@ -206,9 +236,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           </button>
           <span className="text-[11px] text-slate-400">
             Consistent SQLite snapshot (online-backup API) + an uploads manifest.
-            Rotation keeps 7 daily / 4 weekly.
+            Keeps one per day for 7 days, 4 weekly, and the last 5 taken before a restore.
           </span>
         </div>
+        {backups?.lastAutomatic && <AutomaticBackupLine status={backups.lastAutomatic} />}
         {backups === null ? (
           <div className="mt-3 text-xs text-slate-400">
             Backups unavailable — is the backend reachable?
@@ -217,6 +248,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           <div className="mt-3 space-y-3">
             <SnapshotTable kind="daily" snapshots={backups.daily} onRestore={handleRestore} busy={busy} />
             <SnapshotTable kind="weekly" snapshots={backups.weekly} onRestore={handleRestore} busy={busy} />
+            {backups.pre_restore.length > 0 && (
+              <SnapshotTable kind="pre_restore" snapshots={backups.pre_restore} onRestore={handleRestore} busy={busy} />
+            )}
           </div>
         )}
       </Section>

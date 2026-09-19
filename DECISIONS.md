@@ -115,6 +115,21 @@ stated reason.
   deal-by-deal convention (tier-1 promote starts once pref + capital are
   returned) is kept, but a tier-1 hurdle above the pref now produces a
   warning pointing to the european style. Baseline unchanged.
+- **Backups: rotation per day, restore is undoable, failures are
+  visible.** Keeping the last 7 SNAPSHOTS let 7 launches in one day (the
+  desktop app backs up at launch, and "Restart to apply" relaunches) wipe
+  every older day. Now: one snapshot per day for 7 days; the automatic run
+  skips when the newest daily is under 20 h old; a restore first snapshots
+  the live DB as `pre_restore` (keep 5) so it can be undone; kind/name are
+  validated (a name like `../../x` used to be joined into a path); the
+  scheduler logs failures and Settings shows the last automatic outcome
+  (it used to `except: pass`).
+- **Documents: a shared file is removed only with its last record.** Uploads
+  are stored once per content hash, so one file can back a Documents upload
+  and several deals' attachments; deleting any one record deleted the file
+  for all of them, and re-uploading then 500'd (a one-row-per-hash lookup).
+  Reuse is limited to general documents and restores a file missing from
+  disk.
 - **Export: a development with no construction period** carried only land
   at month 0 on the Draws sheet (the engine spends the whole budget at
   close), so its exported IRR was nonsense. Fixed, with a new parity case

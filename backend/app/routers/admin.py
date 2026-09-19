@@ -84,10 +84,13 @@ def restore_backup(payload: RestoreRequest):
     the operator can confirm which files must still be on the data volume."""
     try:
         manifest = backup_service.restore_backup(payload.kind, payload.name)
-    except (FileNotFoundError, ValueError) as exc:
+    except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {
         "restored": f"{payload.kind}/{payload.name}",
         "uploads": manifest.get("uploads", []),
+        "preRestoreSnapshot": manifest.get("preRestoreSnapshot"),
         "note": "Restart the backend so the restored database is loaded.",
     }

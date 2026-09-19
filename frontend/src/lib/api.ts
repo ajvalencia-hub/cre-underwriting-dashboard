@@ -816,16 +816,35 @@ export interface BackupSnapshot {
   hasDb: boolean
 }
 
+export type BackupKind = 'daily' | 'weekly' | 'pre_restore'
+
+/** Outcome of the last automatic (launch / daily) backup attempt. */
+export interface AutomaticBackupStatus {
+  at: string
+  ok: boolean
+  /** Snapshot name, or "skipped (recent daily exists)". */
+  result: string | null
+  error: string | null
+}
+
+export interface BackupListing {
+  daily: BackupSnapshot[]
+  weekly: BackupSnapshot[]
+  /** Taken automatically before each restore, so a restore can be undone. */
+  pre_restore: BackupSnapshot[]
+  lastAutomatic: AutomaticBackupStatus | null
+}
+
 export function fetchBackups() {
-  return getJson<{ daily: BackupSnapshot[]; weekly: BackupSnapshot[] }>('/admin/backups')
+  return getJson<BackupListing>('/admin/backups')
 }
 
 export function runBackupNow() {
   return postJson<{ created: string; kind: string }>('/admin/backups/run', {}, 'POST')
 }
 
-export function restoreBackup(kind: string, name: string) {
-  return postJson<{ restored: string; uploads: unknown[]; note: string }>(
+export function restoreBackup(kind: BackupKind, name: string) {
+  return postJson<{ restored: string; uploads: unknown[]; note: string; preRestoreSnapshot: string | null }>(
     '/admin/backups/restore',
     { kind, name },
     'POST',
