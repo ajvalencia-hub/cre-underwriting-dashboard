@@ -11,6 +11,22 @@ here. **✓** means I reproduced or read the problem in code.
 
 Effort: **S** is under a day, **M** is a few days, **L** is a week or more.
 
+## Done: Run 6 port (from the desktop audit branch `run6-desktop-audit`)
+
+Ported feature by feature onto this line; where this line already had an
+owner-approved version (loan-maturity refinance, prepayment cost,
+interest-only amortization, construction fee on the commitment, backup
+rotation, shared-file delete) the Run 6 version was dropped. See the
+"Run 6 port" blocks at the top of `DECISIONS.md`.
+
+| Area | Ported |
+|---|---|
+| Engine | sale-at-stabilization takeout fix, reassessed taxes in sizing NOI, cash-on-cash strips capital events, building RSF for lease deals, renovation double-display fix, junior tranche on no-takeout developments, input warnings, tornado inert drivers, IRR diagnostics, prepayment cost in the Excel export, analysis callers skip the insurance-stress recomputes, feature-on regression case + baseline guard |
+| API and security | backup download, Monte Carlo pool/cancel/429, attachment delete, cabinet isolation, LIKE escaping, rate limiting on external-API routes, optional `CRE_API_TOKEN` gate, archive/unarchive, clone, tags, ETag / If-Match, slim deal list |
+| Extraction | numeric letter guard, multifamily signals, tenant-ID header fix, rent-roll boundaries, unit mix by SF, operating-statement parser, classification thresholds |
+| Underwriting Agent | chat assistant with proposal-only write tools, provenance check, IC-lock-aware approvals |
+| Tooling | shared test fixtures, parity `--require-libreoffice`, CI concurrency/timeouts/audits/docker smoke, dependabot, Makefile, demo seed, ARCHITECTURE.md |
+
 ## Done: engine audit fixes
 
 Each fix below has a test that fails without it. They're recorded in

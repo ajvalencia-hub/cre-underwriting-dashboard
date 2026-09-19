@@ -3,6 +3,321 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Underwriting Agent (Run 6 port onto later-items)
+
+Ported from `run6-desktop-audit` (6e54b93). The backend is
+`routers/agent.py` and `services/agent/**`, the tests are
+`tests/test_agent_*.py`, and the frontend is ported separately. The notes
+below cover the agent's design and how it was adapted to this branch's
+IC lock, input validation and API contract.
+
+- **Write tools take no `db` parameter, by construction.**
+  `propose_input_changes` and `propose_scenario` (`services/agent/tools/
+  write_tools.py`) take plain dicts and return a `Proposal` dataclass.
+  Nothing in the module imports a Session or an ORM class, so whatever a
+  manipulated model passes, a write tool can't reach `Deal.inputs`. Only
+  the runner persists a proposal, as its own `agent_proposals` row with
+  status `pending`. Applying it is a separate request that a person makes:
+  `POST /api/agent/proposals/{id}/approve`. `test_agent_tools.py`, which
+  `test_agent_security.py` re-asserts, fails the build if any registered
+  write tool gains a `db` or `Session` parameter. Rejected: a dry-run flag
+  on tools that can also write, because one forgotten flag is a silent
+  mutation. Also rejected: relying on the system prompt, because a prompt
+  is advice and a signature is a guarantee.
+- **Approval goes through the IC lock and input validation.**
+  `approve_proposal` runs two gates before it writes anything, including
+  `deal_history.record_snapshot(kind="agent")`:
+  1. `proforma.input_validation.validate_inputs` on the changes being
+     applied. `overrideChanges` come straight from the client, so they are
+     re-checked. A failure returns 422 with the compute routes' body,
+     `{"detail", "missing"}`.
+  2. `ic_workflow.check_input_change(db, deal, merged)`, the same check
+     `PUT /api/deals/{id}` and history restore run. A lock returns 409
+     `{"detail"}`.
+
+  The proposal stays `pending` after either refusal, so it can still be
+  approved once the deal is reopened. An approval that changes only
+  `UNLOCKED_KEYS`, or nothing, passes the lock, following the same rule
+  as the deal PUT. Tests are in `test_agent_target_port.py`: 409 with no
+  write, approve after reopen, 422 with no write. Rejected: letting
+  approval bypass the lock as an "explicit human action". The IC lock
+  exists precisely so that what the committee signed off on is what the
+  deal says, whichever edit path is used.
+- **Invalid inputs come back as tool errors, never a 500.** The engine
+  raises `InsufficientInputsError` for any input that fails validation, and
+  each tool handles it as follows:
+  - `compute`, `solve`, `run_tornado` and `run_sensitivity` return
+    `{"error", "missing"}`.
+  - `solve` and `run_sensitivity` validate their values up front. Without
+    that, the goal-seek scan and the sensitivity grid would absorb the
+    error at each point and report a misleading "no crossing" or a grid of
+    identical warnings.
+  - Write tools screen each change: an unknown field, a non-number in a
+    numeric field (the engine's full `NUMERIC_TYPES`, including `multiple`
+    and `years`) or an off-list option is dropped with a warning.
+    Whatever is left then passes `validate_inputs`. An error there, such
+    as a non-numeric table cell, raises `ProposalValidationError`. The
+    runner turns that into a tool error `{"error", "invalid"}` and creates
+    no proposal row, so the model sees the named fields and can retry.
+- **Anti-hallucination is enforced structurally, not by prompt**
+  (`provenance.py`). After every turn, the server extracts every numeric
+  claim in the reply: `$` amounts, `%`, `x` multiples and bare figures of
+  the "DSCR is 1.4" kind. It matches each one, within kind-specific
+  tolerances, against every number in this turn's tool-call arguments and
+  results. Unmatched figures are persisted as `unverifiedClaims`, and the
+  UI shows them as an amber "Unverified" banner. Numbers inside quoted
+  spans are masked. Prior turns' tool results are not replayed, so a figure
+  is grounded only by a fresh call. The extraction is generic, so the
+  engine's new outputs (`goingInDebtYield`, `prepaymentCost`, maturity
+  refinance, hotel and build-to-sell results) need no checker change.
+  Rejected: rewriting the flagged sentence, which hides the failure. Also
+  rejected: a second "judge" model call, which adds cost and a second thing
+  that can hallucinate.
+- **`solve` is the existing goal-seek.** The tool wraps
+  `goal_seek.run_goal_seek(values, target_input, output_metric,
+  target_value, bounds)`: a bracket scan plus bisection, with no
+  monotonicity assumption. With it come this branch's P1 stress-skip and
+  the numeric-field whitelist. `values` defaults to the thread's deal
+  inputs. "No crossing" is a typed result, `{solvedValue: null, reason}`,
+  not an error. Rejected: a second solver with different bound semantics.
+- **Settings-free configuration.** Provider, models and keys come from
+  `app.config`: `AGENT_PROVIDER`, `ANTHROPIC_AGENT_MODEL`,
+  `OPENAI_AGENT_MODEL`, `OPENAI_API_KEY` and the shared
+  `ANTHROPIC_API_KEY`. That is the same way the classifier and extraction
+  read theirs. The env var only sets a new thread's default provider. The
+  UI switches providers per thread (`PUT /api/agent/threads/{id}/provider`)
+  with no restart. The desktop app stores `OPENAI_API_KEY` in the Keychain
+  like the other keys (`desktop/cre_desktop/keys.py KNOWN_KEYS`), so it
+  takes effect on the next launch.
+- **Every agent route declares its `api_models` response model.** These
+  are `AgentThreadOut`, `AgentPlayOut`, `AgentProviderOut`,
+  `AgentThreadRefOut`, `AgentTurnOut`, `AgentApproveOut` and
+  `AgentRejectOut`, which reuses `DealOut` for the applied deal. List
+  fields on stored messages and proposals are normalized to `[]`, never
+  null, so the declared shapes always hold.
+- **Vendor-neutral providers.** The `anthropic` and `openai` adapters
+  translate one `Message`/`ToolSpec`/`ChatResult` shape. A missing key or
+  an API failure is a `stop_reason` of `unavailable`/`error`, never an
+  exception. A deterministic `scripted` provider exists only for
+  Playwright (`AGENT_PROVIDER=scripted`) and is not selectable in the UI.
+- **Prompt-injection posture.** Every tool result reaches the provider
+  inside a labelled `{"_note", "data"}` envelope. The system prompt states
+  that deal fields, comp notes and market text are data. `get_deal` and
+  `list_scenarios` are forced onto the thread's deal. API keys never enter
+  the context.
+- **Hard caps, never a silent loop.** A turn allows 25 tool calls, 15
+  compute-family calls and 60 s of wall clock. Hitting any cap ends the
+  turn with an explicit "Stopped early" message. Token usage accumulates
+  per thread and is logged per turn under `app.agent`.
+- **Plays are server-side.** `/api/agent/plays` exposes only the id and
+  label. The prompt and the restricted tool subset stay in `plays.py`.
+- **Tables.** `agent_threads`, `agent_messages`, `agent_tool_calls` and
+  `agent_proposals` are net-new, so `create_all` creates them. The
+  `kind="agent"` history snapshot is part of `SnapshotMetaOut.kind`.
+
+## Run 6 API and security port (G1)
+
+Ported from run6-desktop-audit into this branch's architecture. Target
+conventions win where the two differ; each difference is listed.
+
+- **Archive is a soft delete, separate from the IC lock**: `archived_at`
+  hides a deal from the deal list, portfolio (and its CSV), search (deals,
+  tenants, notes), `/api/deals/metrics` and `/api/ic/states`. The deal and
+  everything attached to it stay reachable by id. Archiving writes no
+  inputs, so it is allowed while the deal is IC-locked. The sign-off record
+  is untouched, and unarchiving brings the IC state back. Rejected: a
+  pipeline stage "archived" (it would lose the stage the deal was in).
+- **A clone starts a fresh record in draft**: it copies inputs (minus the
+  `_omWizard` draft), stage, tags, template/mapping selection and scenarios.
+  It does not copy notes, attachments, input history or IC events. A clone
+  of a signed-off deal is therefore editable (the what-if use case), while
+  the source stays locked. Rejected: copying IC events (the clone would be
+  born locked, and it would claim a sign-off nobody gave on it).
+- **Tags are labels, not inputs**: PUT `tags` and `POST /api/deals/bulk-tags`
+  are allowed while IC-locked. They are normalized (trimmed, deduped
+  case-insensitively, at most 20 tags of 40 characters each). The export
+  bundle carries `deal.tags` with `schemaVersion` still 1: the key is
+  additive and older bundles import with no tags. Non-text entries in a
+  bundle are dropped with an import warning.
+- **ETag / If-Match is optional and additive**: every single-deal response
+  carries an `ETag` derived from `updated_at`, normalized to naive UTC.
+  PUT honors `If-Match` in this order: 404, then 412
+  `{detail, current: DealOut}`, then the IC lock 409, then the write. `*`
+  always passes, and no header means last writer wins, exactly as before.
+  `from-extraction`, restore, archive, unarchive, clone and import carry
+  the tag too.
+- **Finalizing a wizard draft now goes through the IC lock**:
+  `POST /api/deals/from-extraction` with `dealId` writes the deal's inputs,
+  so it calls `ic_workflow.check_input_change` (409) like every other input
+  path. This closes a gap that predates the port.
+- **External-data routes are rate-limited per route, not per client**:
+  market rates, benchmarks, market context, demographics and the comps map
+  each have their own token bucket (`services/rate_limit.py`, verbatim
+  from Run 6). The bucket protects the upstream's shared quota. The limit
+  (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60, 0 = off) is read at
+  request time. Over the limit returns 429 with `Retry-After`.
+- **Monte Carlo runs on a bounded pool**: 2 workers plus 4 queued jobs.
+  Beyond that, a start returns 429 with `Retry-After: 5`. A job that raises
+  anything ends "failed" instead of hanging in "running". A seed outside
+  0..2^32-1 is a synchronous 400. `DELETE /api/compute/monte-carlo/{id}`
+  cancels the job after the trial in flight, and the poll then reports
+  "cancelled". The trial loop still sets `_skipCategoricalStress`.
+- **Missing template file on the sheet grid is a 404, not Run 6's 410**:
+  this follows this branch's existing convention (mapping preview,
+  recalc-check): "The template file for X is missing from storage —
+  upload it again." Row and column windows are clamped at both ends, and
+  so is `start_row`.
+- **File cabinet isolation**:
+  - Download and preview reach only the deal's own attachments or global
+    (extraction) documents.
+  - The provenance badge lists global documents only.
+  - The stored extension is whitelisted (`[a-z0-9]{1,10}`, else `bin`).
+  - SVG is never served inline (roadmap #3). The existing sandbox CSP now
+    applies to every inline response and to any SVG. nosniff stays global.
+  - The new `DELETE /api/deals/{id}/attachments/{docId}` deletes only the
+    deal's own attachments. It uses `document_storage.release_file`, which
+    is keyed on the stored path, instead of Run 6's hash check. It has no
+    IC lock because an attachment is not an input.
+- **Backup download reuses the restore validator**: the new
+  `backup_service.snapshot_path` does three things. It checks the kind
+  with `_check_kind`, so all four kinds work, including pre_restore and
+  pre_migration. It checks the name with `_NAME_RE`. It checks that the
+  resolved path stays inside the backups root. Malformed input returns
+  400 and a well-formed but absent snapshot returns 404. Restore uses the
+  same helper.
+- **Smaller hardening, ported as-is**:
+  - LIKE escaping (`services/sql_like`) in search and in the comps
+    list/map, which also use the two-way `market_matches`.
+  - The chunked 5 MB CSV multipart read.
+  - Comps text fields are trimmed on write.
+  - Deleting a template or mapping clears the deal selections that point at
+    it. This uses `update(Deal)` statements for mypy.
+  - A soffice timeout is now a RuntimeError, and the scratch directory is
+    cleaned up.
+  - Control characters are stripped from generated Content-Disposition
+    headers.
+  - An ic-deck `scenario_id` from another deal returns 404.
+  - Legacy `.xls` uploads are refused with re-save guidance.
+  - `.dockerignore` excludes `**/.env*` but keeps `.env.example`.
+  - `/api/admin/integrations` lists `OPENAI_API_KEY` (as a flag only).
+  - Compose passes `CRE_API_TOKEN`, the rate limit and the agent provider
+    variables.
+
+## Run 6 port onto later-items — financial engine (G2)
+
+Run 6's engine work (ffc9314, 9aebd70) was ported INTO this branch's engine,
+not copied over it. The coordinator's settled decisions for this port are the
+owner approval for each [FIN] item below; nothing else changed conventions.
+Every item has a test that fails without it (tests/test_port_g2_engine.py,
+tests/test_port_g2_analysis.py, test_statement_detail.py). **Baseline: the
+six Run-4 cases are byte-identical** (`git diff --stat` on run4_baseline shows
+only the new file); one new case was added.
+
+- **[FIN] A development sold IN its stabilization month never takes out**
+  (Run 6 B1). The perm takeout needs a month to live before exit
+  (`takeout_month < total`, was `<=`): the sale leg of the refi-vs-sale fork
+  (hold = stabilization month) repays the construction balance from proceeds
+  with no refi costs and no one-month perm schedule, so its IRR no longer
+  depends on refiCostsPct. The Excel export refuses this shape alongside
+  "sold before stabilization" (it mirrors a one-month perm). Re-verified on
+  this branch: no baseline value moves, so it ships unflagged. The maturity
+  refinance needs no change (it never fires without a takeout).
+- **Legacy stabilized NOI honors useReassessedTaxes** (B2): flat mode now
+  substitutes the H4 reassessed taxes like the expense vectors do, so sizing
+  NOI, debt yield, yield on cost and break-evens move with the toggle.
+  Toggle off is identical.
+- **[FIN] Cash-on-cash strips every capital event** (B3): cashOnCashYear1 /
+  avgCashOnCash / stabilizedCashOnCash exclude the junior-tranche payoff and
+  the escrow release at exit, and this branch's own maturity refinance's
+  net cash-out / paydown (`maturityRefinance.netToEquity`) in its month —
+  it used to inflate (or deflate) average CoC. The H3 insurance-stress
+  `leveredCfDeltaAnnual` helper applies the same strip.
+- **Development with no construction period warns** (B5), engine only. The
+  Run 6 Excel refusal is dropped: this branch's Draws sheet already mirrors
+  the shape (parity case export_development_no_build_period).
+- **Detail-mode year-1 recoveries (B7): implemented, OFF** —
+  `operations.DETAIL_MODE_YEAR1_RECOVERIES = False`, still an owner
+  question. Re-measured on this branch: flipping it moves exactly one
+  baseline value, commercial_rollover.outputs.breakEvenRatio
+  0.8428964912579363 -> 0.8777284581419397 (breakEvenOccupancy invariant;
+  the other six cases, feature_on included, are byte-identical) — the same
+  delta as on Run 6; general vacancy and leasing profiles don't touch it.
+- **Analysis callers skip the insurance-stress sub-computes** (P1): hold
+  sweep, both refi-fork legs, tornado (base + every perturbed compute),
+  native sensitivity and goal-seek scan/bisection points pass
+  `_skipCategoricalStress` (Monte Carlo already did). None of them reads
+  debt.insuranceStress (its only reader is the GeneratePanel debt card on the
+  base compute); tested that everything else in the result is identical.
+  Tornado on a detail-mode deal with an insurance line: 39 -> 13 computes
+  (2 x drivers + 1, pinned). Goal-seek's flag joins the compute-cache key, so
+  its points cache apart from full computes — accepted.
+- **Validation warnings** (never errors): lossToLeasePct with a unit-mix
+  turnover burn-off; flat replacementReserves with per-unit / PSF reserves;
+  sizingNoiBasis = in_place on a development without inPlaceNoi; exit cap
+  below 1%. None fires on any regression fixture (tested).
+- **[FIN] Building RSF for lease deals** — new rent-roll input `buildingRsf`
+  (blank = today). NNN / base-year-stop shares are sf / buildingRsf when set
+  and >= the listed SF (unlisted vacant suites' share of recoverable opex
+  stays with the owner); physical occupancy (statement row, occupancy
+  year-1/stabilized, the I3 gross-up projection) uses the same denominator.
+  Below the listed SF: ignored with a warning. Interaction with this
+  branch's features: the general-vacancy top-up stays on the BILLED potential
+  (scheduled rent + the tenants' own recoveries — unlisted suites carry no
+  modeled rent, so they neither add potential nor count as downtime); market
+  leasing profiles change each lease's rollover, never the denominator.
+  `leaseDetail.totalSf` stays the listed SF; `leaseDetail.buildingRsf` is a
+  conditional key. Lease deals were already refused by the Excel export.
+- **Renovation funded at close is displayed once**: its budget sat in both
+  `costs[0]` and `renovationCapex[0]`, breaking the levered identity at close.
+  Now renovationCapex only (sources & uses, equityFunded unchanged). No
+  baseline case has a program. The statement-identity test now asserts the
+  full identity (… − renovationCapex − juniorInterest − juniorPayoff −
+  assetMgmtFee − replacementReserves [below_noi] + escrowFlows) on the
+  feature-on fixture, below-NOI reserves and a maturity refinance (which
+  needs no extra row: net delta on debtDraws, costs on loanFees).
+- **[FIN] Junior tranche on a development that never takes out** is skipped
+  with a warning — no funding, no interest, no origination fee (it would
+  fund and repay in the exit month; the fee was its only cash effect). A deal
+  with a real takeout is unchanged.
+- **Tornado inert drivers**: each bar carries `inert` and `reason` (None when
+  live). Inert = the engine does not read the perturbed field for this
+  deal's shape: opex in expense-detail mode; rent and vacancy on a pure
+  lease deal; rent from homes x rent-per-home; hotel rent (keys x ADR x
+  occupancy) and vacancy (occupancyPct); rate in floating mode; exit cap on a
+  mixed acquisition priced by both component caps (unless a maturity
+  refinance values the new loan on the exit cap); and rent, vacancy, opex
+  and exit cap on build-to-sell deals (cost and rate stay live). Rules
+  follow the engine's own precedence (the gross-potential-rent source), not
+  the metric. Inert bars are still computed, so the zero corroborates the
+  rule and the compute count stays pinned.
+- **Several IRRs — diagnostics only**: the reported IRR is NOT re-selected
+  (this branch's decision keeps the solver root; Run 6's nearest-anchor
+  re-selection is dropped). When the existing multi-root warning fires, the
+  engine result gains a conditional `irrDiagnostics {irrMultipleRoots: true,
+  levered|unlevered: {signChanges, roots (annual -99%..300% band), reported}}`.
+  It is an engine-result key; /api/compute whitelists its keys and does not
+  expose it yet (a two-line router change for its owner).
+- **Prepayment cost in the Excel export**: the refusal is lifted — the model
+  mirrors it (exit payoff = balance x (1 + pct) in the Model exit flow and
+  Outputs!B8). New parity cases export_prepayment_acquisition and
+  export_prepayment_development recalc clean in LibreOffice.
+- **Regression baseline guard** (from Run 6): `UPDATE_BASELINE=1` refuses to
+  rewrite a case whose existing values moved (key additions only), unless
+  the owner approved it: `BASELINE_ALLOW_VALUE_CHANGES=1` (all) or a
+  comma-separated case list. New case **feature_on_value_add** (every
+  optional path on at once), its fixture re-created from Run 6 (inputs map
+  1:1; `_comment` kept — the engine ignores it) and its baseline generated
+  on this branch after the engine changes (not copied: this branch's payload
+  differs).
+- **Dropped** (this branch already decided them): the constructionFeeBasis
+  flag (superseded by the owner-approved fee on commitment / LTC on total
+  cost); Run 6's loanMaturityBehavior ignore/balloon/refinance and its
+  trailing-12 sizing, gross draw and loanPayoff row (this branch always
+  refinances on forward NOI — only the CoC strip was ported); Run 6's
+  prepaymentPenalty output and statement row (this branch reports
+  prepaymentCost); amortYears 0 = IO (already here); the B5 Excel refusal;
+  IRR root re-selection; Run 6's maturity tests.
+
 ## Engine audit fixes (post-Run 5, owner-approved)
 
 An external analyst/engineer audit found calculation defects; the owner

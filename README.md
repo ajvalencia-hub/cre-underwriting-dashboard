@@ -269,21 +269,143 @@ The summary sidebar shows a strict provenance ladder: **server-recalc >
 native engine > quick-screen "est."** — a lower tier never overwrites a
 higher one.
 
+## Underwriting Agent
+
+The Underwriting Agent is a chat assistant for the active deal. It has
+two entry points, the **Agent** tab (under *This deal* in the left rail)
+and the floating **Agent** dock at the bottom right. The dock stays open
+across tabs, and Escape closes it. Both show the same conversation, with
+one thread per deal.
+
+### What it can do
+
+It answers questions about the deal by calling the dashboard's own tools,
+never from memory:
+
+| Tool | Kind | What it does |
+| --- | --- | --- |
+| `get_deal`, `list_scenarios`, `get_scenario` | read | Reads the current deal's inputs, status and saved scenarios. Always scoped to the active deal. |
+| `compute` | read | Runs the built-in pro-forma engine on a full input map. |
+| `solve` | read | Goal-seek: finds the value of one numeric input that hits a target output metric. It uses the same solver as the sidebar's Goal Seek. `values` defaults to the deal's inputs. |
+| `run_tornado`, `run_sensitivity` | read | Perturbation (tornado) and grid sensitivity. |
+| `get_market_context`, `list_comps`, `get_schema` | read | Market data, saved comps, and the field registry. |
+| `propose_input_changes`, `propose_scenario` | **write (proposal only)** | Produces a proposal to review, with a computed preview. The agent never applies it. |
+
+Inputs are checked the same way everywhere. If a value fails the engine's
+input validation, for example text in a numeric field, the tool returns an
+error naming the field instead of a result. The agent sees that error and
+can correct the value.
+
+The suggestion chips run canned workflows with a restricted set of tools:
+
+- "Screen this deal"
+- "What's driving the levered IRR?"
+- "Stress-test this deal"
+- "What exit cap gets me to a 15% IRR?"
+
+### Proposals: approve or reject
+
+When the agent recommends a change, it creates a *proposal card* showing a
+before/after diff and preview metrics. It doesn't edit anything itself.
+
+**Approve & apply** merges the change into the deal on the server and
+records it in *Input history* as **Agent-applied**, restorable like any
+other snapshot. Every other pending proposal on that deal is then marked
+*stale*, because its preview no longer matches the inputs. The same rules
+apply as to any other edit:
+
+- **IC lock:** while the deal is submitted to, approved or rejected by the
+  investment committee, approval is refused and nothing is written. The
+  proposal stays pending. Reopen the deal on the IC Approval tab first.
+- **Validation:** a value that fails the engine's input validation is
+  refused with the field named.
+
+**Reject** takes an optional note, which is added to the thread.
+
+### Grounding guarantee
+
+After every turn, the server cross-checks each number in the reply against
+the numbers returned by that turn's tool calls. That covers dollar
+amounts, percentages, multiples and figures like "DSCR is 1.4". Any number
+that doesn't trace back to a tool result appears under an amber
+**Unverified** banner. It is flagged, not hidden. Each reply also lists its
+tool calls; expand *N tool call(s)* to see them.
+
+### Providers and configuration
+
+Set these in `backend/.env` (see `.env.example`). In the desktop app, paste the
+keys into the OpenAI and Anthropic rows under **Settings → Integrations**.
+They're stored in the Keychain and take effect after a restart.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_PROVIDER` | `anthropic` | Provider for a new thread: `anthropic` or `openai`. |
+| `ANTHROPIC_API_KEY` | — | Shared with document classification and extraction. |
+| `ANTHROPIC_AGENT_MODEL` | `claude-sonnet-5` | Model for the Anthropic provider. |
+| `OPENAI_API_KEY` | — | Used only by the agent. |
+| `OPENAI_AGENT_MODEL` | `gpt-5.1` | Model for the OpenAI provider. |
+
+Both providers are billed API usage. Without a key, the provider reports
+itself as *unavailable* in the chat; nothing else in the app is affected.
+
+You can switch the provider per thread from the picker at the top of the
+chat. The change applies to the next message, with no restart. The picker
+greys out a provider whose key isn't configured.
+
+### Cost and tokens
+
+The Agent tab header shows the thread's cumulative token count. Hover over
+it for the input/output split and the provider. The same totals are logged
+for each turn under the `app.agent` logger, along with tool calls,
+proposals and unverified claims.
+
+### Limits
+
+Each turn is capped at 25 tool calls, 15 compute-family calls and 60
+seconds. A turn that hits a cap ends with an explicit "Stopped early" note.
+
+### Limitations
+
+- Replies aren't streamed. A reply appears when the whole turn finishes.
+- Threads are single-user and per deal. There's no way to reset or delete
+  a thread in the UI yet.
+- The agent only sees what its tools return. It doesn't read uploaded
+  documents directly; use the Documents extraction flow for those.
+- The grounding check is numeric. It can't verify qualitative claims.
+- Scenario proposals (`propose_scenario`) can be reviewed and approved like
+  input changes. However, approving one applies the changes to the deal's
+  inputs; it doesn't save a separate named scenario.
+- Switching providers only affects future turns. The history is kept as
+  it was.
+
+### Testing without a model
+
+The Playwright suite runs the backend with `AGENT_PROVIDER=scripted`. This
+deterministic stub exercises the real tool loop, proposal approval and the
+unverified-claim check without network access. It isn't selectable in the
+UI. The backend tests (`backend/tests/test_agent_*.py`) mock the provider
+at the runner boundary.
+
 ## API surface
 
 | Area | Endpoints |
 |---|---|
-| Deals | `GET/POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`), `GET .../{id}/export`, `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
-| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado` |
+| Deals | `GET /api/deals[?includeArchived=true&tag=<t>&fields=summary]` (archived hidden by default; `fields=summary` = slim rows with a `summary` block, no inputs), `POST /api/deals`, `GET/PUT/DELETE /api/deals/{id}` (incl. `status`, `tags`; every single-deal response carries `ETag`; PUT honors optional `If-Match` -> 412 `{detail, current}`), `POST .../{id}/archive`, `POST .../{id}/unarchive`, `POST .../{id}/clone` (optional `{name}`), `POST /api/deals/bulk-tags` (`{dealIds, add, remove}`), `GET .../{id}/export` (bundle carries `deal.tags`; schemaVersion stays 1), `POST /api/deals/import`, `GET .../{id}/share.html`, `GET .../{id}/deck.pptx`, `GET .../{id}/ic-deck.pptx[?scenario_id=]` (scenario must belong to the deal), `GET .../{id}/history`, `POST .../{id}/history/{snapshotId}/restore` |
+| Compute | `POST /api/compute[?detail=true]` (outputs + debt + period statement; LRU-cached; `irrDiagnostics` when the multi-root IRR warning fires), `POST /api/compute/hold-sweep`, `POST /api/compute/tornado`, `POST /api/compute/monte-carlo` (bounded pool: 429 + `Retry-After` when saturated; seed 0..2^32-1), `GET/DELETE /api/compute/monte-carlo/{jobId}` (poll / cancel -> `cancelling`, then `cancelled`) |
 | Templates & mapping | `/api/templates*`, `/api/mappings*` |
 | Generate | `POST /api/generate` (xlsx download, X-Generation-* headers), `POST /api/generate/model` (formula-live native Excel model) |
 | Sensitivity | `POST /api/sensitivity` (mode: native \| template) |
-| Documents & extraction | `/api/documents*`, `/api/extraction*` (results carry reviewable `unitMixProposal` / `commercialLeaseProposal`) |
+| Documents & extraction | `/api/documents*` (upload: .pdf, .xlsx, .csv; legacy .xls refused with guidance), `/api/extraction*` (results carry reviewable `unitMixProposal` / `commercialLeaseProposal`) |
 | Scenarios | `/api/scenarios*`, `PUT .../{id}/sensitivity`, `POST .../{id}/memo[?format=pdf]` |
-| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` |
-| Comps | `GET/POST /api/comps/{sale\|rent}`, `PUT/DELETE .../{id}`, `POST /api/comps/import` (preview without mapping; insert with) |
+| Market | `GET /api/market/rates` (FRED, 24h cache), `POST /api/market/benchmarks` (public sources + comps DB), `GET /api/demographics`, legacy `GET /api/market-context` — all rate-limited per route (`CRE_EXTERNAL_RATE_LIMIT_PER_MIN`, default 60, 0 = off; 429 + `Retry-After`) |
+| Comps | `GET/POST /api/comps/{sale\|rent}[?market=]` (literal, two-way market match), `PUT/DELETE .../{id}`, `POST /api/comps/import` (preview without mapping; insert with), `POST /api/comps/import/file` (5 MB, chunked), `GET /api/comps/{kind}/map` (rate-limited) |
 | Property tax | `POST /api/property-tax/lookup`, `GET /api/property-tax/counties` |
 | Presets | `GET/POST /api/presets`, `PUT/DELETE .../{id}`, `GET /api/presets/fields` |
+| File cabinet | `GET/POST /api/deals/{id}/attachments`, `GET .../attachments/{docId}/download[?inline=true]` (images/PDF only inline, sandbox CSP; SVG always a download), `GET .../attachments/{docId}/preview`, `DELETE .../attachments/{docId}` (the deal's own attachments only), `/api/deals/{id}/notes*` |
+| Admin | `GET /api/admin/integrations` (flags only, incl. `OPENAI_API_KEY`), `GET /api/admin/tools`, `GET /api/admin/backups`, `POST /api/admin/backups/run`, `POST /api/admin/backups/restore`, `GET /api/admin/backups/{kind}/{name}/download` (SQLite snapshot; any kind) |
+| Search | `GET /api/search?q=` (facets `acq:` / `dev:` / `tag:<t>`, composable; archived deals excluded) |
+| Underwriting Agent | `GET /api/agent/threads/{dealId}`, `POST /api/agent/threads/{dealId}/messages` (one full turn; `content` or `playId`), `PUT /api/agent/threads/{dealId}/provider`, `GET /api/agent/plays`, `GET /api/agent/providers`, `POST /api/agent/proposals/{id}/approve` (input validation 422, IC lock 409), `POST /api/agent/proposals/{id}/reject` |
+| Auth (optional) | `GET /api/auth/status`, `POST /api/auth/login` (sets the HttpOnly session cookie), `POST /api/auth/logout` — active only when `CRE_API_TOKEN` is set |
 | Ops | `GET /api/health`, `POST /api/client-errors` (error-boundary sink); every response carries `X-Request-ID` |
 | Schema | `GET /api/schema` |
 
@@ -433,4 +555,5 @@ algebra and the complete Excel-export refusal list.
   BEFORE/AFTER algebra for the Run-5 value-add + capital-stack features and
   the complete Excel-export refusal list).
 - `DECISIONS.md` — financial-convention decisions with rejected alternatives.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module map, engine block order, test tiers and compatibility rules.
 - `FINDINGS.md` — the correctness audit (all items C/H/M/L resolved).
