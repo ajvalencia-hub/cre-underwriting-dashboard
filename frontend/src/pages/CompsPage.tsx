@@ -15,6 +15,8 @@ import { daysSince } from '../lib/staleness'
 import { useVirtualRows } from '../lib/useVirtualRows'
 import FileChooser from '../components/FileChooser'
 import { formatMoney } from '../lib/money'
+import { CompsCharts } from '../components/portfolioCharts'
+import type { CompSubject } from '../lib/portfolioChartData'
 
 const ROW_HEIGHT = 33 // px, matches py-1.5 text-sm rows
 const VIEWPORT_HEIGHT = 480
@@ -78,6 +80,9 @@ function CompsMap({ points, warnings }: { points: CompMapPoint[]; warnings: stri
 interface CompsPageProps {
   /** Deal market from the input form — prefills the filter, nothing more. */
   dealMarket: string
+  /** The active deal's own numbers, marked "your deal" on the comp charts
+   *  (see compSubjectFromValues). Optional: no reference line without it. */
+  subject?: CompSubject
 }
 
 const money = (v: number | null | undefined) =>
@@ -121,7 +126,7 @@ const IMPORT_FIELDS: Record<CompKind, { id: string; label: string }[]> = {
 const EMPTY_SALE = { name: '', market: '', price: '', units: '', capRatePct: '' }
 const EMPTY_RENT = { name: '', market: '', avgRent: '', unitType: '', occupancyPct: '' }
 
-export default function CompsPage({ dealMarket }: CompsPageProps) {
+export default function CompsPage({ dealMarket, subject }: CompsPageProps) {
   const [kind, setKind] = useState<CompKind>('sale')
   // Run 6 B8: the tab stays mounted across deal switches, so the filter
   // follows the active deal's market until the user types their own filter
@@ -340,6 +345,9 @@ export default function CompsPage({ dealMarket }: CompsPageProps) {
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {showMap && !mapLoading && <CompsMap points={mapPoints} warnings={mapWarnings} />}
+
+      {/* Distributions of the listed comps (same market filter as the table). */}
+      <CompsCharts kind={kind} comps={comps} subject={subject} />
 
       <div
         className="max-h-[480px] overflow-auto rounded border border-slate-200 bg-white"

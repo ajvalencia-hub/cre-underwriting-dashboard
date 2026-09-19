@@ -47,6 +47,7 @@ import { safeStorage } from '../lib/safeStorage'
 import { allTags, dealTags, parseTagInput, toggleTag } from '../lib/tags'
 import type { Deal, DealStatus } from '../types/deal'
 import ServerFileLink from '../components/ServerFileLink'
+import { PipelineOverview } from '../components/portfolioCharts'
 import { saveOutput, textBlob } from '../lib/saveOutput'
 import { toastError } from '../lib/toast'
 
@@ -1021,6 +1022,13 @@ export default function PipelinePage({
         </div>
       )}
       {deckNote && <div className="text-xs text-amber-600">{deckNote}</div>}
+
+      <PipelineOverview
+        acquisitions={acquisitions}
+        developments={developments}
+        untypedCount={untyped.length}
+        metrics={metrics}
+      />
 
       <Board type="acquisition" deals={acquisitions} archivedDeals={archivedByType.acquisition} {...boardProps} />
 

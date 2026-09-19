@@ -52,6 +52,7 @@ import {
 } from './lib/dealPersistence'
 import { safeStorage } from './lib/safeStorage'
 import { RECENT_DEALS_KEY, loadRecent, recordRecent } from './lib/recentDeals'
+import { compSubjectFromValues } from './lib/portfolioChartData'
 import { dealTypeOf } from './lib/dealStages'
 import AuthGate from './components/AuthGate'
 import PanelBoundary from './components/PanelBoundary'
@@ -922,6 +923,10 @@ function App() {
     setTab('quickscreen')
   }
 
+  // The active deal's own price / rent / cap for the comps charts' "your
+  // deal" reference line (derived; no extra requests).
+  const compsSubject = useMemo(() => compSubjectFromValues(formValues), [formValues])
+
   const visibleSections = useMemo(() => {
     if (state.status !== 'ready') return []
     return orderSections(state.schema.sections.filter((s) => isVisible(s.visibleWhen, formValues)))
@@ -1448,7 +1453,10 @@ function App() {
       </TabPane>
 
       <TabPane id="comps" current={tab}>
-        <CompsPage dealMarket={typeof formValues.market === 'string' ? formValues.market : ''} />
+        <CompsPage
+          dealMarket={typeof formValues.market === 'string' ? formValues.market : ''}
+          subject={compsSubject}
+        />
       </TabPane>
 
       <TabPane id="compare" current={tab}>

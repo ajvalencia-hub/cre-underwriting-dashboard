@@ -12,6 +12,8 @@
 // Compare is in MULTI_DEAL_TABS (no one-deal summary panel beside it).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { computeNative } from '../lib/api'
+import { seriesColor, type SeriesSlot } from '../components/charts'
+import { CompareCharts } from '../components/portfolioCharts'
 import {
   MAX_COMPARE_DEALS,
   MIN_COMPARE_DEALS,
@@ -28,6 +30,7 @@ import {
 import { dealTypeOf } from '../lib/dealStages'
 import { friendlyEngineError } from '../lib/engineErrors'
 import { formatOutputValue } from '../lib/formatValue'
+import { assignCompareSlots, sameSlots } from '../lib/portfolioChartData'
 import { safeStorage } from '../lib/safeStorage'
 import { saveOutput, textBlob } from '../lib/saveOutput'
 import { defaultValuesFor } from '../lib/schemaFields'
@@ -117,6 +120,12 @@ export default function ComparePage({ schema, deals, active, onOpenDeal }: Compa
   const rows = useMemo(() => buildCompareRows(schema.outputs, readyColumns), [schema.outputs, readyColumns])
   const groups = useMemo(() => Array.from(new Set(rows.map((r) => r.metric.group ?? 'Metrics'))), [rows])
   const enough = liveIds.length >= MIN_COMPARE_DEALS
+  // One chart color per deal, kept while it stays selected (color follows
+  // the deal, not its column position) — same swatch on the table header.
+  const [slotMap, setSlotMap] = useState<Record<string, SeriesSlot>>({})
+  const nextSlots = assignCompareSlots(liveIds, slotMap)
+  const slots = sameSlots(nextSlots, slotMap) ? slotMap : nextSlots
+  if (slots !== slotMap) setSlotMap(slots)
 
   async function handleExport() {
     try {
@@ -202,6 +211,12 @@ export default function ComparePage({ schema, deals, active, onOpenDeal }: Compa
             {computingCount > 0 && <span className="text-slate-500">Computing {computingCount}…</span>}
           </div>
 
+          {readyColumns.length > 0 && (
+            <div className="mb-4">
+              <CompareCharts rows={rows} columns={readyColumns} slots={slots} />
+            </div>
+          )}
+
           <div className="overflow-x-auto rounded border border-slate-200 bg-white">
             <table className="w-full text-sm" aria-label="Deal comparison">
               <thead>
@@ -214,10 +229,17 @@ export default function ComparePage({ schema, deals, active, onOpenDeal }: Compa
                     const deal = byId.get(id)
                     return (
                       <th key={id} scope="col" className="px-3 py-2 font-medium text-slate-700">
+                        {slots[id] && (
+                          <span
+                            aria-hidden="true"
+                            className="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm"
+                            style={{ backgroundColor: seriesColor(slots[id]) }}
+                          />
+                        )}
                         <button
                           type="button"
                           onClick={() => void onOpenDeal(id)}
-                          className="text-left hover:underline"
+                          className="inline text-left hover:underline"
                           title="Open this deal"
                         >
                           {deal?.name ?? id}
