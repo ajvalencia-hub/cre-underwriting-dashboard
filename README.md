@@ -317,6 +317,23 @@ Environment variables of note:
   restore into a fresh volume, copy the snapshot dir into `/data/backups/…`
   first, then call restore.)
 
+## API types
+
+The frontend's API types are generated from the backend's OpenAPI schema
+into `frontend/src/types/api.gen.ts` (dev dependency `openapi-typescript`).
+After changing what a route returns, regenerate and commit the file:
+
+```bash
+cd frontend && npm run gen:api
+```
+
+`frontend/src/types/apiContract.ts` checks at compile time that each
+declared response fits the frontend type that reads it, so drift on either
+side fails `tsc`. CI regenerates the file and fails if the committed copy
+is stale. Response models for routes that build plain dicts live in
+`backend/app/api_models.py`; they keep undeclared keys, so declaring a
+model never drops a field from a response.
+
 ## Testing
 
 ```bash

@@ -60,7 +60,7 @@ DECISIONS.md under "Engine audit fixes".
 | 19 | ~~**Per-tab side panels**~~ **Done** (ede84ff) | The deal-inputs rail and the single-deal summary take 576px on Portfolio, Comps and Settings | M |
 | 20 | ~~**Accessibility**~~ **Done** (877cfc2) | Tie error messages to inputs (`aria-describedby`), make Goal Seek reachable by keyboard, add Esc and `aria-expanded` to the New Deal menu | S |
 | 21 | ~~**Database migrations: versioning and backup before migrating**~~ **Done** (6c3ff9f) | No `user_version`; an older build silently opens a newer database | M |
-| 22 | **Typed API contract** **Waiting for approval: adds the dev dependency openapi-typescript** | 29 of 89 routes declare a response model; the frontend casts JSON to hand-written types. Generate TS types from OpenAPI and check them in CI | M |
+| 22 | ~~**Typed API contract**~~ **Done** (9a46eb6, 065d762, 36aefc3, d6dcba2) | 29 of 89 routes declare a response model; the frontend casts JSON to hand-written types. Generate TS types from OpenAPI and check them in CI | M |
 | 23 | ~~**Trended vs untrended yield on cost; growth during construction**~~ **Done** (cf54772) | Development rents are flat through construction; show both conventions explicitly | S |
 | 24 | ~~**Exit mechanics**~~ **Done** (d67fb79) | Prepayment, defeasance and yield maintenance at sale; exit cap on NOI after reserves; trailing vs forward NOI as a choice | S–M |
 
