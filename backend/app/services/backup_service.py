@@ -104,6 +104,9 @@ def _online_backup(src: Path, dest: Path) -> None:
         target = sqlite3.connect(str(dest))
         try:
             source.backup(target)
+            # A snapshot is one self-contained file, whatever the live
+            # database's journal mode (the app runs in WAL).
+            target.execute("PRAGMA journal_mode = DELETE")
         finally:
             target.close()
     finally:

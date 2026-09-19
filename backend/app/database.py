@@ -1,11 +1,30 @@
 from datetime import timezone
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import DB_PATH
 
+# Roadmap #32: how long a connection waits on another's write lock before
+# raising "database is locked" (the backup thread, Monte Carlo jobs and
+# requests share the file).
+BUSY_TIMEOUT_MS = 15_000
+
+
+def configure_sqlite_connection(dbapi_connection, _record=None) -> None:
+    """WAL lets readers work while a write is in progress, and busy_timeout
+    makes a writer wait rather than fail. journal_mode=WAL persists in the
+    file; an in-memory database keeps its own mode."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        cursor.execute("PRAGMA journal_mode = WAL")
+    finally:
+        cursor.close()
+
+
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+event.listen(engine, "connect", configure_sqlite_connection)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
