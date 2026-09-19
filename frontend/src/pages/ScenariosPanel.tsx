@@ -21,6 +21,8 @@ import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { TemplateSummary } from '../types/template'
 import { saveOutput } from '../lib/saveOutput'
+import { headlineIds } from '../lib/headlineMetrics'
+import { formatDelta } from '../lib/metricDelta'
 
 interface ScenariosPanelProps {
   schema: InputSchema
@@ -184,6 +186,18 @@ export default function ScenariosPanel({
   }
 
   const compared = scenarios.filter((s) => compareIds.includes(s.id))
+  // Differences are shown against one chosen scenario (roadmap #16).
+  const [baseId, setBaseId] = useState<string | null>(null)
+  const base = compared.find((s) => s.id === baseId) ?? compared[0]
+  const baseIndex = base ? compared.indexOf(base) : -1
+  const [showAllMetrics, setShowAllMetrics] = useState(false)
+  const headline = headlineIds(compared[0]?.inputs.dealType)
+  const orderedOutputs = showAllMetrics
+    ? [
+        ...headline.flatMap((id) => schema.outputs.filter((m) => m.id === id)),
+        ...schema.outputs.filter((m) => !headline.includes(m.id)),
+      ]
+    : headline.flatMap((id) => schema.outputs.filter((m) => m.id === id))
 
   // The comparison recomputes each scenario from its own inputs, so every
   // column's numbers are guaranteed to belong to the inputs shown above it.
@@ -520,23 +534,44 @@ export default function ScenariosPanel({
                 </table>
               </div>
 
-              <h3 className="mt-4 text-xs font-semibold tracking-wide text-slate-500">
-                OUTPUTS — best value highlighted where direction is unambiguous
-              </h3>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <h3 className="text-xs font-semibold tracking-wide text-slate-500">
+                  OUTPUTS — best value highlighted where direction is unambiguous
+                </h3>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  Differences against
+                  <select
+                    value={base?.id ?? ''}
+                    onChange={(e) => setBaseId(e.target.value)}
+                    className="rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  >
+                    {compared.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.scenarioName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="checkbox" checked={showAllMetrics} onChange={(e) => setShowAllMetrics(e.target.checked)} />
+                  Show all metrics (headline only by default)
+                </label>
+              </div>
               <div className="mt-1 overflow-x-auto rounded border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="px-3 py-2 font-medium text-slate-500">Metric</th>
+                      <th className="sticky left-0 bg-white px-3 py-2 font-medium text-slate-500">Metric</th>
                       {compared.map((s) => (
                         <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
                           {s.scenarioName}
+                          {s.id === base?.id && <span className="ml-1 text-[10px] font-normal text-slate-500">(base)</span>}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {schema.outputs.map((metric) => {
+                    {orderedOutputs.map((metric) => {
                       const cells = compared.map((s) => {
                         const saved = (s.outputs as { metrics?: Record<string, unknown> })?.metrics?.[metric.id]
                         const savedNum = typeof saved === 'number' ? saved : null
@@ -558,7 +593,7 @@ export default function ScenariosPanel({
                       const best = bestValueIndex(metric.id, values)
                       return (
                         <tr key={metric.id} className="border-b border-slate-50">
-                          <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
+                          <td className="sticky left-0 bg-white px-3 py-1.5 text-slate-500">{metric.label}</td>
                           {cells.map((c, i) => (
                             <td
                               key={i}
@@ -568,6 +603,11 @@ export default function ScenariosPanel({
                             >
                               {c.value === null ? '—' : formatOutputValue(metric, c.value)}
                               {c.usingSaved && <span className="ml-1 text-[10px] font-normal text-slate-400">saved</span>}
+                              {baseIndex >= 0 && i !== baseIndex && c.value !== null && cells[baseIndex].value !== null && (
+                                <div className="text-[11px] font-normal text-slate-500">
+                                  {formatDelta(metric, c.value - (cells[baseIndex].value as number))}
+                                </div>
+                              )}
                               {c.disagrees && c.savedNum !== null && (
                                 <div
                                   className="text-[10px] font-normal text-amber-600"

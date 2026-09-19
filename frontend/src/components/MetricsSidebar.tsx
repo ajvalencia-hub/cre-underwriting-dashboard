@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { formatOutputValue } from '../lib/formatValue'
 import { SOURCE_TAG } from '../lib/resultFreshness'
 import type { OutputMetric } from '../types/schema'
+import { headlineIds } from '../lib/headlineMetrics'
 
 export interface MetricView {
   value: unknown
@@ -19,13 +20,6 @@ interface MetricsSidebarProps {
   onGoalSeek: (metric: OutputMetric) => void
 }
 
-/** The go/no-go read, in order. Development deals are judged on yield and
- *  spread over exit cap; acquisitions on going-in cap and year-1 cash yield. */
-function headlineIds(dealType: unknown): string[] {
-  return dealType === 'development'
-    ? ['leveredIrr', 'unleveredIrr', 'equityMultiple', 'yieldOnCost', 'developmentSpreadBps', 'minDscr']
-    : ['leveredIrr', 'unleveredIrr', 'equityMultiple', 'goingInCapRate', 'cashOnCashYear1', 'minDscr']
-}
 
 function hasValue(v: MetricView): boolean {
   return v.value !== undefined && v.value !== null && v.value !== ''
