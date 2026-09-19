@@ -51,16 +51,17 @@ def test_acquisition_going_in_cap_matches(case):
     assert outputs["goingInCapRate"] == pytest.approx(case["napkin"]["goingInCapRate"], abs=1e-4)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Send to Deal Inputs leaves operating expenses out by design "
-        "(mapQuickScreenToDealInputs), so Compute's NOI has no opex and its "
-        "yield on cost reads about 2.4 points above the napkin's. Remove this "
-        "marker once the payload carries the napkin's expenses."
-    ),
-)
+@pytest.mark.parametrize("case", _by_kind("development") + _by_kind("acquisition"))
+def test_stabilized_noi_matches(case):
+    # The payload carries the napkin's expenses as one Opex Detail row; it
+    # used to carry none, so Compute's NOI had no opex at all.
+    statement = _engine(case)["statement"]
+    start = statement.get("stabilizationMonth") or 1
+    assert sum(statement["noi"][start : start + 12]) == pytest.approx(case["napkin"]["stabilizedNoi"], rel=1e-9)
+
+
 @pytest.mark.parametrize("case", _by_kind("development"))
 def test_development_yield_on_cost_matches(case):
+    # Within 5 bps: the engine's cost also carries the form's default loan fee.
     outputs = _engine(case)["outputs"]
-    assert outputs["yieldOnCost"] == pytest.approx(case["napkin"]["yieldOnCost"], abs=0.0025)
+    assert outputs["yieldOnCost"] == pytest.approx(case["napkin"]["yieldOnCost"], abs=0.0005)

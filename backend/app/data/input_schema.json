@@ -202,7 +202,8 @@
               "options": ["annual_total", "per_unit", "psf", "pct_of_egi"] },
             { "id": "growthPct", "label": "Growth (blank = deal default)", "type": "percent" },
             { "id": "recoverable", "label": "Recoverable", "type": "select", "options": ["no", "yes"] },
-            { "id": "variableWithOccupancy", "label": "Variable w/ Occupancy (blank = category default)", "type": "select", "options": ["", "no", "yes"] }
+            { "id": "variableWithOccupancy", "label": "Variable w/ Occupancy (blank = category default)", "type": "select", "options": ["", "no", "yes"] },
+            { "id": "note", "label": "Note", "type": "text" }
           ] },
         { "id": "opexAllocationBasis", "label": "Mixed-Use Opex Allocation", "type": "select",
           "options": ["revenue_share_y1", "sf", "revenue_share_annual"], "default": "revenue_share_y1",

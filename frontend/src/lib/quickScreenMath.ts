@@ -403,12 +403,12 @@ export function mapQuickScreenToOutputMetrics(
  *  - propertyType / mixedUseComponents — sizeMode ('units' vs 'sf') doesn't
  *    reliably imply a property type (SF-denominated could be office, retail,
  *    industrial, etc.), so guessing would be worse than leaving it blank.
- *  - operating_expenses.* (realEstateTaxes, insurance, utilities,
- *    repairsMaintenance, payroll, generalAdmin, managementFeePct,
- *    replacementReserves) — the quick screen only produces one aggregate opex
- *    number; dumping it into a single arbitrary line item would misrepresent
- *    the deal's actual expense structure, which conflicts with this app's
- *    "never silently mis-populate financial inputs" principle.
+ *  - operating_expenses.* line fields (realEstateTaxes, insurance, …) — the
+ *    quick screen only has one aggregate opex figure. It goes to the Opex
+ *    Detail table instead, as a single "other" row of annual dollars noted
+ *    as the Quick Screen estimate (a detail row overrides the line fields and
+ *    management fee, so Compute's stabilized NOI matches the napkin's). Leaving opex out entirely made
+ *    Compute run with no expenses: 7.2% yield on cost vs the napkin's 4.7%.
  *  - acquisition_specific.* (purchasePrice, closingCostsPct, dueDiligenceCosts,
  *    acquisitionFeePct, dayOneCapex, inPlaceNoi, stabilizedNoi) — that section
  *    is gated on dealType === 'acquisition'; irrelevant since this always maps
@@ -424,8 +424,23 @@ export function mapQuickScreenToOutputMetrics(
  *    waterfallTiers) — no promote/waterfall is modeled.
  *  - growth assumptions, holdPeriodYears, costOfSalePct — the quick screen is
  *    a single stabilized-year snapshot; no multi-year growth or hold period.
- *  - creditLossPct, otherIncome — not modeled separately from the NOI margin.
+ *  - otherIncome — not modeled separately from the NOI margin.
+ *  - creditLossPct is sent as 0: the napkin's NOI margin already nets it.
  */
+export const QUICK_SCREEN_OPEX_NOTE = 'Operating expenses (Quick Screen estimate)'
+
+/** The napkin's operating expenses as one Opex Detail row: annual dollars
+ *  under "other", so the statement and the exported model show it as other
+ *  opex. (A % of EGI row would be reported as the management fee.) */
+function quickScreenOpexRow(operatingExpenses: number) {
+  return {
+    category: 'other',
+    amount: operatingExpenses,
+    basis: 'annual_total',
+    note: QUICK_SCREEN_OPEX_NOTE,
+  }
+}
+
 export function mapQuickScreenToDealInputs(
   inputs: QuickScreenInputs,
   results: QuickScreenResults,
@@ -449,6 +464,9 @@ export function mapQuickScreenToDealInputs(
     // Operating Income
     grossPotentialRent: results.grossPotentialRent,
     vacancyPct,
+    creditLossPct: 0,
+    // Operating Expenses
+    opexLineItems: [quickScreenOpexRow(results.operatingExpenses)],
     // Financing
     ltvOrLtc: inputs.ltcPct,
     interestRate: inputs.constructionInterestRatePct,
@@ -599,6 +617,11 @@ export function mapAcquisitionQuickScreenToDealInputs(
     // Operating Income
     grossPotentialRent: results.grossPotentialRent,
     vacancyPct: DEFAULT_IMPLIED_VACANCY_PCT,
+    creditLossPct: 0,
+    // Operating Expenses: the margin's implied opex, as on the development side.
+    opexLineItems: [
+      quickScreenOpexRow(results.grossPotentialRent * (1 - DEFAULT_IMPLIED_VACANCY_PCT) - results.stabilizedNoi),
+    ],
     // Exit Assumptions
     exitCapRatePct: inputs.exitCapRatePct,
     // Financing

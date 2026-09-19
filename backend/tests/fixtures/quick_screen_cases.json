@@ -21,6 +21,15 @@
         "exitCapRatePct": 0.055,
         "grossPotentialRent": 2160000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 756000.0000000001,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "ltvOrLtc": 0.6,
         "interestRate": 0.075,
         "totalCostBasis": 27324974.30626927,
@@ -48,6 +57,15 @@
         "exitCapRatePct": 0.055,
         "grossPotentialRent": 2160000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 756000.0000000001,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "ltvOrLtc": 0.6,
         "interestRate": 0.095,
         "totalCostBasis": 28194273.59490986,
@@ -76,6 +94,15 @@
         "exitCapRatePct": 0.06,
         "grossPotentialRent": 2400000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 240000,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "ltvOrLtc": 0.6,
         "interestRate": 0.075,
         "totalCostBasis": 33739773.89516958,
@@ -103,6 +130,15 @@
         "exitCapRatePct": 0.055,
         "grossPotentialRent": 2160000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 756000.0000000001,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "ltvOrLtc": 0,
         "interestRate": 0.075,
         "totalCostBasis": 26587200,
@@ -127,6 +163,15 @@
         "inPlaceNoi": 691200,
         "grossPotentialRent": 1152000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 403200,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "exitCapRatePct": 0.055,
         "ltvOrLtc": 0.6,
         "loanAmount": 6000000,
@@ -153,6 +198,15 @@
         "inPlaceNoi": 691200,
         "grossPotentialRent": 1152000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 403200,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "exitCapRatePct": 0.055,
         "ltvOrLtc": 0.6,
         "loanAmount": 6000000,
@@ -179,6 +233,15 @@
         "inPlaceNoi": 691200,
         "grossPotentialRent": 1152000,
         "vacancyPct": 0.05,
+        "creditLossPct": 0,
+        "opexLineItems": [
+          {
+            "category": "other",
+            "amount": 403200,
+            "basis": "annual_total",
+            "note": "Operating expenses (Quick Screen estimate)"
+          }
+        ],
         "exitCapRatePct": 0.055,
         "ltvOrLtc": 0,
         "loanAmount": 0,
