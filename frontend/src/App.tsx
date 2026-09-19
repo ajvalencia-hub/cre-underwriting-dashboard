@@ -201,6 +201,14 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   // Typed New Deal chooser (header button popover).
   const [newDealMenuOpen, setNewDealMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!newDealMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNewDealMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [newDealMenuOpen])
 
   const [deals, setDeals] = useState<Deal[]>([])
   const [activeDealId, setActiveDealId] = useState<string | null>(null)
@@ -952,6 +960,8 @@ function App() {
         <div className="relative">
           <button
             onClick={() => setNewDealMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={newDealMenuOpen}
             className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
           >
             New Deal ▾

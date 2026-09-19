@@ -122,10 +122,21 @@ export default function FieldRow({ field, value, onChange, indicator, hideTempla
           </div>
         )}
         {!['table', 'keyvalue', 'multiselect'].includes(field.type) && (
-          <ScalarInput id={inputId} type={field.type} value={value} options={field.options} onChange={onChange} />
+          <ScalarInput
+            id={inputId}
+            type={field.type}
+            value={value}
+            options={field.options}
+            onChange={onChange}
+            describedBy={shownError ? `${inputId}-err` : undefined}
+          />
         )}
       </div>
-      {shownError && <div className="mt-0.5 text-xs text-red-500">{shownError}</div>}
+      {shownError && (
+        <div id={`${inputId}-err`} className="mt-0.5 text-xs text-red-500">
+          {shownError}
+        </div>
+      )}
       {/* Without this an analyst reasonably assumes the number feeds the
           built-in results (audit: hotel ADR, draw schedule, loan term...). */}
       {field.templateOnly && !hideTemplateOnlyNote && (

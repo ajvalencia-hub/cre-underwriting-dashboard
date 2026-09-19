@@ -18,6 +18,8 @@ interface ScalarInputProps {
   min?: number
   max?: number
   step?: number
+  /** Id(s) of text describing the control (e.g. its error), for screen readers. */
+  describedBy?: string
 }
 
 const baseClass = 'w-full rounded border px-2 py-1 text-sm'
@@ -39,7 +41,7 @@ function describeBound(value: number, type: FieldType): string {
   return type === 'percent' ? `${+(value * 100).toFixed(4)}%` : value.toLocaleString('en-US')
 }
 
-function NumericInput({ id, type, value, onChange, options: _options, min, max, step }: ScalarInputProps) {
+function NumericInput({ id, type, value, onChange, options: _options, min, max, step, describedBy }: ScalarInputProps) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState('')
   // Text that couldn't be read as a number stays visible (with the reason)
@@ -170,11 +172,13 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
         {type === 'currency' && <span className="text-slate-400">$</span>}
         <input
           id={id}
+          aria-describedby={describedBy}
           ref={inputRef}
           type="text"
           inputMode="decimal"
           autoComplete="off"
           aria-invalid={message ? true : undefined}
+          {...(message && id ? { 'aria-describedby': [describedBy, `${id}-msg`].filter(Boolean).join(' ') } : {})}
           data-unparsed={invalid !== null ? '' : undefined}
           className={`${baseClass} text-right tabular-nums ${message ? 'border-red-300' : 'border-slate-300'}`}
           value={displayValue}
@@ -185,18 +189,23 @@ function NumericInput({ id, type, value, onChange, options: _options, min, max, 
         />
         {type === 'percent' && <span className="text-slate-400">%</span>}
       </div>
-      {message && <div className="mt-0.5 text-[11px] text-red-500">{message}</div>}
+      {message && (
+        <div id={id ? `${id}-msg` : undefined} className="mt-0.5 text-[11px] text-red-500">
+          {message}
+        </div>
+      )}
       {!message && note && <div className="mt-0.5 text-[11px] text-amber-600">{note}</div>}
     </div>
   )
 }
 
-export default function ScalarInput({ id, type, value, onChange, options, min, max, step }: ScalarInputProps) {
+export default function ScalarInput({ id, type, value, onChange, options, min, max, step, describedBy }: ScalarInputProps) {
   switch (type) {
     case 'text':
       return (
         <input
           id={id}
+          aria-describedby={describedBy}
           type="text"
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -207,6 +216,7 @@ export default function ScalarInput({ id, type, value, onChange, options, min, m
       return (
         <textarea
           id={id}
+          aria-describedby={describedBy}
           rows={3}
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -217,12 +227,23 @@ export default function ScalarInput({ id, type, value, onChange, options, min, m
     case 'currency':
     case 'percent':
       return (
-        <NumericInput id={id} type={type} value={value} onChange={onChange} options={options} min={min} max={max} step={step} />
+        <NumericInput
+          id={id}
+          type={type}
+          value={value}
+          onChange={onChange}
+          options={options}
+          min={min}
+          max={max}
+          step={step}
+          describedBy={describedBy}
+        />
       )
     case 'date':
       return (
         <input
           id={id}
+          aria-describedby={describedBy}
           type="date"
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
@@ -233,6 +254,7 @@ export default function ScalarInput({ id, type, value, onChange, options, min, m
       return (
         <select
           id={id}
+          aria-describedby={describedBy}
           className={baseClass + ' border-slate-300'}
           value={(value as string) ?? ''}
           onChange={(e) => onChange(e.target.value)}
@@ -251,6 +273,7 @@ export default function ScalarInput({ id, type, value, onChange, options, min, m
       return (
         <input
           id={id}
+          aria-describedby={describedBy}
           type="checkbox"
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}

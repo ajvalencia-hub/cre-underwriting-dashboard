@@ -134,7 +134,10 @@ export default function MetricsSidebar({ metrics, view, dealType, irrConvention,
                           <button
                             onClick={() => onGoalSeek(metric)}
                             title={`Goal-seek ${metric.label}`}
-                            className="ml-1 hidden text-[10px] text-sky-500 hover:text-sky-700 group-hover:inline"
+                            aria-label={`Goal-seek ${metric.label}`}
+                            // Invisible until hover OR keyboard focus (it was
+                            // display:none, so unreachable by keyboard).
+                            className="ml-1 text-[10px] text-sky-700 opacity-0 group-hover:opacity-100 focus:opacity-100"
                           >
                             ◎
                           </button>
