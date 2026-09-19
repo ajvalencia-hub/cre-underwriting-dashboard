@@ -169,3 +169,15 @@ def test_list_backups(tmp_path):
     assert len(listing["daily"]) == 1
     assert len(listing["weekly"]) == 1
     assert listing["daily"][0]["hasDb"] is True
+
+
+def test_a_skipped_automatic_run_still_rotates_old_same_day_snapshots(tmp_path):
+    db = tmp_path / "app.sqlite3"
+    _make_db(db, "Maple")
+    backups = tmp_path / "backups"
+    first = backup_service.run_scheduled_backup(db_path=db, backups_root=backups)
+    # Snapshots an older build left behind on the same day, before the newest.
+    for stale in ("00000000T000001Z", "00000000T000002Z"):
+        (backups / "daily" / f"{first[:8]}{stale[8:]}").mkdir()
+    backup_service.run_scheduled_backup(db_path=db, backups_root=backups)
+    assert [p.name for p in (backups / "daily").iterdir()] == [first]

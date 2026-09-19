@@ -137,14 +137,20 @@ def perform_backup(kind: str = "daily", *, db_path: Path | None = None,
         }, indent=2)
     )
 
-    names = [p.name for p in root.iterdir() if p.is_dir()]
+    _rotate(root, kind)
+    return snapshot_dir
+
+
+def _rotate(kind_dir: Path, kind: str) -> None:
+    if not kind_dir.exists():
+        return
+    names = [p.name for p in kind_dir.iterdir() if p.is_dir()]
     if kind == "daily":
         doomed = prune_daily_names(names, DAILY_KEEP)
     else:
         doomed = prune_names(names, WEEKLY_KEEP if kind == "weekly" else PRE_RESTORE_KEEP)
     for name in doomed:
-        shutil.rmtree(root / name, ignore_errors=True)
-    return snapshot_dir
+        shutil.rmtree(kind_dir / name, ignore_errors=True)
 
 
 def list_backups(backups_root: Path | None = None) -> dict:
@@ -216,6 +222,8 @@ def run_scheduled_backup(*, db_path: Path | None = None, backups_root: Path | No
     did = "skipped (recent daily exists)"
     if age is None or age >= AUTO_BACKUP_MIN_AGE_HOURS:
         did = perform_backup("daily", db_path=db_path, backups_root=root).name
+    else:
+        _rotate(root / "daily", "daily")  # tidy snapshots left by older builds
     week_tag = datetime.now(timezone.utc).strftime("%G-W%V")
     if not _weekly_exists_this_week(week_tag, root):
         perform_backup("weekly", db_path=db_path, backups_root=root)
