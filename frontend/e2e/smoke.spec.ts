@@ -94,13 +94,11 @@ test('pipeline, comps, presets, and share surfaces', async ({ page, request }) =
   await expect(page.getByRole('button', { name: 'New acquisition deal', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'New development deal', exact: true })).toBeVisible()
 
-  // The auto-created Default Deal predates typed creation: it waits in the
-  // untyped list until assigned a dealflow, then becomes a board row.
-  await page
-    .locator('li', { hasText: 'Default Deal' })
-    .getByRole('button', { name: 'Acquisition', exact: true })
-    .click()
-  const dealRow = page.locator('tr', { hasText: 'Default Deal' }).first()
+  // The auto-created Default Deal predates typed creation and waits in the
+  // untyped list; a typed deal created from the board is a row immediately.
+  await expect(page.getByText('UNTYPED DEALS — assign a dealflow')).toBeVisible()
+  await page.getByRole('button', { name: 'New acquisition deal', exact: true }).click()
+  const dealRow = page.locator('tr', { hasText: 'Untitled Acquisition' }).first()
   await expect(dealRow).toBeVisible()
 
   // Status select persists a stage change.
