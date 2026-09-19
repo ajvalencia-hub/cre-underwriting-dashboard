@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 
 interface LayoutProps {
   nav: ReactNode
-  summary: ReactNode
+  /** null on views that span many deals (the one-deal summary doesn't apply). */
+  summary: ReactNode | null
   children: ReactNode
 }
 
@@ -32,14 +33,16 @@ export default function Layout({ nav, summary, children }: LayoutProps) {
 
       <main className="flex-1 overflow-y-auto px-8 py-6">{children}</main>
 
-      <aside className="w-80 shrink-0 border-l border-slate-200 bg-white">
-        <div className="sticky top-0 max-h-screen overflow-y-auto px-4 py-4">
-          <div className="text-sm font-semibold tracking-wide text-slate-500">
-            SUMMARY
+      {summary !== null && (
+        <aside className="w-80 shrink-0 border-l border-slate-200 bg-white">
+          <div className="sticky top-0 max-h-screen overflow-y-auto px-4 py-4">
+            <div className="text-sm font-semibold tracking-wide text-slate-500">
+              SUMMARY
+            </div>
+            <div className="mt-3">{summary}</div>
           </div>
-          <div className="mt-3">{summary}</div>
-        </div>
-      </aside>
+        </aside>
+      )}
     </div>
   )
 }

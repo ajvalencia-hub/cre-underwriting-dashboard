@@ -97,6 +97,9 @@ const TABS = [
 ] as const
 type Tab = (typeof TABS)[number]
 
+/** Views that span many deals — no one-deal summary panel beside them. */
+const MULTI_DEAL_TABS: ReadonlySet<Tab> = new Set<Tab>(['pipeline', 'portfolio', 'comps', 'settings'])
+
 // Left-rail module navigation. Grouped (workflow steps under "This deal"),
 // no step numbers — "0." / "5b." implied a strict order that doesn't exist.
 const NAV_GROUPS: { label: string; items: readonly (readonly [Tab, string])[] }[] = [
@@ -815,6 +818,9 @@ function App() {
         </div>
       }
       summary={
+        // The one-deal summary and Compute button don't apply on views that
+        // span many deals; their tables get the width instead.
+        MULTI_DEAL_TABS.has(tab) ? null : (
         <>
           <div
             className={`mb-3 rounded px-2 py-1 text-xs ${
@@ -869,6 +875,7 @@ function App() {
                 : 'Metrics appear after Compute (⌘↩) or after generating with template read-back.'}
           </p>
         </>
+        )
       }
     >
       {goalSeekMetric && (
