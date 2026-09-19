@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useModalFocus } from '../lib/useModalFocus'
 import ExtractionReview from './ExtractionReview'
 import {
   createDeal,
@@ -15,6 +16,7 @@ import type { Deal } from '../types/deal'
 import type { DocumentSummary, DocumentType } from '../types/document'
 import type { ExtractionResult } from '../types/extraction'
 import type { InputSchema } from '../types/schema'
+import FileChooser from './FileChooser'
 
 interface OmWizardProps {
   schema: InputSchema
@@ -121,13 +123,13 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
     onDealsChanged()
   }
 
-  async function handleUpload(files: FileList | null) {
-    if (!files) return
+  async function handleUpload(files: File[]) {
+    if (files.length === 0) return
     setBusy(true)
     setError(null)
     try {
       const uploaded: DocumentSummary[] = []
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         uploaded.push(await uploadDocument(file))
       }
       const next = [...docs, ...uploaded.filter((u) => !docs.some((d) => d.id === u.id))]
@@ -193,9 +195,27 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
 
   const allConfirmed = docs.length > 0 && docs.every((d) => confirmedDocs.has(d.id))
 
+  // Mid-way, a stray backdrop click or Escape shouldn't silently discard the
+  // wizard's progress.
+  function requestClose() {
+    if (step > 0 && !window.confirm('Close the wizard? Uploaded documents stay under Documents, but the progress here is lost.')) return
+    onClose()
+  }
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocus(dialogRef, () => requestCloseRef.current())
+  const requestCloseRef = useRef(requestClose)
+  requestCloseRef.current = requestClose
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6" onClick={onClose}>
-      <div className="w-full max-w-4xl rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-6" onClick={requestClose}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New deal from documents"
+        className="w-full max-w-4xl rounded-lg bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-700">
             New deal from documents{' '}
@@ -203,7 +223,7 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
               {['start', 'upload & confirm types', 'extract', 'review', 'create'][step]}
             </span>
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={requestClose} aria-label="Close" className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         {error && <div className="mb-2 text-xs text-red-600">{error}</div>}
 
@@ -241,10 +261,11 @@ export default function OmWizard({ schema, deals, onClose, onCreated, onDealsCha
 
         {step >= 1 && step < 3 && (
           <div>
-            <input
-              type="file"
+            <FileChooser
               multiple
-              onChange={(e) => void handleUpload(e.target.files)}
+              description="Deal documents"
+              label="Choose documents…"
+              onFiles={(files) => void handleUpload(files)}
               className="text-xs"
             />
             {docs.length > 0 && (

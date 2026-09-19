@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchGoalSeekInputs, runGoalSeek, type GoalSeekResult } from '../lib/api'
 import { formatOutputValue } from '../lib/formatValue'
+import { parseNumericInput } from '../lib/numericInput'
 import { visibleFields } from '../lib/schemaFields'
+import { useModalFocus } from '../lib/useModalFocus'
 import type { InputSchema, OutputMetric } from '../types/schema'
 
 interface GoalSeekModalProps {
@@ -46,13 +48,14 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
     )
   }, [inputs, search, visibleIds])
 
-  // Percent metrics are typed as decimals ("12" would be 1200%) — accept the
-  // human form and divide.
-  const parsedTarget = (() => {
-    const raw = Number(targetValue)
-    if (!Number.isFinite(raw)) return null
-    return metric.type === 'percent' ? raw / 100 : raw
-  })()
+  // Percent metrics are typed as whole percents ("15" = 15%). An empty box
+  // is no target at all — it used to parse as 0 and solve for zero.
+  const parsed = parseNumericInput(targetValue)
+  const parsedTarget = parsed.ok ? (metric.type === 'percent' ? parsed.value / 100 : parsed.value) : null
+  const targetProblem = !parsed.ok && parsed.reason !== 'empty' ? parsed.reason : null
+
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalFocus(dialogRef, onClose)
 
   async function handleRun() {
     if (!targetInput || parsedTarget === null) return
@@ -85,6 +88,10 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Goal seek ${metric.label}`}
         className="w-[26rem] max-w-[90vw] rounded-lg bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -92,20 +99,22 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
           <h2 className="text-sm font-semibold text-slate-700">
             Goal Seek — {metric.label}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600">
             ✕
           </button>
         </div>
 
-        <label className="mb-1 block text-xs text-slate-500">
+        <label htmlFor="goal-seek-target" className="mb-1 block text-xs text-slate-500">
           Target {metric.label} {metric.type === 'percent' ? '(%)' : ''}
         </label>
         <input
+          id="goal-seek-target"
           value={targetValue}
           onChange={(e) => setTargetValue(e.target.value)}
           placeholder={metric.type === 'percent' ? 'e.g. 15 for 15%' : 'target value'}
-          className="mb-3 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+          className={`w-full rounded border px-2 py-1 text-sm ${targetProblem ? 'border-red-300' : 'border-slate-300'}`}
         />
+        <div className="mb-3 min-h-4 text-[11px] text-red-500">{targetProblem}</div>
 
         <label className="mb-1 block text-xs text-slate-500">By changing input</label>
         <input
@@ -136,7 +145,7 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
           disabled={running || !targetInput || parsedTarget === null}
           className="rounded bg-sky-600 px-3 py-1.5 text-sm text-white hover:bg-sky-700 disabled:opacity-40"
         >
-          {running ? 'Solving…' : 'Solve'}
+          {running ? 'Solving…' : !targetInput ? 'Pick an input to change' : parsedTarget === null ? 'Enter a target' : 'Solve'}
         </button>
 
         {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
@@ -162,7 +171,7 @@ export default function GoalSeekModal({ schema, metric, values, onApply, onClose
               }}
               className="mt-2 rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-700"
             >
-              Apply to inputs
+              Apply to inputs &amp; recompute
             </button>
           </div>
         )}

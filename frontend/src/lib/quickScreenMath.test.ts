@@ -23,6 +23,8 @@ const BASE: QuickScreenInputs = {
   hardCostPerUnit: 180_000,
   softCostPct: 0.2,
   contingencyPct: 0.05,
+  developerFeePct: 0.04,
+  constructionMonths: 18,
   rent: 1_800,
   noiMarginPct: 0.6,
   exitCapRatePct: 0.055,
@@ -34,15 +36,27 @@ const BASE: QuickScreenInputs = {
 }
 
 describe('TDC composition', () => {
-  it('computes hard, soft, contingency, and total development cost', () => {
+  it('computes hard, soft, contingency, developer fee, financing and total development cost', () => {
     const r = computeQuickScreen(BASE)
     expect(r.hardCosts).toBeCloseTo(100 * 180_000, 6) // 18,000,000
     expect(r.softCosts).toBeCloseTo(r.hardCosts * 0.2, 6) // 20% of hard
     expect(r.contingency).toBeCloseTo((r.hardCosts + r.softCosts) * 0.05, 6) // 5% of hard+soft
+    // Developer fee on hard + soft + contingency, as the engine does.
+    expect(r.developerFee).toBeCloseTo((r.hardCosts + r.softCosts + r.contingency) * 0.04, 6)
+    // Financing = interest on the loan (60% of TDC) at 7.5% for 18 months,
+    // 40% drawn on average — part of the TDC the loan is sized on.
+    expect(r.financingCost).toBeCloseTo(0.6 * r.totalDevelopmentCost * 0.075 * 1.5 * 0.4, 4)
     expect(r.totalDevelopmentCost).toBeCloseTo(
-      BASE.landCost + r.hardCosts + r.softCosts + r.contingency,
-      6,
+      BASE.landCost + r.hardCosts + r.softCosts + r.contingency + r.developerFee + r.financingCost,
+      4,
     )
+  })
+
+  it('no longer overstates yield on cost against a cost basis without fee and financing', () => {
+    const bare = computeQuickScreen({ ...BASE, developerFeePct: 0, constructionMonths: 0 })
+    const full = computeQuickScreen(BASE)
+    expect(bare.totalDevelopmentCost).toBeCloseTo(3_000_000 + 18_000_000 * 1.2 * 1.05, 4)
+    expect(full.yieldOnCost).toBeLessThan(bare.yieldOnCost)
   })
 })
 
@@ -95,7 +109,8 @@ describe('DSCR / debt yield / loan constant / break-even ratio', () => {
   })
 
   it('matches hand-calculated fixtures with clean round numbers', () => {
-    // 10 units, $100k/unit hard cost, no soft/contingency/land -> TDC = $1,000,000.
+    // 10 units, $100k/unit hard cost, no soft/contingency/land/developer fee
+    // and no build period (no capitalized interest) -> TDC = $1,000,000.
     // $1,000/mo/unit -> GPR = $120,000. 50% margin -> NOI = $60,000.
     // 50% LTC -> loan = $500,000. 8% IO rate -> debt service = $40,000.
     const fixture: QuickScreenInputs = {
@@ -105,6 +120,8 @@ describe('DSCR / debt yield / loan constant / break-even ratio', () => {
       hardCostPerUnit: 100_000,
       softCostPct: 0,
       contingencyPct: 0,
+      developerFeePct: 0,
+      constructionMonths: 0,
       rent: 1_000,
       noiMarginPct: 0.5,
       exitCapRatePct: 0.06,

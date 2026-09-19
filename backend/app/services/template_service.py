@@ -54,18 +54,23 @@ def parse_workbook(path: Path) -> dict:
     return {"sheets": sheets, "namedRanges": named_ranges}
 
 
-def get_sheet_grid(path: Path, sheet_name: str, max_rows: int = 60, max_cols: int = 30) -> dict:
+def get_sheet_grid(
+    path: Path, sheet_name: str, max_rows: int = 60, max_cols: int = 30, start_row: int = 1
+) -> dict:
+    """A window of the sheet for the mapping picker: `max_rows` rows from
+    `start_row` (1-based), so cells far down a sheet can be reached."""
     wb = openpyxl.load_workbook(path, data_only=False)
     if sheet_name not in wb.sheetnames:
         wb.close()
         raise KeyError(sheet_name)
 
     ws = wb[sheet_name]
-    n_rows = min(ws.max_row, max_rows) if ws.max_row else 0
+    start_row = max(1, start_row)
+    last_row = min(ws.max_row, start_row + max_rows - 1) if ws.max_row else 0
     n_cols = min(ws.max_column, max_cols) if ws.max_column else 0
 
     rows_out = []
-    for r in range(1, n_rows + 1):
+    for r in range(start_row, last_row + 1):
         row_cells = []
         for c in range(1, n_cols + 1):
             cell = ws.cell(row=r, column=c)
@@ -74,7 +79,14 @@ def get_sheet_grid(path: Path, sheet_name: str, max_rows: int = 60, max_cols: in
                 value = _safe_value(cell.value)
             except IllegalCharacterError:
                 value = "<invalid>"
-            row_cells.append({"ref": cell.coordinate, "value": value, "isFormula": is_formula})
+            row_cells.append(
+                {
+                    "ref": cell.coordinate,
+                    "value": value,
+                    "isFormula": is_formula,
+                    "numberFormat": cell.number_format or "General",
+                }
+            )
         rows_out.append(row_cells)
 
     result = {
@@ -83,6 +95,7 @@ def get_sheet_grid(path: Path, sheet_name: str, max_rows: int = 60, max_cols: in
         "rows": rows_out,
         "totalRows": ws.max_row or 0,
         "totalCols": ws.max_column or 0,
+        "startRow": start_row,
     }
     wb.close()
     return result

@@ -6,6 +6,14 @@ from pydantic import BaseModel
 
 from app.services import compute_cache, goal_seek, monte_carlo, tornado_service
 from app.services.proforma import engine, hold
+from app.api_models import (
+    ComputeResponseOut,
+    MonteCarloJobOut,
+    GoalSeekInputOut,
+    GoalSeekOut,
+    HoldSweepResponseOut,
+    TornadoOut,
+)
 
 router = APIRouter(prefix="/api/compute", tags=["compute"])
 
@@ -27,7 +35,7 @@ class GoalSeekRequest(BaseModel):
     bounds: tuple[float, float] | None = None
 
 
-@router.post("/hold-sweep")
+@router.post("/hold-sweep", response_model=HoldSweepResponseOut)
 def hold_sweep(payload: ComputeRequest):
     try:
         sweep = hold.hold_sweep(payload.values)
@@ -39,7 +47,7 @@ def hold_sweep(payload: ComputeRequest):
     return {"sweep": sweep, "refiVsSale": fork}
 
 
-@router.post("/tornado")
+@router.post("/tornado", response_model=TornadoOut)
 def tornado(payload: TornadoRequest):
     try:
         return tornado_service.run_tornado(payload.values, payload.metric)
@@ -51,7 +59,7 @@ def tornado(payload: TornadoRequest):
         raise HTTPException(400, str(exc)) from exc
 
 
-@router.post("/goal-seek")
+@router.post("/goal-seek", response_model=GoalSeekOut)
 def goal_seek_endpoint(payload: GoalSeekRequest):
     """J7: solve one numeric input for a target output metric. A found
     solution and a typed no-solution are both 200s — the scan detail is the
@@ -69,7 +77,7 @@ def goal_seek_endpoint(payload: GoalSeekRequest):
         )
 
 
-@router.get("/goal-seek/inputs")
+@router.get("/goal-seek/inputs", response_model=list[GoalSeekInputOut])
 def goal_seek_inputs():
     """The searchable list of numeric schema inputs for the UI picker."""
     return [
@@ -101,7 +109,7 @@ def monte_carlo_start(payload: MonteCarloRequest):
     return {"jobId": job_id, "n": payload.n}
 
 
-@router.get("/monte-carlo/{job_id}")
+@router.get("/monte-carlo/{job_id}", response_model=MonteCarloJobOut)
 def monte_carlo_poll(job_id: str):
     status = monte_carlo.job_status(job_id)
     if status is None:
@@ -109,7 +117,7 @@ def monte_carlo_poll(job_id: str):
     return status
 
 
-@router.post("")
+@router.post("", response_model=ComputeResponseOut)
 def compute(payload: ComputeRequest, detail: bool = False):
     try:
         # H13: LRU-cached — the engine is pure, and scenario comparisons /

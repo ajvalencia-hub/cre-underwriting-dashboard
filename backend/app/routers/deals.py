@@ -13,8 +13,9 @@ from fastapi.responses import HTMLResponse, Response
 from app.database import get_db
 from app.models import Deal, DealSnapshot, MappingProfile, Scenario, Template
 from app.schemas import DealIn, DealOut, DealUpdate
-from app.services import deal_history, deck_service, share_html
+from app.services import deal_history, deck_service, document_storage, share_html
 from app.services.proforma import engine
+from app.api_models import DealMetricsIncomplete, DealMetricsOk, SnapshotMetaOut
 
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
@@ -139,6 +140,37 @@ def create_deal_from_extraction(payload: FromExtractionRequest, db: Session = De
     return _to_out(deal)
 
 
+@router.get("/metrics", response_model=dict[str, DealMetricsOk | DealMetricsIncomplete])
+def deal_metrics(db: Session = Depends(get_db)):
+    """Key numbers for every deal, computed from its saved inputs (roadmap
+    #18: the pipeline showed no numbers). Uses the compute cache, so an
+    unchanged deal costs nothing. Deals missing required inputs report what
+    they're missing instead of numbers."""
+    from app.services import compute_cache
+
+    out: dict[str, dict] = {}
+    for deal in db.execute(select(Deal)).scalars():
+        inputs = deal.inputs or {}
+        try:
+            result = compute_cache.cached_compute(inputs)
+        except engine.InsufficientInputsError as exc:
+            out[deal.id] = {"status": "incomplete", "missing": exc.missing}
+            continue
+        outputs = result.get("outputs") or {}
+        uses = (result.get("sourcesAndUses") or {}).get("uses") or []
+        levered = (result.get("statement") or {}).get("levered") or []
+        out[deal.id] = {
+            "status": "ok",
+            "totalCost": sum(amount for _, amount in uses) if uses else None,
+            "equity": max(0.0, -levered[0]) if levered else None,
+            "leveredIrr": outputs.get("leveredIrr"),
+            "equityMultiple": outputs.get("equityMultiple"),
+            "yieldOnCost": outputs.get("yieldOnCost"),
+            "goingInCapRate": outputs.get("goingInCapRate"),
+        }
+    return out
+
+
 @router.get("/{deal_id}", response_model=DealOut)
 def get_deal(deal_id: str, db: Session = Depends(get_db)):
     deal = db.get(Deal, deal_id)
@@ -259,7 +291,7 @@ def batch_deck(payload: BatchDeckRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/{deal_id}/history")
+@router.get("/{deal_id}/history", response_model=list[SnapshotMetaOut])
 def deal_history_list(deal_id: str, db: Session = Depends(get_db)):
     """Snapshot list, newest first — metadata only (full inputs stay on the
     server until a restore)."""
@@ -334,7 +366,11 @@ def share_deal(deal_id: str, db: Session = Depends(get_db)):
     safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", deal.name).strip()[:60] or "deal"
     return HTMLResponse(
         content=page,
-        headers={"Content-Disposition": f'inline; filename="{safe_name}-share.html"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{safe_name}-share.html"',
+            # The page is static (no scripts, inline styles only); keep it so.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        },
     )
 
 
@@ -624,8 +660,6 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
     # template deletion already removes dependent scenarios. J12: notes and
     # deal-scoped attachments cascade too (files unlink only when no other
     # document row shares the hash — uploads dedupe by content).
-    from pathlib import Path as _Path
-
     from app.models import DealNote, Document
 
     db.execute(Scenario.__table__.delete().where(Scenario.deal_id == deal_id))
@@ -635,14 +669,9 @@ def delete_deal(deal_id: str, db: Session = Depends(get_db)):
         select(Document).where(Document.deal_id == deal_id)
     ).scalars().all()
     for doc in attachments:
-        others = db.execute(
-            select(Document).where(
-                Document.file_hash == doc.file_hash, Document.id != doc.id
-            )
-        ).scalars().first()
-        if others is None:
-            _Path(doc.stored_path).unlink(missing_ok=True)
+        document_storage.release_file(db, doc)
         db.delete(doc)
+        db.flush()  # so the next attachment's check no longer counts this row
     db.delete(deal)
     db.commit()
     return {"deleted": True}

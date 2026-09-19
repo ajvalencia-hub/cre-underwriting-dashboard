@@ -17,8 +17,10 @@ Conventions (see DECISIONS.md):
   convention of underwriting NOI net of reserves).
 """
 
+import contextvars
+from contextlib import contextmanager
 from app.services.proforma import leases
-from app.services.proforma.timeline import Timeline
+from app.services.proforma.timeline import Timeline, analysis_epoch
 
 EXPENSE_DOLLAR_FIELDS = [
     "realEstateTaxes",
@@ -118,8 +120,24 @@ def annual_gpr_and_other_income(inputs: dict) -> tuple[float, float, str, list[s
     return gpr, other, "grossPotentialRent", warnings
 
 
+# Months already elapsed on the growth clock at operating month 1. 0 = growth
+# starts at delivery (the default: development rents are flat through the
+# build); a development can opt to grow from closing (growDuringConstruction),
+# which sets this to its construction months for the compute in progress.
+_growth_offset: contextvars.ContextVar[int] = contextvars.ContextVar("growth_offset", default=0)
+
+
+@contextmanager
+def growth_clock_offset(months: int):
+    token = _growth_offset.set(max(0, int(months)))
+    try:
+        yield
+    finally:
+        _growth_offset.reset(token)
+
+
 def _growth_multiplier(annual_growth: float, month_1_based: int) -> float:
-    return (1 + annual_growth) ** ((month_1_based - 1) // 12)
+    return (1 + annual_growth) ** ((month_1_based - 1 + _growth_offset.get()) // 12)
 
 
 # Detail-mode (H3) category ids -> the statement's legacy category keys, so
@@ -416,8 +434,11 @@ def _build_lease_noi_vector(
     stack; the statement identities hold via the mapping
     gpr := scheduled base rent, vacancyLoss := downtime + free rent,
     otherIncome := recoveries + the otherIncome input. The general vacancyPct
-    input is NOT applied (downtime IS the vacancy); credit loss applies to
-    collected revenue. Leasing capital (TI/LC) is returned separately and
+    input is NOT applied (downtime IS the vacancy); instead the optional
+    leaseGeneralVacancyPct tops the loss up to that share of potential
+    revenue (scheduled rent + recoveries) in months where rollover downtime
+    falls short — ARGUS's "reduce by absorption & turnover vacancy" method.
+    Credit loss applies to collected revenue. Leasing capital (TI/LC) is returned separately and
     lands BELOW NOI. recoverable_scale < 1 is the mixed-use case (H2):
     commercial tenants recover only the commercial share of property opex."""
     warnings: list[str] = []
@@ -429,6 +450,7 @@ def _build_lease_noi_vector(
     ]
 
     credit_loss_pct = _num(inputs, "creditLossPct")
+    general_vacancy_pct = min(1.0, max(0.0, _num(inputs, "leaseGeneralVacancyPct")))
     management_fee_pct = expenses["egiPctTotal"]
     rent_growth = (
         _num(inputs, "rentGrowthPct") if inputs.get("rentGrowthMode") != "flat" else 0.0
@@ -510,15 +532,22 @@ def _build_lease_noi_vector(
         # not occupancy-scaled in lease mode (see DECISIONS.md).
         operating_month = month - timeline.construction_months
         other_inc = (other_annual / 12) * _growth_multiplier(rent_growth, operating_month)
-        credit = (collected + recoveries) * credit_loss_pct
-        egi = collected + recoveries + other_inc - credit
+        # General vacancy above rollover downtime: a well-leased building
+        # still loses income to unplanned vacancy (audit finding).
+        general = max(
+            0.0,
+            general_vacancy_pct * (scheduled + recoveries) - income["downtimeLoss"][i],
+        )
+        general = min(general, collected + recoveries)
+        credit = (collected + recoveries - general) * credit_loss_pct
+        egi = collected + recoveries - general + other_inc - credit
 
         fixed = sum(vec[i] for vec in expenses["byCategory"].values())
         mgmt = egi * management_fee_pct
         opex = fixed + mgmt
 
         gpr_vec.append(scheduled)
-        vacancy_vec.append(income["downtimeLoss"][i] + income["freeRentLoss"][i])
+        vacancy_vec.append(income["downtimeLoss"][i] + income["freeRentLoss"][i] + general)
         credit_vec.append(credit)
         other_vec.append(recoveries + other_inc)
         egi_vec.append(egi)
@@ -626,11 +655,8 @@ def _allocation_shares(inputs: dict, total: int):
             for m in range(1, total + 1)
         ]
         # Group by calendar year (epoch-anchored, same mapping as leases.py).
-        year_of = [
-            leases.ANALYSIS_EPOCH.year
-            + (leases.ANALYSIS_EPOCH.month - 1 + m) // 12
-            for m in range(total)
-        ]
+        epoch = analysis_epoch()
+        year_of = [epoch.year + (epoch.month - 1 + m) // 12 for m in range(total)]
         share_by_year: dict[int, float] = {}
         for year in set(year_of):
             months_in = [m for m in range(total) if year_of[m] == year]
@@ -1180,6 +1206,40 @@ def reserves_vector(
         else:
             vec.append(annual / 12 * _growth_multiplier(expense_growth, operating_month))
     return vec, annual, warnings
+
+
+_UNTRENDED = {
+    "rentGrowthMode": "flat", "rentGrowthPct": 0.0,
+    "expenseGrowthMode": "flat", "expenseGrowthPct": 0.0,
+    "marketRentGrowthPct": 0.0, "nonAdValoremGrowthPct": 0.0, "reassessedTaxGrowthPct": 0.0,
+}
+_RENO_SEARCH_MONTHS = 240
+
+
+def post_renovation_stabilized_noi(inputs: dict) -> tuple[float | None, str | None]:
+    """Untrended NOI for the 12 months after a value-add renovation program
+    completes (today's rents plus the delivered premiums, no growth) — the
+    yield-on-cost numerator for a value-add deal, whose denominator already
+    carries the full renovation budget. Returns (None, None) without a
+    program, and (None, warning) when it doesn't finish within 20 years."""
+    if not has_renovation_program(inputs):
+        return None, None
+    untrended = {**inputs, **_UNTRENDED}
+    ops = build_noi_vector(untrended, Timeline(_RENO_SEARCH_MONTHS, 0, 0, 1))
+    reno = ops.get("renovation")
+    if reno is None:
+        return None, None
+    active = [
+        m for m in range(_RENO_SEARCH_MONTHS)
+        if reno["unitsInProgress"][m] > 0 or reno["unitsRemaining"][m] > 0
+    ]
+    done = (active[-1] + 1) if active else 0
+    if done + 12 > _RENO_SEARCH_MONTHS:
+        return None, (
+            "The renovation program doesn't finish within 20 years — yield on "
+            "cost uses in-place NOI."
+        )
+    return sum(ops["noi"][done : done + 12]), None
 
 
 def stabilized_annual_noi(inputs: dict) -> float:

@@ -77,3 +77,26 @@ def test_npv_and_profitability_index_hand_calc():
     flows = [-400000.0] + [3666.6667] * 59 + [3666.6667 + 400000.0]
     assert npv(0.10, flows) == pytest.approx(22677, abs=25)
     assert profitability_index(0.10, flows) == pytest.approx(1.0567, abs=1e-3)
+
+
+def test_irr_survives_long_horizons_and_extreme_rates():
+    # 400 monthly periods pushed the discount factor past float range at the
+    # bisection bounds and raised ZeroDivisionError / OverflowError, failing
+    # the whole compute (25-yr holds at stressed vacancy and rates).
+    barely_positive = [-100.0] + [0.01] * 400 + [1.0]
+    assert periodic_irr(barely_positive) is not None
+    assert periodic_irr(barely_positive) < 0  # loses money: negative IRR, found not crashed
+    all_calls = [-100.0] + [-1.0] * 350 + [5.0]
+    periodic_irr(all_calls)  # no root in range is fine; raising is not
+    huge_return = [-1.0] + [0.0] * 300 + [1e9]
+    assert periodic_irr(huge_return) == pytest.approx((1e9) ** (12 / 301) - 1, rel=1e-6)
+
+
+def test_multiple_irrs_are_all_found():
+    from app.services.proforma.returns import periodic_irr_roots
+
+    # -100, +230, -132 has IRRs of exactly 10% and 20% per period.
+    roots = periodic_irr_roots([-100.0, 230.0, -132.0], periods_per_year=1)
+    assert roots == [pytest.approx(0.10, abs=1e-9), pytest.approx(0.20, abs=1e-9)]
+    # A normal deal (one sign change) has exactly one.
+    assert len(periodic_irr_roots([-100.0] + [1.0] * 60 + [100.0])) == 1

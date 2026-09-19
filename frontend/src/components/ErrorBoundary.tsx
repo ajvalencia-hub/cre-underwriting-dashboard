@@ -38,8 +38,8 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
         <div className="mx-auto mt-16 max-w-lg rounded border border-red-200 bg-red-50 p-6 text-center">
           <div className="text-sm font-semibold text-red-700">Something went wrong.</div>
           <div className="mt-1 text-xs text-red-600">
-            The error was reported automatically. Your deal data is saved on the server —
-            reloading is safe.
+            The error was logged. Your deals are stored safely; only changes made in the last
+            few seconds before this may not have been saved. Reload to continue.
           </div>
           <button
             onClick={() => window.location.reload()}

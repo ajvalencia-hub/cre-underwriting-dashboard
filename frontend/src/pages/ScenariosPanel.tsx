@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  computeNative,
   deleteScenario,
   fetchScenarios,
   fetchTornado,
@@ -19,6 +20,9 @@ import type { QuickScreenInputs } from '../lib/quickScreenMath'
 import type { InputSchema } from '../types/schema'
 import type { Scenario } from '../types/scenario'
 import type { TemplateSummary } from '../types/template'
+import { saveOutput } from '../lib/saveOutput'
+import { headlineIds } from '../lib/headlineMetrics'
+import { formatDelta } from '../lib/metricDelta'
 
 interface ScenariosPanelProps {
   schema: InputSchema
@@ -31,7 +35,9 @@ interface ScenariosPanelProps {
    *  on save so the IC memo has a stored fallback. */
   computedOutputs?: Record<string, unknown>
   computedDebt?: Record<string, unknown> | null
-  onLoadScenario: (inputs: Record<string, unknown>) => void
+  /** computedOutputs came from inputs that have since changed. */
+  outputsStale?: boolean
+  onLoadScenario: (inputs: Record<string, unknown>, name: string) => void
   onLoadQuickScreenScenario: (inputs: QuickScreenInputs) => void
 }
 
@@ -46,6 +52,7 @@ export default function ScenariosPanel({
   dealId,
   computedOutputs,
   computedDebt,
+  outputsStale = false,
   onLoadScenario,
   onLoadQuickScreenScenario,
 }: ScenariosPanelProps) {
@@ -92,11 +99,29 @@ export default function ScenariosPanel({
     setSaving(true)
     setError(null)
     try {
+      const hasOutputs = Boolean(computedOutputs && Object.keys(computedOutputs).length > 0)
+      // Never store results next to inputs they didn't come from.
+      if (
+        hasOutputs &&
+        outputsStale &&
+        !window.confirm(
+          'The results on screen are from earlier inputs. Save this scenario WITHOUT results? ' +
+            '(Recompute first to include them. The IC memo always recomputes from the inputs.)',
+        )
+      ) {
+        return
+      }
       const outputsSnapshot =
-        computedOutputs && Object.keys(computedOutputs).length > 0
+        hasOutputs && !outputsStale && computedOutputs
           ? { metrics: computedOutputs, ...(computedDebt ? { debt: computedDebt } : {}) }
           : undefined
       const existing = scenarios.find((s) => s.scenarioName === scenarioName)
+      if (
+        existing &&
+        !window.confirm(`A scenario named "${scenarioName}" already exists. Replace its inputs and results with the current ones?`)
+      ) {
+        return
+      }
       const templateRefs = template && mappingProfileId
         ? { templateId: template.id, mappingProfileId }
         : { templateId: null, mappingProfileId: null }
@@ -131,14 +156,7 @@ export default function ScenariosPanel({
     setError(null)
     try {
       const { blob, filename } = await generateMemo(scenarioId, format)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await saveOutput(blob, filename)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate the IC memo')
     } finally {
@@ -147,6 +165,8 @@ export default function ScenariosPanel({
   }
 
   async function handleDelete(id: string) {
+    const target = [...scenarios, ...quickScreenScenarios].find((s) => s.id === id)
+    if (!window.confirm(`Delete the scenario "${target?.scenarioName ?? 'this scenario'}"? This cannot be undone.`)) return
     try {
       await deleteScenario(id)
       setScenarios((prev) => prev.filter((s) => s.id !== id))
@@ -166,6 +186,38 @@ export default function ScenariosPanel({
   }
 
   const compared = scenarios.filter((s) => compareIds.includes(s.id))
+  // Differences are shown against one chosen scenario (roadmap #16).
+  const [baseId, setBaseId] = useState<string | null>(null)
+  const base = compared.find((s) => s.id === baseId) ?? compared[0]
+  const baseIndex = base ? compared.indexOf(base) : -1
+  const [showAllMetrics, setShowAllMetrics] = useState(false)
+  const headline = headlineIds(compared[0]?.inputs.dealType)
+  const orderedOutputs = showAllMetrics
+    ? [
+        ...headline.flatMap((id) => schema.outputs.filter((m) => m.id === id)),
+        ...schema.outputs.filter((m) => !headline.includes(m.id)),
+      ]
+    : headline.flatMap((id) => schema.outputs.filter((m) => m.id === id))
+
+  // The comparison recomputes each scenario from its own inputs, so every
+  // column's numbers are guaranteed to belong to the inputs shown above it.
+  // (A saved snapshot may predate an edit, or come from a template run.)
+  const [recomputed, setRecomputed] = useState<Record<string, Record<string, unknown> | 'failed'>>({})
+  const comparedKey = compared.map((s) => `${s.id}:${s.updatedAt}`).join('|')
+  useEffect(() => {
+    let current = true
+    for (const s of compared) {
+      const key = `${s.id}:${s.updatedAt}`
+      if (recomputed[key] !== undefined) continue
+      computeNative(s.inputs)
+        .then((r) => current && setRecomputed((prev) => ({ ...prev, [key]: r.outputs })))
+        .catch(() => current && setRecomputed((prev) => ({ ...prev, [key]: 'failed' })))
+    }
+    return () => {
+      current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparedKey])
   const [showIdentical, setShowIdentical] = useState(false)
   const comparisonRows = useMemo(
     () => (compared.length >= 2 ? buildComparisonRows(schema, compared) : []),
@@ -375,7 +427,7 @@ export default function ScenariosPanel({
                   </label>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => onLoadScenario(s.inputs)}
+                      onClick={() => onLoadScenario(s.inputs, s.scenarioName)}
                       className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-50"
                     >
                       Load
@@ -482,41 +534,88 @@ export default function ScenariosPanel({
                 </table>
               </div>
 
-              <h3 className="mt-4 text-xs font-semibold tracking-wide text-slate-500">
-                OUTPUTS — best value highlighted where direction is unambiguous
-              </h3>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <h3 className="text-xs font-semibold tracking-wide text-slate-500">
+                  OUTPUTS — best value highlighted where direction is unambiguous
+                </h3>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  Differences against
+                  <select
+                    value={base?.id ?? ''}
+                    onChange={(e) => setBaseId(e.target.value)}
+                    className="rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  >
+                    {compared.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.scenarioName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  <input type="checkbox" checked={showAllMetrics} onChange={(e) => setShowAllMetrics(e.target.checked)} />
+                  Show all metrics (headline only by default)
+                </label>
+              </div>
               <div className="mt-1 overflow-x-auto rounded border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="px-3 py-2 font-medium text-slate-500">Metric</th>
+                      <th className="sticky left-0 bg-white px-3 py-2 font-medium text-slate-500">Metric</th>
                       {compared.map((s) => (
                         <th key={s.id} className="px-3 py-2 font-medium text-slate-700">
                           {s.scenarioName}
+                          {s.id === base?.id && <span className="ml-1 text-[10px] font-normal text-slate-500">(base)</span>}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {schema.outputs.map((metric) => {
-                      const values = compared.map((s) => {
-                        const metrics = (s.outputs as { metrics?: Record<string, unknown> })?.metrics
-                        const v = metrics?.[metric.id]
-                        return typeof v === 'number' ? v : null
+                    {orderedOutputs.map((metric) => {
+                      const cells = compared.map((s) => {
+                        const saved = (s.outputs as { metrics?: Record<string, unknown> })?.metrics?.[metric.id]
+                        const savedNum = typeof saved === 'number' ? saved : null
+                        const fresh = recomputed[`${s.id}:${s.updatedAt}`]
+                        const freshNum =
+                          fresh && fresh !== 'failed' && typeof fresh[metric.id] === 'number'
+                            ? (fresh[metric.id] as number)
+                            : null
+                        const usingSaved = fresh === 'failed' || fresh === undefined
+                        const value = freshNum ?? (usingSaved ? savedNum : null)
+                        const disagrees =
+                          freshNum !== null &&
+                          savedNum !== null &&
+                          Math.abs(freshNum - savedNum) > Math.max(1e-9, Math.abs(freshNum) * 0.005)
+                        return { value, savedNum, usingSaved: usingSaved && savedNum !== null, disagrees }
                       })
+                      const values = cells.map((c) => c.value)
                       if (values.every((v) => v === null)) return null
                       const best = bestValueIndex(metric.id, values)
                       return (
                         <tr key={metric.id} className="border-b border-slate-50">
-                          <td className="px-3 py-1.5 text-slate-500">{metric.label}</td>
-                          {values.map((v, i) => (
+                          <td className="sticky left-0 bg-white px-3 py-1.5 text-slate-500">{metric.label}</td>
+                          {cells.map((c, i) => (
                             <td
                               key={i}
                               className={`px-3 py-1.5 tabular-nums ${
                                 best === i ? 'bg-emerald-50 font-semibold text-emerald-700' : ''
                               }`}
                             >
-                              {v === null ? '—' : formatOutputValue(metric, v)}
+                              {c.value === null ? '—' : formatOutputValue(metric, c.value)}
+                              {c.usingSaved && <span className="ml-1 text-[10px] font-normal text-slate-400">saved</span>}
+                              {baseIndex >= 0 && i !== baseIndex && c.value !== null && cells[baseIndex].value !== null && (
+                                <div className="text-[11px] font-normal text-slate-500">
+                                  {formatDelta(metric, c.value - (cells[baseIndex].value as number))}
+                                </div>
+                              )}
+                              {c.disagrees && c.savedNum !== null && (
+                                <div
+                                  className="text-[10px] font-normal text-amber-600"
+                                  title="The number saved with this scenario differs from a fresh compute of its inputs — it was probably saved before an input changed, or came from an Excel template run."
+                                >
+                                  saved: {formatOutputValue(metric, c.savedNum)}
+                                </div>
+                              )}
                             </td>
                           ))}
                         </tr>
@@ -526,8 +625,9 @@ export default function ScenariosPanel({
                 </table>
               </div>
               <p className="mt-1 text-[11px] text-slate-400">
-                Outputs come from each scenario's saved compute snapshot — re-save a scenario after
-                computing to refresh them.
+                Outputs are recomputed from each scenario's own inputs with the built-in engine. Where the
+                number saved with a scenario differs, it's shown beneath in amber; “saved” marks a value
+                that couldn't be recomputed (e.g. incomplete inputs).
               </p>
             </section>
           )}

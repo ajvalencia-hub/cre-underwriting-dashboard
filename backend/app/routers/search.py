@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Deal, DealNote, SaleComp
+from app.api_models import SearchOut
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -37,7 +38,7 @@ def _deal_type_of(inputs: dict) -> str | None:
     return value if value in ("acquisition", "development") else None
 
 
-@router.get("")
+@router.get("", response_model=SearchOut)
 def search(q: str = "", db: Session = Depends(get_db)):
     q = q.strip().lower()
     type_filter = None

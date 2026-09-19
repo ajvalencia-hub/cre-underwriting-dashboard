@@ -5,6 +5,7 @@
 
 import { flattenFields } from './schemaFields'
 import type { InputSchema } from '../types/schema'
+import { formatMoney } from './money'
 
 export type ChangeKind = 'added' | 'removed' | 'changed'
 
@@ -54,7 +55,7 @@ export function formatDiffValue(value: unknown, type: string): string {
   if (value === undefined || value === null || value === '') return '—'
   if (typeof value === 'number') {
     if (type === 'percent') return `${(value * 100).toFixed(2)}%`
-    if (type === 'currency') return `$${value.toLocaleString()}`
+    if (type === 'currency') return formatMoney(value, { round: false })
     return String(value)
   }
   if (typeof value === 'boolean') return value ? 'on' : 'off'

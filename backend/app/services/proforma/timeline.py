@@ -10,6 +10,8 @@ Month indexing convention used across the engine:
 """
 
 import calendar
+import contextvars
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 
@@ -19,12 +21,43 @@ from datetime import date
 # documented fixed default, not a guess about the user's closing date.
 ANALYSIS_EPOCH = date(2026, 1, 1)
 
+# The deal's own analysis start (closing) date, when it gives one: lease
+# start/expiry dates, base years and XIRR dates map onto the calendar from
+# here. Set per compute by analysis_calendar(); defaults to ANALYSIS_EPOCH.
+_analysis_start: contextvars.ContextVar[date] = contextvars.ContextVar(
+    "analysis_start", default=ANALYSIS_EPOCH
+)
 
-def month_end_dates(count: int, start: date = ANALYSIS_EPOCH) -> list[date]:
+
+def analysis_epoch() -> date:
+    """Calendar date of month 0 (closing) for the compute in progress."""
+    return _analysis_start.get()
+
+
+def parse_analysis_start(value) -> date | None:
+    """ISO date (YYYY-MM-DD) or None; raises ValueError on anything else."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+@contextmanager
+def analysis_calendar(start: date | None):
+    token = _analysis_start.set(start or ANALYSIS_EPOCH)
+    try:
+        yield
+    finally:
+        _analysis_start.reset(token)
+
+
+def month_end_dates(count: int, start: date | None = None) -> list[date]:
     """Dates for flow indices 0..count-1: index 0 = the start (closing) date;
     operating month m spans the calendar month at offset m-1 from start and
     its flow settles at that month's END (closing Jan 1 -> month 1 settles
     Jan 31, month 12 settles Dec 31 = one year)."""
+    start = start or analysis_epoch()
     dates = [start]
     for m in range(1, count):
         offset = start.month - 1 + m - 1

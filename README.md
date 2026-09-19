@@ -8,6 +8,80 @@ assumptions against public data, and render an IC memo.
 **Stack:** React / TypeScript / Vite / Tailwind (`frontend/`), FastAPI /
 SQLAlchemy / SQLite / openpyxl (`backend/`).
 
+## Desktop app (macOS)
+
+**CRE Underwriting.app** runs the whole dashboard as a normal Mac app. You
+don't need a terminal or a browser tab.
+
+### Before you start: two things to know
+
+1. **The first launch needs one extra click.** The app isn't signed by Apple
+   yet, so macOS blocks the first double-click.
+   - **macOS 15 (Sequoia) and later:** double-click the app and choose
+     **Done** on the warning. Open **System Settings → Privacy & Security**,
+     scroll down to *"CRE Underwriting" was blocked…*, click **Open Anyway**,
+     and confirm.
+   - **macOS 14 and earlier:** right-click (or Control-click) the app,
+     choose **Open**, then click **Open** again.
+
+   From then on, a normal double-click works.
+2. **Install LibreOffice (free) if you use your own Excel template.**
+   [Download LibreOffice](https://www.libreoffice.org/download/download-libreoffice/),
+   drag it to Applications, then restart CRE Underwriting. **It's the only
+   way the app can recalculate your workbook and show *your template's*
+   results.** It's also needed for template-verified sensitivity runs and
+   for the IC memo as PDF. Without it:
+   - generated workbooks are still correct when you open them in Excel,
+     because Excel recalculates on open;
+   - the built-in engine (Compute), the Excel model export, the .docx memo
+     and the decks all work normally;
+   - **Settings → External tools** shows whether LibreOffice was found.
+
+   OCR for scanned, image-only PDFs likewise needs Tesseract and Poppler
+   (`brew install tesseract poppler`). It's optional; text PDFs, Excel and
+   CSV work without it.
+
+### Install and run
+
+Unzip `CRE-Underwriting-mac.zip` and drag **CRE Underwriting** into
+Applications. Double-click it to start; quit it with ⌘Q or by closing the
+window.
+
+- **Your data** (deals, templates, documents, daily backups) is stored in
+  `~/Library/Application Support/CRE Underwriting/`. Logs are in
+  `~/Library/Logs/CRE Underwriting/`. Replacing the app with a newer build
+  keeps your data.
+- **Optional API keys** (FRED, Census, HUD, BEA, BLS, Anthropic): enter them
+  in **Settings → Integrations**. They're stored in your macOS Keychain.
+- **Files** open and save through the standard Mac dialogs.
+- The app runs its own private server on a random local port that only its
+  window can use. Quitting the app stops the server.
+
+### Building the app
+
+```bash
+brew install node python@3.12
+/opt/homebrew/bin/python3.12 -m venv desktop/.venv
+desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirements.txt
+desktop/build_mac.sh
+```
+
+This produces `desktop/dist/CRE Underwriting.app` and
+`desktop/dist/CRE-Underwriting-mac.zip` (about 62 MB) for the architecture
+you build on. The build runs `--self-test` inside the finished app before
+zipping. The self-test checks compute, the Excel export, the decks, the
+memo with charts, PDF reading and the Keychain, so a bad freeze fails the
+build instead of reaching a colleague.
+
+The shell's own tests (access gate, dialogs, PATH, quit cleanup) run with
+`desktop/.venv/bin/python -m pytest desktop/tests -q`, and first in every build.
+
+To run the desktop shell from source without building, first run
+`npm run build` in `frontend/`, then run
+`desktop/.venv/bin/python desktop/launcher.py`.
+
+The browser workflow below (uvicorn + `npm run dev`) is unchanged.
+
 ## Features
 
 - **Deals (pipeline home)** — every working session is a persistent deal
@@ -31,7 +105,16 @@ SQLAlchemy / SQLite / openpyxl (`backend/`).
 - **2. Template & Mapping** — upload your firm's Excel model, map schema
   fields to cells/named ranges (sheet-scoped names and merged cells
   handled), generate populated workbooks, optionally recalculated
-  server-side via LibreOffice.
+  server-side via LibreOffice. A coverage table shows, for the active deal,
+  each field's value, the resolved target cell, what that cell holds now,
+  and whether Generate will write it — flagging blanks that leave the
+  template's placeholder in place, formula cells, missing targets, two
+  fields in one cell, and likely unit mismatches. Generate runs the same
+  check first and reports what was written afterwards.
+- **Results you can trust at a glance** — every result is stamped with the
+  inputs it came from; editing any input marks it out of date (struck
+  through, with Recompute / ⌘↩), and each value is tagged with its source
+  ("engine" or "Excel"). Key metrics lead the summary.
 - **3. Deal Inputs** — the schema-driven form. **Compute (native)** produces
   all 30+ return metrics with the built-in pro-forma engine — no template
   required — including constraint-based debt sizing (LTV / DSCR / debt
@@ -192,6 +275,11 @@ serves the whole app (UI + API) on `http://localhost:8000`:
 docker compose up --build
 ```
 
+The port is published on **this machine only** (`127.0.0.1:8000`): the app
+has no login, so anyone who can reach it can read and change every deal. To
+share it on a trusted network deliberately, change the `ports` entry in
+`docker-compose.yml` to `"8000:8000"`.
+
 The SQLite database, uploads, and rotating backups live on the named volume
 `cre-data` (mounted at `/data` in the container), so they survive rebuilds.
 Set optional API keys in a `.env` beside `docker-compose.yml` (compose reads
@@ -210,19 +298,41 @@ Environment variables of note:
 
 - **Automatic:** a daily SQLite snapshot (online-backup API, safe during
   writes) under `/data/backups/daily/`, promoted to a weekly snapshot on the
-  first run of each ISO week. Rotation keeps the last **7 daily** and **4
-  weekly**. Each snapshot is a timestamped directory with `app.sqlite3` plus a
+  first run of each ISO week. It skips a run when the newest daily snapshot
+  is under 20 hours old (the desktop app backs up at launch). Rotation keeps
+  **one snapshot per day for 7 days**, **4 weekly**, and the last **5
+  "before restore"** snapshots. A failed automatic backup is logged and
+  shown in Settings. Each snapshot is a timestamped directory with `app.sqlite3` plus a
   `manifest.json` listing uploads by name/hash (upload bytes are **not**
   copied — they already share the data volume; the manifest lets you confirm
   none went missing after a restore).
 - **On demand:** `POST /api/admin/backups/run`; list with
   `GET /api/admin/backups`.
 - **Restore:** `POST /api/admin/backups/restore` with `{"kind","name"}`
-  overwrites the live DB from that snapshot, then **restart the backend** so
+  first snapshots the live DB as `pre_restore` (returned as
+  `preRestoreSnapshot`, so a wrong restore can be undone), then overwrites
+  the live DB from that snapshot. **Restart the backend** afterwards so
   SQLAlchemy reopens the file. The response returns the uploads manifest so
   you can verify every referenced file is still present on the volume. (To
   restore into a fresh volume, copy the snapshot dir into `/data/backups/…`
   first, then call restore.)
+
+## API types
+
+The frontend's API types are generated from the backend's OpenAPI schema
+into `frontend/src/types/api.gen.ts` (dev dependency `openapi-typescript`).
+After changing what a route returns, regenerate and commit the file:
+
+```bash
+cd frontend && npm run gen:api
+```
+
+`frontend/src/types/apiContract.ts` checks at compile time that each
+declared response fits the frontend type that reads it, so drift on either
+side fails `tsc`. CI regenerates the file and fails if the committed copy
+is stale. Response models for routes that build plain dicts live in
+`backend/app/api_models.py`; they keep undeclared keys, so declaring a
+model never drops a field from a response.
 
 ## Testing
 

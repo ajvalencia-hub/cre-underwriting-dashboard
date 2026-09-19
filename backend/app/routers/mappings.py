@@ -1,13 +1,16 @@
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import MappingProfile, Scenario, Template
-from app.schemas import AutoMatchResult, MappingProfileIn, MappingProfileOut
-from app.services import mapping_service
+from app.schemas import AutoMatchResult, MappingEntry, MappingProfileIn, MappingProfileOut
+from app.services import mapping_preview, mapping_service
+from app.api_models import MappingPreviewOut
 
 router = APIRouter(prefix="/api/mappings", tags=["mappings"])
 
@@ -40,6 +43,29 @@ def auto_match(template_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Template not found")
     mappings = mapping_service.auto_match(template.named_ranges, Path(template.stored_path))
     return AutoMatchResult(mappings=mappings)
+
+
+class MappingPreviewIn(BaseModel):
+    templateId: str
+    mappings: dict[str, MappingEntry]
+    values: dict[str, Any] = {}
+
+
+@router.post("/preview", response_model=MappingPreviewOut)
+def preview_mapping(payload: MappingPreviewIn, db: Session = Depends(get_db)):
+    """Read-only: where each field's value would land in the template, what
+    that cell holds now, and whether Generate would write or skip it. Takes
+    the mapping as sent (so unsaved on-screen edits can be previewed)."""
+    template = db.get(Template, payload.templateId)
+    if template is None:
+        raise HTTPException(404, "Template not found")
+    path = Path(template.stored_path)
+    if not path.exists():
+        raise HTTPException(
+            404, f"The template file for {template.filename} is missing from storage — upload it again."
+        )
+    mappings = {k: v.model_dump() for k, v in payload.mappings.items()}
+    return {"fields": mapping_preview.preview(path, mappings, payload.values)}
 
 
 @router.post("", response_model=MappingProfileOut)

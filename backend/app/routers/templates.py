@@ -8,8 +8,11 @@ from app.config import TEMPLATES_DIR
 from app.database import get_db
 from app.models import MappingProfile, Scenario, Template
 from app.routers.upload_limit import read_upload_limited
-from app.schemas import SheetGrid, TemplateSummary
-from app.services import template_service
+from pydantic import BaseModel
+
+from app.schemas import MappingEntry, SheetGrid, TemplateSummary
+from app.services import recalc_agreement, recalc_service, template_service
+from app.api_models import RecalcAgreementOut
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -85,6 +88,7 @@ def get_sheet_grid(
     sheet_name: str,
     max_rows: int = 60,
     max_cols: int = 30,
+    start_row: int = 1,
     db: Session = Depends(get_db),
 ):
     template = db.get(Template, template_id)
@@ -92,7 +96,11 @@ def get_sheet_grid(
         raise HTTPException(404, "Template not found")
     try:
         return template_service.get_sheet_grid(
-            Path(template.stored_path), sheet_name, max_rows=max_rows, max_cols=max_cols
+            Path(template.stored_path),
+            sheet_name,
+            max_rows=min(max_rows, 500),
+            max_cols=min(max_cols, 100),
+            start_row=start_row,
         )
     except KeyError:
         raise HTTPException(404, f"Sheet '{sheet_name}' not found in template")
@@ -118,3 +126,26 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     db.delete(template)
     db.commit()
     return {"deleted": True}
+
+
+class RecalcCheckRequest(BaseModel):
+    mappings: dict[str, MappingEntry]
+
+
+@router.post("/{template_id}/recalc-check", response_model=RecalcAgreementOut)
+def recalc_check(template_id: str, payload: RecalcCheckRequest, db: Session = Depends(get_db)):
+    """Recalculate the unmodified template in LibreOffice and compare each
+    mapped output with the value Excel saved (see recalc_agreement)."""
+    template = db.get(Template, template_id)
+    if template is None:
+        raise HTTPException(404, "Template not found")
+    if not recalc_service.is_available():
+        raise HTTPException(503, "LibreOffice isn't installed, so there's nothing to compare yet.")
+    path = Path(template.stored_path)
+    if not path.exists():
+        raise HTTPException(404, f"The template file for {template.filename} is missing from storage — upload it again.")
+    mappings = {k: v.model_dump() for k, v in payload.mappings.items()}
+    try:
+        return recalc_agreement.check(path, mappings)
+    except Exception as exc:  # noqa: BLE001 — a LibreOffice failure is reported, not a 500
+        raise HTTPException(502, f"LibreOffice couldn't recalculate this template: {exc}") from exc

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Deal
 from app.services import portfolio
+from app.api_models import PortfolioOut
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -22,7 +23,7 @@ def _deal_dicts(db: Session) -> list[dict]:
     ]
 
 
-@router.get("")
+@router.get("", response_model=PortfolioOut)
 def get_portfolio(db: Session = Depends(get_db)):
     return portfolio.build_portfolio(_deal_dicts(db))
 

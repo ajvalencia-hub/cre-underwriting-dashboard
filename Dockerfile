@@ -8,6 +8,9 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# fieldHelp.test.ts checks the help text against the backend's input schema,
+# and tsc -b type-checks tests too, so the file must sit at its repo path.
+COPY backend/app/data/input_schema.json /app/backend/app/data/input_schema.json
 RUN npm run build
 
 # --- Stage 2: backend runtime ---
@@ -36,4 +39,6 @@ VOLUME ["/data"]
 EXPOSE 8000
 
 # The data volume holds the SQLite DB, uploads, and rotating backups.
+# 0.0.0.0 is inside the container (needed for port publishing);
+# docker-compose.yml publishes it on 127.0.0.1 only.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,3 +1,4 @@
+import { orderSections } from '../lib/sectionOrder'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import FieldRow, { type FieldIndicator } from './fields/FieldRow'
 import MarketContextPanel from './MarketContextPanel'
@@ -6,6 +7,8 @@ import { fetchBenchmarks, fetchMarketRates, type BenchmarkResult, type MarketRat
 import { deriveBenchmarkSubject } from '../lib/benchmarkSubject'
 import { isVisible } from '../lib/visibility'
 import type { InputSchema } from '../types/schema'
+import { closingDateOf, readCriticalDates } from '../lib/criticalDates'
+import { readProvenance } from '../lib/provenance'
 
 interface DealInputFormProps {
   schema: InputSchema
@@ -70,8 +73,33 @@ function SofrSeed({ onApply }: { onApply: (rate: number) => void }) {
   )
 }
 
+/** Offers the Critical Dates closing as the analysis start (it moves every
+ *  lease date in the model, so it's a one-click suggestion, never automatic). */
+function ClosingDateHint({
+  closing,
+  current,
+  onApply,
+}: {
+  closing: string | null
+  current: string
+  onApply: (date: string) => void
+}) {
+  if (!closing || closing === current) return null
+  return (
+    <div className="-mt-1 mb-2 text-xs text-slate-500">
+      Critical Dates has closing on {closing}.{' '}
+      <button type="button" className="text-sky-700 underline" onClick={() => onApply(closing)}>
+        Use it
+      </button>
+    </div>
+  )
+}
+
 export default function DealInputForm({ schema, values, onFieldChange }: DealInputFormProps) {
-  const visibleSections = schema.sections.filter((s) => isVisible(s.visibleWhen, values))
+  const provenance = readProvenance(values)
+  const appFilledCount = Object.keys(provenance).length
+  const [onlyAppFilled, setOnlyAppFilled] = useState(false)
+  const visibleSections = orderSections(schema.sections.filter((s) => isVisible(s.visibleWhen, values)))
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkResult | null>(null)
   const [benchmarksLoading, setBenchmarksLoading] = useState(false)
@@ -110,14 +138,20 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
       setBenchmarks(null)
       return
     }
+    // Only the latest lookup may land: a slow response for an earlier
+    // address/subject must not set this deal's field warnings.
+    let current = true
     const handle = setTimeout(() => {
       setBenchmarksLoading(true)
       fetchBenchmarks({ address, market, submarket, assetClass, subject: { ...subject } })
-        .then(setBenchmarks)
-        .catch(() => setBenchmarks(null)) // offline/failed — panel just hides
-        .finally(() => setBenchmarksLoading(false))
+        .then((result) => current && setBenchmarks(result))
+        .catch(() => current && setBenchmarks(null)) // offline/failed — panel just hides
+        .finally(() => current && setBenchmarksLoading(false))
     }, BENCHMARK_DEBOUNCE_MS)
-    return () => clearTimeout(handle)
+    return () => {
+      current = false
+      clearTimeout(handle)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, market, submarket, assetClass, subjectKey])
 
@@ -147,28 +181,54 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
         benchmarksLoading={benchmarksLoading}
       />
 
-      {visibleSections.map((section) => (
-        <details
-          key={section.id}
-          id={`section-${section.id}`}
-          open
-          className="rounded border border-slate-200 bg-white"
-        >
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold text-slate-700">
-            {section.label}
-          </summary>
-          <div className="divide-y divide-slate-50 px-3 pb-2">
-            {section.fields
-              .filter((f) => isVisible(f.visibleWhen, values))
-              .map((field) => (
+      {appFilledCount > 0 && (
+        <label className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
+          <input type="checkbox" checked={onlyAppFilled} onChange={(e) => setOnlyAppFilled(e.target.checked)} />
+          Show only the {appFilledCount} value(s) the app filled in (documents, presets, goal seek, Quick Screen) — to
+          check them before relying on the numbers
+        </label>
+      )}
+      {visibleSections.map((section) => {
+        const shown = section.fields.filter(
+          (f) => isVisible(f.visibleWhen, values) && (!onlyAppFilled || f.id in provenance),
+        )
+        if (onlyAppFilled && shown.length === 0) return null
+        const allTemplateOnly = shown.length > 0 && shown.every((f) => f.templateOnly)
+        return (
+          <details
+            key={section.id}
+            id={`section-${section.id}`}
+            open
+            className="rounded border border-slate-200 bg-white"
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold text-slate-700">
+              {section.label}
+            </summary>
+            {allTemplateOnly && (
+              <div className="mx-3 mb-1 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                The built-in engine doesn't model these yet — Compute ignores them. They're only written to
+                an Excel template that maps them.
+              </div>
+            )}
+            <div className="divide-y divide-slate-50 px-3 pb-2">
+              {shown.map((field) => (
                 <Fragment key={field.id}>
                   <FieldRow
                     field={field}
                     value={values[field.id]}
                     onChange={(v) => onFieldChange(field.id, v)}
                     indicator={fieldIndicators[field.id]}
+                    hideTemplateOnlyNote={allTemplateOnly}
+                    provenance={provenance[field.id]}
                   />
                   {field.id === 'interestRate' && <RatesHint />}
+                  {field.id === 'analysisStartDate' && (
+                    <ClosingDateHint
+                      closing={closingDateOf(readCriticalDates(values))}
+                      current={typeof values.analysisStartDate === 'string' ? values.analysisStartDate : ''}
+                      onApply={(date) => onFieldChange('analysisStartDate', date)}
+                    />
+                  )}
                   {field.id === 'currentIndexPct' && (
                     <SofrSeed onApply={(rate) => onFieldChange('currentIndexPct', rate)} />
                   )}
@@ -187,9 +247,10 @@ export default function DealInputForm({ schema, values, onFieldChange }: DealInp
                   )}
                 </Fragment>
               ))}
-          </div>
-        </details>
-      ))}
+            </div>
+          </details>
+        )
+      })}
     </div>
   )
 }

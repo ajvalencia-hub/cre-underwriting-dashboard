@@ -4,8 +4,15 @@ ids out. Orchestration only — every formula lives in the sibling modules
 outside this package reimplements any of them.
 """
 
-from app.services.proforma import debt, development, equity, operations, returns
-from app.services.proforma.timeline import Timeline, build_timeline, month_end_dates
+from app.services.proforma import debt, development, equity, input_validation, operations, returns
+from app.services.proforma.timeline import (
+    ANALYSIS_EPOCH,
+    Timeline,
+    analysis_calendar,
+    build_timeline,
+    month_end_dates,
+    parse_analysis_start,
+)
 
 
 class InsufficientInputsError(Exception):
@@ -154,7 +161,36 @@ def _operating_break_evens(
 
 def compute(inputs: dict) -> dict:
     """Returns {"outputs": {<schema output id>: float}, "warnings": [str]}.
-    Raises InsufficientInputsError naming every missing required field."""
+    Raises InsufficientInputsError naming every missing required field.
+
+    [FIN] Month 0 is the deal's analysisStartDate (closing) when given —
+    lease dates, base years and XIRR dates map onto the calendar from there;
+    blank keeps the fixed ANALYSIS_EPOCH (2026-01-01)."""
+    try:
+        start = parse_analysis_start(inputs.get("analysisStartDate"))
+        start_warning = None
+    except ValueError:
+        start = None
+        start_warning = (
+            f"Analysis start date '{inputs.get('analysisStartDate')}' isn't a date "
+            f"(YYYY-MM-DD) — using {ANALYSIS_EPOCH.isoformat()}."
+        )
+    inputs, input_warnings, input_errors = input_validation.validate_inputs(inputs)
+    if input_errors:
+        raise InsufficientInputsError(input_errors)
+    # [FIN] Growth during construction (roadmap #23, opt-in): development
+    # rents/expenses normally start growing at delivery (flat through the
+    # build — conservative); growDuringConstruction trends them from close.
+    growth_offset = 0
+    if inputs.get("dealType") == "development" and inputs.get("growDuringConstruction"):
+        growth_offset = int(_num(inputs, "constructionMonths"))
+    with analysis_calendar(start), operations.growth_clock_offset(growth_offset):
+        result = _compute(inputs)
+    result["warnings"][:0] = ([start_warning] if start_warning else []) + input_warnings
+    return result
+
+
+def _compute(inputs: dict) -> dict:
     warnings: list[str] = []
 
     deal_type = inputs.get("dealType")
@@ -207,6 +243,7 @@ def compute(inputs: dict) -> dict:
     noi = ops["noi"][:total]
     forward_noi_12 = sum(ops["noi"][total : total + 12])
     stabilized_noi = operations.stabilized_annual_noi(inputs)
+    in_place_stabilized_noi = stabilized_noi  # before the reserves adjustment
 
     # J6: replacement reserves — ONE dollar vector; the convention changes
     # only where the line sits. above_noi_underwritten folds it into opex
@@ -245,11 +282,24 @@ def compute(inputs: dict) -> dict:
             sum(components["residential"]["noi"][total : total + 12]) / res_exit_cap
             + sum(components["commercial"]["noi"][total : total + 12]) / com_exit_cap
         )
+    elif inputs.get("exitNoiBasis") == "trailing":
+        # [FIN] Roadmap #24: trailing-12 NOI (the last 12 months of the hold)
+        # for buyers/markets that price on in-place income. Forward remains
+        # the default institutional convention (F2).
+        trailing = ops["noi"][max(0, total - 12) : total]
+        trailing_noi = sum(trailing) * (12 / len(trailing)) if trailing else 0.0
+        terminal_value = trailing_noi / exit_cap
     else:
         terminal_value = forward_noi_12 / exit_cap
     gross_sale_net_of_costs = terminal_value * (1 - cost_of_sale)
 
     ltc_or_ltv = _num(inputs, "ltvOrLtc", 0.65)
+    # Development: the permanent takeout can size to its own max LTV (a 60%
+    # LTC construction loan often refis into a 65-70% LTV perm). Blank keeps
+    # the shared ltvOrLtc. Acquisitions have one loan: always ltvOrLtc.
+    perm_ltv = ltc_or_ltv
+    if (inputs.get("dealType") or "acquisition") == "development" and inputs.get("permanentLtvPct") not in (None, ""):
+        perm_ltv = _num(inputs, "permanentLtvPct", ltc_or_ltv)
     interest_rate = _num(inputs, "interestRate", 0.065)
     amort_years = _num(inputs, "amortYears", 30)
     io_months = int(_num(inputs, "ioMonths"))
@@ -282,6 +332,7 @@ def compute(inputs: dict) -> dict:
     interest_rate_for_perm = interest_rate
 
     sources_and_uses: dict = {"uses": [], "sources": []}
+    construction_loan: dict | None = None  # development: the solved LTC sizing
     gp_developer_fee = 0.0  # J3: captured in the development branch
 
     # Statement vectors (index 0 = close), assembled alongside the cash-flow
@@ -390,13 +441,18 @@ def compute(inputs: dict) -> dict:
         cost_schedule = development.monthly_cost_schedule(
             budget, timeline.construction_months
         )
+        custom_schedule, draw_warnings = development.custom_cost_schedule(
+            budget, timeline.construction_months, inputs.get("constructionDrawSchedule") or []
+        )
+        warnings.extend(draw_warnings)
+        if custom_schedule is not None:
+            cost_schedule = custom_schedule
         gp_developer_fee = budget.developer_fee  # J3: a GP fee stream
-        # LTC applies to the hard basis (ex financing); interest and fees are
-        # loan-funded on top (interest-reserve convention). See DECISIONS.md.
-        equity_target = budget.total_ex_financing * (1 - ltc_or_ltv)
-        financing = debt.construction_financing(
-            cost_schedule, equity_target, interest_rate, origination_fee_pct,
-            rate_vector=rate_vec,
+        # LTC applies to total cost INCLUDING capitalized interest and loan
+        # fees (lender convention); solved iteratively. See DECISIONS.md.
+        financing, equity_target, construction_commitment = debt.size_construction_loan(
+            cost_schedule, budget.total_ex_financing, ltc_or_ltv, interest_rate,
+            origination_fee_pct, rate_vector=rate_vec,
         )
         total_cost_basis = (
             budget.total_ex_financing
@@ -404,6 +460,12 @@ def compute(inputs: dict) -> dict:
             + financing.fee_capitalized
         )
         initial_equity = equity_target
+        construction_loan = {
+            "commitment": construction_commitment,
+            "equity": equity_target,
+            "totalCost": total_cost_basis,
+            "ltc": construction_commitment / total_cost_basis if total_cost_basis > 0 else None,
+        }
 
         for m, cost in enumerate(cost_schedule):
             if m <= total:
@@ -480,9 +542,9 @@ def compute(inputs: dict) -> dict:
             # capital call (-). An all-equity build (LTC = 0) never takes on
             # permanent debt.
             sizing = debt.size_permanent_loan(
-                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                sizing_noi, value_for_ltv, perm_ltv, dscr_constraint,
                 debt_yield_constraint, perm_rate, amort_years,
-            ) if ltc_or_ltv > 0 else debt.PermSizing(0.0, "none", {})
+            ) if perm_ltv > 0 else debt.PermSizing(0.0, "none", {})
             if sizing.amount > 0:
                 perm_loan = sizing.amount
                 governing_constraint = sizing.governing_constraint
@@ -527,7 +589,7 @@ def compute(inputs: dict) -> dict:
         else:
             # Sold before stabilizing: sweep through exit, pay off then.
             sizing = debt.size_permanent_loan(
-                sizing_noi, value_for_ltv, ltc_or_ltv, dscr_constraint,
+                sizing_noi, value_for_ltv, perm_ltv, dscr_constraint,
                 debt_yield_constraint, interest_rate, amort_years,
             )
             for m in range(takeout_month, total + 1):
@@ -543,6 +605,75 @@ def compute(inputs: dict) -> dict:
             warnings.append(
                 "No permanent takeout occurs before exit — construction debt "
                 "is repaid from sale proceeds."
+            )
+
+    # ------------------------------------------------------------------
+    # [FIN] Loan maturity inside the hold (roadmap #11): the balloon is
+    # refinanced with a new loan sized by the same constraints on forward
+    # NOI / value at maturity, priced at the loan rate + refiRateSpreadPct,
+    # with refiCostsPct; the net (cash-out or paydown) goes to equity.
+    # loanTermYears blank = no maturity (the pre-#11 behavior).
+    # ------------------------------------------------------------------
+    maturity_refi = None
+    term_years = _num(inputs, "loanTermYears")
+    loan_start = takeout_month if deal_type == "development" else 1
+    if perm_loan > 0 and term_years > 0 and loan_start <= total:
+        maturity = loan_start + int(round(term_years * 12)) - 1
+        if maturity < total and debt_service[maturity] is not None:
+            balloon = debt_service[maturity].balance
+            refi_spread_m = _num(inputs, "refiRateSpreadPct")
+            refi_rate = interest_rate_for_perm + (refi_spread_m if deal_type == "acquisition" else 0.0)
+            forward = ops["noi"][maturity : maturity + 12]
+            fwd_noi = sum(forward) * (12 / len(forward)) if forward else 0.0
+            refi_value = fwd_noi / exit_cap if exit_cap > 0 else 0.0
+            refi_sizing = debt.size_permanent_loan(
+                fwd_noi, refi_value, perm_ltv, dscr_constraint,
+                debt_yield_constraint, refi_rate, amort_years,
+            )
+            new_loan = refi_sizing.amount if refi_sizing.amount > 0 else balloon
+            refi_cost = new_loan * _num(inputs, "refiCostsPct")
+            delta = new_loan - balloon
+            levered[maturity] += delta - refi_cost
+            stmt_debt_draws[maturity] += delta
+            stmt_loan_fees[maturity] += refi_cost
+            remaining = total - maturity
+            if rate_vec is not None:
+                spread_now = refi_rate - interest_rate_for_perm
+                refi_rates = [
+                    (rate_vec[m - 1] if m - 1 < len(rate_vec) else rate_vec[-1]) + spread_now
+                    for m in range(maturity + 1, total + 1)
+                ]
+                new_schedule = debt.amortization_schedule_floating(new_loan, refi_rates, amort_years, 0, remaining)
+            else:
+                new_schedule = debt.amortization_schedule(new_loan, refi_rate, amort_years, 0, remaining)
+            for m in range(maturity + 1, total + 1):
+                old = debt_service[m]
+                entry = new_schedule[m - maturity - 1]
+                levered[m] += (old.payment if old is not None else 0.0) - entry.payment
+                debt_service[m] = entry
+                stmt_interest[m] = entry.interest
+                stmt_principal[m] = entry.principal
+                stmt_service[m] = entry.payment
+                stmt_balance[m] = entry.balance
+            exit_debt_balance = new_schedule[-1].balance if new_schedule else 0.0
+            maturity_refi = {
+                "month": maturity,
+                "balloon": balloon,
+                "newLoan": new_loan,
+                "rate": refi_rate,
+                "costs": refi_cost,
+                "netToEquity": delta - refi_cost,
+                "governingConstraint": _GOVERNING_LABELS.get(
+                    refi_sizing.governing_constraint, refi_sizing.governing_constraint
+                ),
+            }
+            warnings.append(
+                f"The loan matures in month {maturity} (year {maturity / 12:.1f}), before the exit: "
+                f"the ${balloon:,.0f} balloon is refinanced with a ${new_loan:,.0f} loan at "
+                f"{refi_rate:.2%} ("
+                + (f"${delta - refi_cost:,.0f} cash out to equity" if delta - refi_cost >= 0
+                   else f"a ${refi_cost - delta:,.0f} equity paydown")
+                + " after costs)."
             )
 
     # J5: rate-cap premium — a financing cost paid by equity at close.
@@ -659,7 +790,11 @@ def compute(inputs: dict) -> dict:
                 )
 
     unlevered[total] += gross_sale_net_of_costs
-    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance
+    # [FIN] Roadmap #24: prepayment cost at sale (step-down, or a flat
+    # approximation of defeasance / yield maintenance) as % of the balance
+    # repaid — a financing cost, so levered only.
+    prepayment_cost = exit_debt_balance * _num(inputs, "prepaymentPenaltyPct")
+    net_sale_proceeds = gross_sale_net_of_costs - exit_debt_balance - prepayment_cost
     levered[total] += net_sale_proceeds
     if net_sale_proceeds < 0:
         warnings.append(
@@ -815,6 +950,17 @@ def compute(inputs: dict) -> dict:
     put("unleveredIrr", irr_of(unlevered))
     levered_irr = irr_of(levered)
     put("leveredIrr", levered_irr)
+    for label, flows in (("Unlevered", unlevered), ("Levered", levered)):
+        if returns.sign_changes(flows) < 2:
+            continue  # one sign change: exactly one IRR (Descartes)
+        roots = returns.periodic_irr_roots(flows)
+        if len(roots) > 1:
+            shown = ", ".join(f"{r:.2%}" for r in roots[:4])
+            warnings.append(
+                f"{label} cash flows change sign more than once and have {len(roots)} IRRs "
+                f"({shown}) — the IRR shown is only one of them. Judge this deal on NPV "
+                "and equity multiple instead."
+            )
 
     em = returns.equity_multiple(levered)
     put("equityMultiple", em)
@@ -850,10 +996,29 @@ def compute(inputs: dict) -> dict:
 
     put("terminalValue", terminal_value)
     put("netSaleProceeds", net_sale_proceeds)
+    if prepayment_cost > 0:
+        put("prepaymentCost", prepayment_cost)
     put("totalProfit", sum(levered))
 
-    yield_on_cost = stabilized_noi / total_cost_basis if total_cost_basis > 0 else None
+    # [FIN] Value-add: the basis carries the full renovation budget, so the
+    # numerator is the untrended NOI once the program is complete (it used to
+    # be in-place NOI, so a renovation LOWERED yield on cost). Same reserves
+    # deduction as stabilized_noi. Debt sizing stays in-place (J1).
+    yoc_noi = stabilized_noi
+    post_reno_noi, post_reno_warning = operations.post_renovation_stabilized_noi(inputs)
+    if post_reno_warning:
+        warnings.append(post_reno_warning)
+    if post_reno_noi is not None:
+        yoc_noi = post_reno_noi - (in_place_stabilized_noi - stabilized_noi)
+    yield_on_cost = yoc_noi / total_cost_basis if total_cost_basis > 0 else None
     put("yieldOnCost", yield_on_cost)
+    # Trended yield on cost: the first 12 stabilized months of the modeled
+    # NOI (with growth) over the same basis — shown next to the untrended
+    # figure above so the convention is explicit (roadmap #23).
+    stab_index = timeline.stabilization_month - 1
+    trended_window = ops["noi"][stab_index : stab_index + 12]
+    if total_cost_basis > 0 and len(trended_window) == 12:
+        put("trendedYieldOnCost", sum(trended_window) / total_cost_basis)
     # Per-component yield on cost (H2): basis allocated pro-rata to component
     # value at the component caps (blended cap when unset). See DECISIONS.md.
     if components and total_cost_basis > 0 and total >= 1:
@@ -876,6 +1041,10 @@ def compute(inputs: dict) -> dict:
         purchase_price = _num(inputs, "purchasePrice")
         if purchase_price > 0:
             put("goingInCapRate", going_in_noi / purchase_price)
+        if perm_loan > 0:
+            # debtYield uses stabilized NOI (the sizing view); lenders also
+            # quote going-in debt yield on in-place / year-1 NOI.
+            put("goingInDebtYield", going_in_noi / perm_loan)
     else:
         put("goingInCapRate", yield_on_cost)
     if yield_on_cost is not None:
@@ -889,18 +1058,29 @@ def compute(inputs: dict) -> dict:
     ]
     if perm_loan > 0 and service_months:
         dscrs = [n / s.payment for n, s in service_months]
-        put("minDscr", min(dscrs))
+        # [FIN] Lenders test DSCR on loan years (12 months of NOI over 12
+        # months of debt service), not single months: one downtime month
+        # used to set the headline. The monthly minimum stays available.
+        service_month_ids = [
+            m for m in range(1, total + 1)
+            if debt_service[m] is not None and debt_service[m].payment > 0
+        ]
+        windows = debt.annual_dscr_windows(service_month_ids[0], service_month_ids[-1])
+
+        def _annual_min(noi_of) -> float:
+            return min(
+                sum(noi_of(m) for m in range(a, b + 1))
+                / sum(debt_service[m].payment for m in range(a, b + 1) if debt_service[m] is not None)
+                for a, b in windows
+            )
+
+        put("minDscr", _annual_min(lambda m: noi[m - 1]))
+        put("minMonthlyDscr", min(dscrs))
         put("avgDscr", sum(dscrs) / len(dscrs))
         if reserves_stmt is not None:
             # J6: lender-UW DSCR on NOI − reserves — a DETAIL row; the
             # deal's own DSCR stays on NOI (below_noi convention).
-            uw_dscrs = [
-                (noi[m - 1] - reserves_stmt[m]) / debt_service[m].payment
-                for m in range(1, total + 1)
-                if debt_service[m] is not None and debt_service[m].payment > 0
-            ]
-            if uw_dscrs:
-                put("underwrittenDscr", min(uw_dscrs))
+            put("underwrittenDscr", _annual_min(lambda m: noi[m - 1] - reserves_stmt[m]))
         annual_service = 12 * debt.monthly_payment(perm_loan, interest_rate_for_perm, amort_years)
         if io_months >= total - takeout_month + 1:
             annual_service = perm_loan * interest_rate_for_perm  # never leaves IO
@@ -1002,7 +1182,7 @@ def compute(inputs: dict) -> dict:
             governing_constraint, governing_constraint
         )
         stress = debt.stress_matrix(
-            sizing_noi, value_for_ltv, perm_loan, ltc_or_ltv, dscr_constraint,
+            sizing_noi, value_for_ltv, perm_loan, perm_ltv, dscr_constraint,
             debt_yield_constraint, interest_rate_for_perm, amort_years,
         )
         worst = next(
@@ -1234,6 +1414,8 @@ def compute(inputs: dict) -> dict:
         "gprSource": gpr_source,
         "debt": debt_block,
         "sourcesAndUses": sources_and_uses,
+        "constructionLoan": construction_loan,
+        "maturityRefinance": maturity_refi,
         "irrConvention": irr_convention,
         "waterfallStyle": waterfall_style,
         "gpEconomics": gp_economics,

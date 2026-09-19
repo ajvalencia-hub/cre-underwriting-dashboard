@@ -3,8 +3,9 @@
 // React or the DOM (localStorage key excepted, used by App only).
 
 import {
+  ACQUISITION_QUICK_SCREEN_DEFAULTS,
   QUICK_SCREEN_DEFAULTS,
-  parseQuickScreenInputs,
+  type AcquisitionQuickScreenInputs,
   type QuickScreenInputs,
 } from './quickScreenMath'
 
@@ -13,6 +14,8 @@ export const ACTIVE_DEAL_STORAGE_KEY = 'cre-active-deal-id'
 /** Key inside Deal.inputs holding the Quick Screen state, beside the Deal
  *  Inputs field ids. No schema field id collides with it. */
 export const QUICK_SCREEN_INPUTS_KEY = 'quickScreen'
+/** Same for the acquisition napkin (it used to live only in the URL). */
+export const ACQUISITION_QUICK_SCREEN_INPUTS_KEY = 'acquisitionQuickScreen'
 
 // ---------------------------------------------------------------------------
 // Autosave: debounced, coalescing, never overlapping saves.
@@ -23,21 +26,30 @@ export type AutosaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 export interface Autosaver<T> {
   /** Record a new value and (re)start the debounce clock. */
   schedule: (value: T) => void
-  /** Save any unsaved value immediately (e.g. before switching deals). */
-  flush: () => Promise<void>
+  /** Save any unsaved value immediately (e.g. before switching deals).
+   *  Resolves true when nothing is left unsaved. */
+  flush: () => Promise<boolean>
+  /** True while there are edits the server hasn't accepted yet. */
+  hasUnsaved: () => boolean
   dispose: () => void
   getState: () => AutosaveState
   subscribe: (listener: (state: AutosaveState) => void) => () => void
 }
+
+/** After a failed save, retry on its own (it used to wait for the next edit). */
+export const RETRY_DELAYS_MS = [3000, 10000, 30000]
 
 export function createAutosaver<T>(
   save: (value: T) => Promise<void>,
   delayMs = 2000,
 ): Autosaver<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
+  let failures = 0
   let state: AutosaveState = 'idle'
   let latest: { value: T } | null = null // most recent value not yet saved
-  let saving = false
+  // The running save (and any newer values it chains). flush() awaits it,
+  // so a save that's merely in progress isn't reported as a failure.
+  let inflight: Promise<void> | null = null
   let disposed = false
   const listeners = new Set<(s: AutosaveState) => void>()
 
@@ -54,29 +66,42 @@ export function createAutosaver<T>(
     }
   }
 
-  async function saveNow(): Promise<void> {
-    clearTimer()
-    if (saving || latest === null || disposed) return
-    saving = true
-    const { value } = latest
-    latest = null
-    setState('saving')
-    try {
-      await save(value)
-      saving = false
-      if (latest !== null) {
-        // A newer value arrived while this save was in flight — chain it.
-        await saveNow()
-      } else {
-        setState('saved')
+  async function run(): Promise<void> {
+    while (latest !== null && !disposed) {
+      const { value } = latest
+      latest = null
+      setState('saving')
+      try {
+        await save(value)
+        failures = 0
+      } catch {
+        // Keep the failed value so a later schedule/flush retries it, unless
+        // a newer one already superseded it.
+        if (latest === null) latest = { value }
+        setState('error')
+        const retryIn = RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length - 1)]
+        failures++
+        if (!disposed && timer === null) {
+          timer = setTimeout(() => {
+            timer = null
+            void saveNow()
+          }, retryIn)
+        }
+        return
       }
-    } catch {
-      saving = false
-      // Keep the failed value so a later schedule/flush retries it, unless a
-      // newer one already superseded it.
-      if (latest === null) latest = { value }
-      setState('error')
     }
+    setState('saved')
+  }
+
+  function saveNow(): Promise<void> {
+    clearTimer()
+    // A value scheduled mid-save is picked up by the running loop.
+    if (inflight) return inflight
+    if (latest === null || disposed) return Promise.resolve()
+    inflight = run().finally(() => {
+      inflight = null
+    })
+    return inflight
   }
 
   return {
@@ -89,7 +114,11 @@ export function createAutosaver<T>(
         void saveNow()
       }, delayMs)
     },
-    flush: () => saveNow(),
+    async flush() {
+      await saveNow()
+      return latest === null && inflight === null && state !== 'error'
+    },
+    hasUnsaved: () => latest !== null || inflight !== null,
     dispose() {
       disposed = true
       clearTimer()
@@ -104,40 +133,39 @@ export function createAutosaver<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Hydration: deal inputs JSON -> form values + quick screen state.
+// Hydration: deal inputs JSON -> form values + both Quick Screen napkins.
+// A shared link never feeds in here: opening one is an explicit action
+// (see shareLink.ts), so loading the app can't overwrite a deal's napkin.
 // ---------------------------------------------------------------------------
 
 export interface HydratedDealState {
   formValues: Record<string, unknown>
   quickScreen: QuickScreenInputs
-  /** True when URL params supplied the quick screen (they win on first load,
-   *  then the autosave syncs them into the deal). */
-  quickScreenFromUrl: boolean
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs
+}
+
+function storedObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
 export function hydrateDealState(
   schemaDefaults: Record<string, unknown>,
   dealInputs: Record<string, unknown>,
-  urlParams: URLSearchParams,
 ): HydratedDealState {
-  const { [QUICK_SCREEN_INPUTS_KEY]: stored, ...fieldValues } = dealInputs
-
-  const fromUrl = parseQuickScreenInputs(urlParams)
-  let quickScreen: QuickScreenInputs
-  if (fromUrl !== null) {
-    quickScreen = fromUrl
-  } else if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
-    // Merge over defaults so a deal saved before a new quick-screen input
-    // existed still hydrates every field.
-    quickScreen = { ...QUICK_SCREEN_DEFAULTS, ...(stored as Partial<QuickScreenInputs>) }
-  } else {
-    quickScreen = QUICK_SCREEN_DEFAULTS
-  }
-
+  const {
+    [QUICK_SCREEN_INPUTS_KEY]: stored,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: storedAcq,
+    ...fieldValues
+  } = dealInputs
+  // Merge over defaults so a deal saved before a new napkin input existed
+  // still hydrates every field.
   return {
     formValues: { ...schemaDefaults, ...fieldValues },
-    quickScreen,
-    quickScreenFromUrl: fromUrl !== null,
+    quickScreen: { ...QUICK_SCREEN_DEFAULTS, ...(storedObject(stored) as Partial<QuickScreenInputs> | null) },
+    acquisitionQuickScreen: {
+      ...ACQUISITION_QUICK_SCREEN_DEFAULTS,
+      ...(storedObject(storedAcq) as Partial<AcquisitionQuickScreenInputs> | null),
+    },
   }
 }
 
@@ -145,6 +173,11 @@ export function hydrateDealState(
 export function serializeDealInputs(
   formValues: Record<string, unknown>,
   quickScreen: QuickScreenInputs,
+  acquisitionQuickScreen: AcquisitionQuickScreenInputs,
 ): Record<string, unknown> {
-  return { ...formValues, [QUICK_SCREEN_INPUTS_KEY]: quickScreen }
+  return {
+    ...formValues,
+    [QUICK_SCREEN_INPUTS_KEY]: quickScreen,
+    [ACQUISITION_QUICK_SCREEN_INPUTS_KEY]: acquisitionQuickScreen,
+  }
 }

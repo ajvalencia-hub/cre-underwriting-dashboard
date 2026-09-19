@@ -1,0 +1,7 @@
+# Desktop shell (macOS). Install into a Python 3.12 venv together with the
+# backend's requirements:
+#   /opt/homebrew/bin/python3.12 -m venv desktop/.venv
+#   desktop/.venv/bin/pip install -r backend/requirements.txt -r desktop/requirements.txt
+pywebview==6.2.1   # native window (WKWebView) + native file dialogs
+keyring==25.7.0    # optional API keys in the macOS Keychain
+pyinstaller==6.22.3  # build-time only: produces the .app

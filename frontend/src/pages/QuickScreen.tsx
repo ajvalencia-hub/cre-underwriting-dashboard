@@ -2,6 +2,8 @@ import { useState } from 'react'
 import AcquisitionQuickScreen from '../components/AcquisitionQuickScreen'
 import ScalarInput from '../components/fields/ScalarInput'
 import QuickScreenSensitivityGrid from '../components/QuickScreenSensitivityGrid'
+import QuickScreenShare from '../components/QuickScreenShare'
+import type { SharedScreen } from '../lib/shareLink'
 import { computeNative, saveScenario, type DebtBlock } from '../lib/api'
 import {
   FEASIBILITY_THRESHOLDS,
@@ -31,6 +33,8 @@ interface QuickScreenProps {
   onSendToDealInputs: () => void
   /** Acquisition-side send: merges the mapped values and opens Deal Inputs. */
   onSendAcquisitionToDealInputs: (values: Record<string, unknown>) => void
+  /** Apply a pasted share link (after the user confirmed the overwrite). */
+  onOpenShared: (shared: SharedScreen) => void
   dealId: string | null
 }
 
@@ -57,6 +61,7 @@ export default function QuickScreen({
   onAcquisitionInputsChange,
   onSendToDealInputs,
   onSendAcquisitionToDealInputs,
+  onOpenShared,
   dealId,
 }: QuickScreenProps) {
   const [scenarioName, setScenarioName] = useState('Quick Screen')
@@ -83,10 +88,10 @@ export default function QuickScreen({
       }
       const response = await computeNative(values)
       setTakeout({ status: 'ready', debt: response.debt })
-    } catch {
+    } catch (err) {
       setTakeout({
         status: 'error',
-        message: 'Backend unreachable — the takeout check needs the API.',
+        message: `The takeout check couldn't run: ${err instanceof Error ? err.message : 'unknown error'}`,
       })
     }
   }
@@ -130,7 +135,7 @@ export default function QuickScreen({
         mappingProfileId: null,
         inputs: inputs as unknown as Record<string, unknown>,
       })
-      setSaveMessage('Saved — see it under "5. Scenarios".')
+      setSaveMessage('Saved — see it under "6. Scenarios".')
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not save scenario')
     } finally {
@@ -179,7 +184,8 @@ export default function QuickScreen({
 
       {/* Each dealflow gets its own napkin: yield-on-cost spread for
           ground-up, cap-rate / cash-on-cash / DSCR for acquisitions. */}
-      <div className="mt-3 flex gap-1 rounded border border-slate-200 bg-white p-1 text-sm w-fit">
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+      <div className="flex gap-1 rounded border border-slate-200 bg-white p-1 text-sm w-fit">
         {(
           [
             ['development', 'Development'],
@@ -201,6 +207,13 @@ export default function QuickScreen({
             {label}
           </button>
         ))}
+      </div>
+      <QuickScreenShare
+        development={inputs}
+        acquisition={acquisitionInputs}
+        mode={mode}
+        onOpenShared={onOpenShared}
+      />
       </div>
 
       {mode === 'acquisition' && (
@@ -274,6 +287,24 @@ export default function QuickScreen({
               value={inputs.contingencyPct}
               onChange={(v) => set('contingencyPct', v)}
               {...field('contingencyPct')}
+            />
+          </FieldRow>
+
+          <FieldRow label="Developer Fee (% of hard + soft + contingency)">
+            <ScalarInput
+              type="percent"
+              value={inputs.developerFeePct}
+              onChange={(v) => set('developerFeePct', v)}
+              {...field('developerFeePct')}
+            />
+          </FieldRow>
+
+          <FieldRow label="Construction Period (months)">
+            <ScalarInput
+              type="number"
+              value={inputs.constructionMonths}
+              onChange={(v) => set('constructionMonths', v)}
+              {...field('constructionMonths')}
             />
           </FieldRow>
 
@@ -374,6 +405,8 @@ export default function QuickScreen({
               <Row label="Hard Costs" value={formatMoney(results.hardCosts)} />
               <Row label="Soft Costs" value={formatMoney(results.softCosts)} />
               <Row label="Contingency" value={formatMoney(results.contingency)} />
+              <Row label="Developer Fee" value={formatMoney(results.developerFee)} />
+              <Row label="Construction Interest (est.)" value={formatMoney(results.financingCost)} />
               <Row label="Land Cost" value={formatMoney(inputs.landCost)} />
               <Row label="Total Development Cost" value={formatMoney(results.totalDevelopmentCost)} strong />
             </dl>

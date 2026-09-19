@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services import benchmarks, comps
 from app.services.data_sources import fred
+from app.api_models import MarketRatesOut
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
 
-@router.get("/rates")
+@router.get("/rates", response_model=MarketRatesOut)
 def market_rates():
     return fred.get_market_rates()
 

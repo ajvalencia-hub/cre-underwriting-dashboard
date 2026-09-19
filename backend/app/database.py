@@ -19,12 +19,69 @@ def get_db():
         db.close()
 
 
+# Bump when a migration step is added below. Stored in SQLite's user_version
+# (roadmap #21): a build refuses a database written by a newer build instead
+# of silently opening it, and an existing database is backed up before it
+# is migrated to a newer version.
+SCHEMA_VERSION = 1
+
+
+class DatabaseTooNewError(RuntimeError):
+    pass
+
+
+def _user_version(eng) -> int:
+    with eng.connect() as conn:
+        return int(conn.exec_driver_sql("PRAGMA user_version").scalar() or 0)
+
+
+def _has_user_tables(eng) -> bool:
+    return bool(set(inspect(eng).get_table_names()) - {"sqlite_sequence"})
+
+
+def _backup_before_migrating(from_version: int) -> None:
+    from app.services import backup_service
+
+    backup_service.perform_backup("pre_migration")
+
+
+def _check_not_newer(version: int) -> None:
+    if version > SCHEMA_VERSION:
+        raise DatabaseTooNewError(
+            f"This data was saved by a newer version of the app (database version {version}; "
+            f"this version understands up to {SCHEMA_VERSION}). Install the newer version — "
+            "opening it with this one could lose data."
+        )
+
+
+def prepare_migrations(target_engine=None, backup=None) -> None:
+    """Run BEFORE create_all: refuse a database from a newer build, and back
+    up an existing database (one that already has tables) that is about to
+    be migrated to a newer version. A brand-new database needs neither.
+    `backup(from_version)` is injectable for tests."""
+    eng = target_engine if target_engine is not None else engine
+    version = _user_version(eng)
+    _check_not_newer(version)
+    if version < SCHEMA_VERSION and _has_user_tables(eng):
+        (backup or _backup_before_migrating)(version)
+
+
 def run_migrations(target_engine=None) -> None:
     """Minimal, idempotent schema patches for an existing SQLite file — this
     app has no Alembic, so hand-roll each migration as an independent
     check-and-patch step. Safe to call on every startup. `target_engine` is
-    injectable so migration tests can run against a scratch database."""
+    injectable so migration tests can run against a scratch database. Ends
+    by stamping SCHEMA_VERSION."""
     eng = target_engine if target_engine is not None else engine
+    version = _user_version(eng)
+    _check_not_newer(version)
+    _run_migration_steps(eng)
+    if version != SCHEMA_VERSION:
+        with eng.begin() as conn:
+            conn.exec_driver_sql(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _run_migration_steps(eng) -> None:
     _migrate_scenarios_kind_and_nullable(eng)
     _migrate_scenarios_deal_id(eng)
     _backfill_orphan_scenarios_onto_default_deal(eng)

@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { fetchPortfolio, type PortfolioRollup } from '../lib/api'
 import { STAGE_LABELS } from '../lib/dealStages'
 import type { DealStatus } from '../types/deal'
+import ServerFileLink from '../components/ServerFileLink'
+import { formatMoney } from '../lib/money'
 
 interface PortfolioPageProps {
   active: boolean
 }
 
-const fmtMoney = (v: number) => `$${Math.round(v).toLocaleString()}`
+const fmtMoney = (v: number) => formatMoney(v)
 const fmtPct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)
 const fmtX = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}x`)
 
@@ -54,12 +56,13 @@ export default function PortfolioPage({ active }: PortfolioPageProps) {
         <h2 className="text-sm font-semibold text-slate-700">
           Portfolio — {data.dealCount} deal(s)
         </h2>
-        <a
+        <ServerFileLink
           href="/api/portfolio/export.csv"
+          filename="portfolio.csv"
           className="rounded border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
         >
           Export CSV
-        </a>
+        </ServerFileLink>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

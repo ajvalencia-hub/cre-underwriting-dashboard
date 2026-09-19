@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SheetMeta(BaseModel):
@@ -32,6 +32,7 @@ class GridCell(BaseModel):
     ref: str
     value: str | float | int | bool | None
     isFormula: bool
+    numberFormat: str = "General"
 
 
 class SheetGrid(BaseModel):
@@ -40,6 +41,7 @@ class SheetGrid(BaseModel):
     rows: list[list[GridCell]]
     totalRows: int
     totalCols: int
+    startRow: int = 1
 
 
 class MappingEntry(BaseModel):
@@ -151,7 +153,10 @@ class DealOut(BaseModel):
     id: str
     name: str
     inputs: dict[str, Any]
-    status: str = "screening"
+    # Declared as the stage registry for the API contract; not enforced on
+    # output (every write is validated, and a stray legacy value must still
+    # load rather than fail the response).
+    status: str = Field("screening", json_schema_extra={"enum": list(DEAL_STATUSES)})
     activeTemplateId: str | None
     activeMappingProfileId: str | None
     createdAt: datetime
@@ -274,14 +279,112 @@ class ExtractionRequest(BaseModel):
     documentIds: list[str]
 
 
+class ApiModel(BaseModel):
+    """Base for response models describing structures built as plain dicts:
+    extra keys are kept (a response model must never silently drop a field
+    the UI reads), while the declared ones document the API contract
+    (roadmap #22)."""
+
+    # Fields with defaults are still always present in a response — say so
+    # in the schema, so generated types don't mark them optional.
+    model_config = {"extra": "allow", "json_schema_serialization_defaults_required": True}
+
+
+class ProposedUnitMixRow(ApiModel):
+    unitType: str
+    unitCount: float | None = None
+    avgSf: float | None = None
+    inPlaceRent: float | None = None
+    marketRent: float | None = None
+    occupiedCount: float | None = None
+    occupancyPct: float | None = None
+    sourceRowCount: float | None = None
+
+
+class UnitMixProposal(ApiModel):
+    rows: list[ProposedUnitMixRow]
+    groupedBy: Literal["label", "bedBath"]
+    warnings: list[str]
+
+
+class ProposedLeaseRow(ApiModel):
+    tenant: str
+    suiteId: str
+    sf: float | None = None
+    startDate: str | None = None
+    endDate: str | None = None
+    baseRentPsfAnnual: float | None = None
+    escalationType: str
+    escalationValue: float
+    escalationMonths: float
+    recoveryType: str
+    recoveryValue: float
+    freeRentMonths: float
+
+    @field_validator("startDate", "endDate", mode="before")
+    @classmethod
+    def _iso_date(cls, value):
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+class CommercialLeaseProposal(ApiModel):
+    rows: list[ProposedLeaseRow]
+    warnings: list[str]
+
+
+def _enum(default: str, values: list[str]):
+    """A string documented as one of `values` in the API schema but not
+    enforced on output (stored rows predate some values)."""
+    return Field(default, json_schema_extra={"enum": values})
+
+
+class SourceRefOut(ApiModel):
+    doc: str | None = None
+    page: float | None = None
+    sheet: str | None = None
+    cell: str | None = None
+    row: float | None = None
+
+
+class ExtractedFieldOut(ApiModel):
+    value: Any = None
+    sourceRef: SourceRefOut = Field(default_factory=SourceRefOut)
+    confidence: float = 0.0
+    source: str = _enum("deterministic", ["deterministic", "llm"])
+    rawText: str | None = None
+    notes: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wrap_bare_value(cls, data):
+        # Older/derived entries can be a bare value rather than a record.
+        return data if isinstance(data, dict) else {"value": data}
+
+
+class UnmatchedExtractionOut(ApiModel):
+    suggestedLabel: str = ""
+    value: Any = None
+    rawText: str | None = None
+    sourceRef: SourceRefOut = Field(default_factory=SourceRefOut)
+    confidence: float = 0.0
+
+
+class CrossValidationCheckOut(ApiModel):
+    rule: str = ""
+    status: str = _enum("pass", ["pass", "warn", "fail"])
+    severity: str = _enum("info", ["error", "warning", "info"])
+    detail: str = ""
+    relatedFieldIds: list[str] = Field(default_factory=list)
+
+
 class ExtractionResultOut(BaseModel):
     id: str
     documentIds: list[str]
-    fields: dict[str, Any]
-    unitMixProposal: dict[str, Any] | None = None
-    commercialLeaseProposal: dict[str, Any] | None = None
-    unmatched: list[Any]
-    crossValidation: list[Any]
+    fields: dict[str, ExtractedFieldOut]
+    unitMixProposal: UnitMixProposal | None = None
+    commercialLeaseProposal: CommercialLeaseProposal | None = None
+    unmatched: list[UnmatchedExtractionOut]
+    crossValidation: list[CrossValidationCheckOut]
     warnings: list[str]
     confirmedValues: dict[str, Any]
     confirmedAt: datetime | None

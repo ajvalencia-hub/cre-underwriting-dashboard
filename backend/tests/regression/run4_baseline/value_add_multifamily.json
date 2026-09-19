@@ -99,6 +99,7 @@
   "developmentSpreadBps": 0.00046685817508353156,
   "equityMultiple": 1.6945337061784298,
   "goingInCapRate": 0.05729003911111111,
+  "goingInDebtYield": 0.09235758006395917,
   "governingConstraint": "DSCR",
   "gpIrr": 0.12108472634029699,
   "interestCoverageRatio": 1.4777212810233467,
@@ -109,6 +110,7 @@
   "ltc": 0.6005663870434003,
   "ltv": 0.6203068451061277,
   "minDscr": 1.3357775469391662,
+  "minMonthlyDscr": 1.3357775469391664,
   "moic": 1.6945337061784298,
   "netSaleProceeds": 10938634.685103087,
   "npv": 671059.5090229097,
@@ -118,6 +120,7 @@
   "stressedDscr": 0.9220186904950459,
   "terminalValue": 22128426.720379286,
   "totalProfit": 5157698.994565931,
+  "trendedYieldOnCost": 0.055466858175083525,
   "unleveredEquityMultiple": 1.4719520891088818,
   "unleveredIrr": 0.09072700574089487,
   "yieldOnCost": 0.05546685817508353

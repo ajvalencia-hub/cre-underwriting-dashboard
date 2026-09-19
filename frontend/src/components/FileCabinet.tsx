@@ -11,6 +11,9 @@ import {
   type DealAttachment,
   type DealNote,
 } from '../lib/api'
+import FileChooser from './FileChooser'
+import ServerFileLink from './ServerFileLink'
+import { toastError } from '../lib/toast'
 
 const TYPE_ICONS: Record<string, string> = {
   pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
@@ -90,12 +93,12 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
 
   if (!dealId) return null
 
-  async function handleUpload(files: FileList | null) {
-    if (!files || !dealId) return
+  async function handleUpload(files: File[]) {
+    if (files.length === 0 || !dealId) return
     setBusy(true)
     setError(null)
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const uploaded = await uploadAttachment(dealId, file)
         setAttachments((prev) => [uploaded, ...prev])
       }
@@ -115,25 +118,38 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
       setPreview({ id: att.id, content: '__image__' })
       return
     }
-    const result = await fetchAttachmentPreview(dealId!, att.id)
-    setPreview({
-      id: att.id,
-      content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
-    })
+    try {
+      const result = await fetchAttachmentPreview(dealId!, att.id)
+      setPreview({
+        id: att.id,
+        content: result.kind === 'text' ? result.text || '(empty first page)' : result.note || '',
+      })
+    } catch (err) {
+      toastError(`Couldn't preview ${att.filename}`, err)
+    }
   }
 
   async function addNote() {
     if (!noteDraft.trim() || !dealId) return
-    const note = await createNote(dealId, noteDraft)
-    setNotes((prev) => [note, ...prev])
-    setNoteDraft('')
+    try {
+      const note = await createNote(dealId, noteDraft)
+      setNotes((prev) => [note, ...prev])
+      setNoteDraft('')
+    } catch (err) {
+      // The draft stays in the box so nothing typed is lost.
+      toastError("Couldn't save the note", err)
+    }
   }
 
   async function saveEdit(noteId: string) {
     if (!dealId) return
-    const updated = await updateNote(dealId, noteId, editDraft)
-    setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
-    setEditingId(null)
+    try {
+      const updated = await updateNote(dealId, noteId, editDraft)
+      setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)))
+      setEditingId(null)
+    } catch (err) {
+      toastError("Couldn't save the note edit", err)
+    }
   }
 
   return (
@@ -147,7 +163,14 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
       <div className="grid gap-4 px-3 pb-3 md:grid-cols-2">
         <div>
           <div className="mb-1 text-xs font-medium text-slate-500">ATTACHMENTS</div>
-          <input type="file" multiple onChange={(e) => void handleUpload(e.target.files)} className="text-xs" disabled={busy} />
+          <FileChooser
+            multiple
+            description="Attachments"
+            label="Attach files…"
+            onFiles={(files) => void handleUpload(files)}
+            className="text-xs"
+            disabled={busy}
+          />
           {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
           <ul className="mt-2 space-y-1 text-xs">
             {attachments.map((att) => (
@@ -166,13 +189,14 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                       preview
                     </button>
                   )}
-                  <a
+                  <ServerFileLink
                     href={attachmentDownloadUrl(dealId, att.id)}
+                    filename={att.filename}
                     className="text-sky-600 hover:underline"
                     download={att.filename}
                   >
                     download
-                  </a>
+                  </ServerFileLink>
                 </div>
                 {preview?.id === att.id && (
                   <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-2">
@@ -228,11 +252,12 @@ export default function FileCabinet({ dealId }: FileCabinetProps) {
                     edit
                   </button>
                   <button
-                    onClick={() =>
-                      void deleteNote(dealId, note.id).then(() =>
-                        setNotes((prev) => prev.filter((n) => n.id !== note.id)),
-                      )
-                    }
+                    onClick={() => {
+                      if (!window.confirm('Delete this note? This cannot be undone.')) return
+                      deleteNote(dealId, note.id)
+                        .then(() => setNotes((prev) => prev.filter((n) => n.id !== note.id)))
+                        .catch((err) => toastError("Couldn't delete the note", err))
+                    }}
                     className="text-red-500 hover:underline"
                   >
                     delete

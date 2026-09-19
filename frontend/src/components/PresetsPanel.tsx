@@ -9,17 +9,18 @@ import {
 import { presetDiff, selectedChanges, type PresetDiffRow } from '../lib/presetDiff'
 import { flattenFields } from '../lib/schemaFields'
 import type { InputSchema } from '../types/schema'
+import { formatMoney } from '../lib/money'
 
 interface PresetsPanelProps {
   schema: InputSchema
   values: Record<string, unknown>
-  onApply: (patch: Record<string, unknown>) => void
+  onApply: (patch: Record<string, unknown>, presetName: string) => void
 }
 
 function formatValue(v: unknown, type: string | undefined): string {
   if (v === undefined || v === null || v === '') return '—'
   if (typeof v === 'number' && type === 'percent') return `${(v * 100).toFixed(2)}%`
-  if (typeof v === 'number' && type === 'currency') return `$${v.toLocaleString()}`
+  if (typeof v === 'number' && type === 'currency') return formatMoney(v, { round: false })
   return String(v)
 }
 
@@ -62,7 +63,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
   function handleApply() {
     if (!diffRows) return
     const patch = selectedChanges(diffRows, checked)
-    onApply(patch)
+    onApply(patch, selected?.name ?? 'preset')
     setDiffRows(null)
     setMessage(`Applied ${Object.keys(patch).length} field(s) from '${selected?.name}'.`)
   }
@@ -89,6 +90,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
 
   async function handleDelete() {
     if (!selected) return
+    if (!window.confirm(`Delete the preset "${selected.name}"? This cannot be undone.`)) return
     try {
       await deletePreset(selected.id)
       setPresets((prev) => prev.filter((p) => p.id !== selected.id))
@@ -181,7 +183,7 @@ export default function PresetsPanel({ schema, values, onApply }: PresetsPanelPr
                     return (
                       <tr
                         key={row.fieldId}
-                        className={row.changed ? 'text-slate-700' : 'text-slate-300'}
+                        className={row.changed ? 'text-slate-700' : 'text-slate-400'}
                       >
                         <td className="py-0.5 pr-2">
                           <input

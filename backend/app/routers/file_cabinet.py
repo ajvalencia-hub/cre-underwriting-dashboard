@@ -23,6 +23,7 @@ from app.database import get_db
 from app.models import Deal, DealNote, Document
 from app.routers.upload_limit import read_upload_limited
 from app.services.template_service import compute_file_hash
+from app.api_models import AttachmentOut, NoteOut
 
 router = APIRouter(prefix="/api/deals", tags=["file-cabinet"])
 
@@ -52,7 +53,7 @@ def _get_deal(db: Session, deal_id: str) -> Deal:
     return deal
 
 
-@router.get("/{deal_id}/attachments")
+@router.get("/{deal_id}/attachments", response_model=list[AttachmentOut])
 def list_attachments(deal_id: str, db: Session = Depends(get_db)):
     deal = _get_deal(db, deal_id)
     rows = [
@@ -79,7 +80,7 @@ def list_attachments(deal_id: str, db: Session = Depends(get_db)):
     return rows
 
 
-@router.post("/{deal_id}/attachments")
+@router.post("/{deal_id}/attachments", response_model=AttachmentOut)
 async def upload_attachment(deal_id: str, file: UploadFile, db: Session = Depends(get_db)):
     _get_deal(db, deal_id)
     ext = Path(file.filename or "").suffix.lower()
@@ -116,10 +117,18 @@ def download_attachment(
     if doc is None or not Path(doc.stored_path).exists():
         raise HTTPException(404, "Attachment not found")
     disposition = "inline" if inline and doc.file_ext in _INLINE_EXTS else "attachment"
+    headers = {}
+    if doc.file_ext == "svg":
+        # An uploaded SVG can carry script; opened directly it would run in
+        # the app's origin. Sandboxed, it renders as a picture only.
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+        )
     return FileResponse(
         doc.stored_path,
         filename=doc.filename,
         content_disposition_type=disposition,
+        headers=headers,
     )
 
 
@@ -147,7 +156,7 @@ class NoteIn(BaseModel):
     body: str
 
 
-@router.get("/{deal_id}/notes")
+@router.get("/{deal_id}/notes", response_model=list[NoteOut])
 def list_notes(deal_id: str, db: Session = Depends(get_db)):
     _get_deal(db, deal_id)
     notes = db.execute(
@@ -159,7 +168,7 @@ def list_notes(deal_id: str, db: Session = Depends(get_db)):
     ]
 
 
-@router.post("/{deal_id}/notes")
+@router.post("/{deal_id}/notes", response_model=NoteOut)
 def create_note(deal_id: str, payload: NoteIn, db: Session = Depends(get_db)):
     _get_deal(db, deal_id)
     if not payload.body.strip():
@@ -171,7 +180,7 @@ def create_note(deal_id: str, payload: NoteIn, db: Session = Depends(get_db)):
     return {"id": note.id, "body": note.body, "createdAt": note.created_at, "updatedAt": note.updated_at}
 
 
-@router.put("/{deal_id}/notes/{note_id}")
+@router.put("/{deal_id}/notes/{note_id}", response_model=NoteOut)
 def update_note(deal_id: str, note_id: str, payload: NoteIn, db: Session = Depends(get_db)):
     note = db.get(DealNote, note_id)
     if note is None or note.deal_id != deal_id:

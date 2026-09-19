@@ -31,11 +31,25 @@ export function linspace(min: number, max: number, steps: number): number[] {
   return result
 }
 
-// Interpolates rose-100 (low) -> emerald-100 (high) for a simple heatmap scale.
-export function heatColor(t: number): string {
-  const from = [255, 228, 230]
-  const to = [209, 250, 229]
-  const clamped = Math.max(0, Math.min(1, t))
-  const rgb = from.map((c, i) => Math.round(c + (to[i] - c) * clamped))
+/** A starting range centred on the deal's current value (roadmap #17):
+ *  ±100 bps for rates, ±10% otherwise. `current` is in display units (a
+ *  percent field's 6.5 means 6.5%). Returns null without a current value. */
+export function defaultRange(type: string, current: number | null): { min: string; max: string } | null {
+  if (current === null || !Number.isFinite(current)) return null
+  const round = (v: number) => String(Math.round(v * 1e6) / 1e6)
+  if (type === 'percent') return { min: round(current - 1), max: round(current + 1) }
+  const delta = Math.abs(current) * 0.1 || 1
+  return { min: round(current - delta), max: round(current + delta) }
+}
+
+/** Colour-blind-safe diverging scale centred on the base case: white at the
+ *  base value, blue above it, orange below, by how far relative to the
+ *  largest deviation in the grid. (It was red→green between the grid's own
+ *  min and max, so a grid that entirely misses a target still showed green.) */
+export function divergingColor(value: number, base: number, maxAbsDelta: number): string {
+  if (!Number.isFinite(value) || !Number.isFinite(base) || maxAbsDelta <= 0) return 'rgb(255 255 255)'
+  const t = Math.max(-1, Math.min(1, (value - base) / maxAbsDelta))
+  const to = t >= 0 ? [191, 219, 254] : [254, 215, 170] // blue-200 / orange-200
+  const rgb = to.map((c) => Math.round(255 + (c - 255) * Math.abs(t)))
   return `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`
 }

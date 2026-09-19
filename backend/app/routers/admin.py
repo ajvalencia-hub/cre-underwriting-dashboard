@@ -4,11 +4,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services import backup_service
+from app.api_models import BackupListingOut, ExternalToolsOut, IntegrationStatusOut
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-@router.get("/integrations")
+@router.get("/integrations", response_model=list[IntegrationStatusOut])
 def integration_status():
     """Which optional API keys are configured — FLAGS ONLY, the values never
     leave the server. Feeds the Settings > Integrations panel; every source
@@ -35,7 +36,33 @@ def integration_status():
     ]
 
 
-@router.get("/backups")
+@router.get("/tools", response_model=ExternalToolsOut)
+def external_tools_status():
+    """Which optional system programs were found — read-only. Lets the UI
+    explain up front why template recalculation / memo PDF / OCR are
+    unavailable instead of failing at use time. Discovery itself lives in
+    soffice.py and extraction/ocr.py and is unchanged."""
+    from app.services import soffice
+    from app.services.extraction import ocr
+
+    return {
+        "libreoffice": {
+            "available": soffice.is_available(),
+            "path": soffice.LIBREOFFICE_BIN,
+            "enables": [
+                "Reading recalculated results back from your Excel template",
+                "Sensitivity runs verified through your Excel template",
+                "IC memo as PDF",
+            ],
+        },
+        "ocr": {
+            "available": ocr.is_available(),
+            "enables": ["Reading scanned (image-only) PDFs"],
+        },
+    }
+
+
+@router.get("/backups", response_model=BackupListingOut)
 def list_backups():
     return backup_service.list_backups()
 
@@ -58,10 +85,13 @@ def restore_backup(payload: RestoreRequest):
     the operator can confirm which files must still be on the data volume."""
     try:
         manifest = backup_service.restore_backup(payload.kind, payload.name)
-    except (FileNotFoundError, ValueError) as exc:
+    except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {
         "restored": f"{payload.kind}/{payload.name}",
         "uploads": manifest.get("uploads", []),
+        "preRestoreSnapshot": manifest.get("preRestoreSnapshot"),
         "note": "Restart the backend so the restored database is loaded.",
     }

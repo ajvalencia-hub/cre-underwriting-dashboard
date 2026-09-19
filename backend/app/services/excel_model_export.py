@@ -29,7 +29,7 @@ from io import BytesIO
 
 import openpyxl
 
-from app.services.proforma import development, engine, leases, operations
+from app.services.proforma import debt, development, engine, leases, operations
 from app.services.proforma.operations import (
     EXPENSE_DOLLAR_FIELDS,
     RECOVERABLE_EXPENSE_FIELDS,
@@ -91,6 +91,16 @@ def _num(inputs: dict, key: str, default: float = 0.0) -> float:
     return float(value)
 
 
+def _annual_dscr_formula(first_month: int, last_month: int) -> str:
+    """Lowest loan-year DSCR, mirroring the engine: 12 months of NOI (Model
+    column K) over 12 months of debt service (column P); month m is row m+1."""
+    windows = debt.annual_dscr_windows(first_month, last_month)
+    if not windows:
+        return '=""'
+    terms = [f"SUM(Model!$K${a + 1}:$K${b + 1})/SUM(Model!$P${a + 1}:$P${b + 1})" for a, b in windows]
+    return f"=MIN({','.join(terms)})"
+
+
 def unsupported_features(inputs: dict) -> list[str]:
     features = []
     if inputs.get("dealType") not in ("acquisition", "development"):
@@ -123,6 +133,12 @@ def unsupported_features(inputs: dict) -> list[str]:
         features.append("per-unit / PSF replacement reserves (convention-dependent placement)")
     if _num(inputs, "monthsOfTaxesAndInsurance") > 0:
         features.append("tax & insurance escrows (close/exit cash timing)")
+    if inputs.get("exitNoiBasis") == "trailing":
+        features.append("exit value on trailing NOI (the workbook caps forward NOI)")
+    if _num(inputs, "prepaymentPenaltyPct") > 0:
+        features.append("prepayment cost at sale")
+    if inputs.get("dealType") == "development" and inputs.get("growDuringConstruction"):
+        features.append("growth during construction (the workbook grows from delivery)")
     if (inputs.get("dealType") or "acquisition") == "development":
         hold_years = _num(inputs, "holdPeriodYears", 5)
         timeline, _ = build_timeline(
@@ -219,6 +235,17 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
     result = engine.compute(inputs)
     debt_block = result.get("debt") or {}
     loan_amount = float(debt_block.get("loanAmount") or 0.0)
+    construction = result.get("constructionLoan") or {"equity": 0.0, "commitment": 0.0}
+    if is_dev and any(
+        isinstance(r, dict) and isinstance(r.get("drawAmount"), (int, float)) and r["drawAmount"] > 0
+        for r in inputs.get("constructionDrawSchedule") or []
+    ):
+        # The Draws sheet mirrors the S-curve structure.
+        raise UnsupportedModelFeatures(["a custom construction draw schedule"])
+    if result.get("maturityRefinance"):
+        # The workbook mirrors one loan; a refinance mid-hold would export a
+        # silently different model.
+        raise UnsupportedModelFeatures(["loan maturity refinance before exit (loanTermYears < hold)"])
 
     hold_years = _num(inputs, "holdPeriodYears", 5)
     timeline, _tl_warnings = build_timeline(
@@ -255,6 +282,14 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             "Construction S-curve weights are literal values on the Draws sheet; "
             "draws, equity-first split, fee, and capitalized interest are formulas "
             "over them."
+        )
+        warnings.append(
+            "Construction equity (${:,.0f}) and loan commitment (${:,.0f}) are the app's "
+            "solution for LTC on total cost including capitalized interest and fees "
+            "(circular in a spreadsheet), written as values; 'Implied LTC' on the "
+            "Inputs sheet recomputes the ratio from the formulas.".format(
+                construction["equity"], construction["commitment"]
+            )
         )
 
     rent_growth = (
@@ -293,8 +328,12 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         put("devFee", "Developer fee", f"=({R['hard']}+{R['soft']}+{R['contingency']})*{R['feePct']}")
         put("totalExFin", "Total budget (ex financing)",
             f"={R['land']}+{R['hard']}+{R['soft']}+{R['contingency']}+{R['devFee']}")
-        put("ltc", "LTC", _num(inputs, "ltvOrLtc", 0.65))
-        put("equityTarget", "Equity (funds first)", f"={R['totalExFin']}*(1-{R['ltc']})")
+        put("ltc", "LTC (of total cost incl. interest and fees)", _num(inputs, "ltvOrLtc", 0.65))
+        # LTC on total cost is circular (interest depends on the loan), so the
+        # app's solved equity and commitment are VALUES; "Implied LTC" on the
+        # Outputs sheet recomputes the ratio from the formulas as a check.
+        put("equityTarget", "Equity (funds first; solved by app)", construction["equity"])
+        put("commitment", "Construction loan commitment (solved by app)", construction["commitment"])
         put("spread", "Refi/perm rate spread", _num(inputs, "refiRateSpreadPct"))
         put("refiCostsPct", "Refi costs % (of perm loan)", _num(inputs, "refiCostsPct"))
     else:
@@ -388,7 +427,9 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             draws.cell(row=r, column=1, value=m)
             if m == 0:
                 draws.cell(row=r, column=2, value=0.0)
-                draws.cell(row=r, column=3, value=f"={R['land']}")
+                # With no construction period the engine spends the whole
+                # budget at close (it used to export land only here).
+                draws.cell(row=r, column=3, value=f"={R['land']}" if cm > 0 else f"={R['totalExFin']}")
             else:
                 draws.cell(row=r, column=2, value=s_weights[m - 1])  # literal
                 draws.cell(
@@ -405,7 +446,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
             prior_draws = f"SUM(E$2:E{r - 1})" if r > 2 else "0"
             draws.cell(
                 row=r, column=6,
-                value=f"=IF(AND(E{r}>0,{prior_draws}=0),{R['origFee']}*E{r},0)",
+                value=f"=IF(AND(E{r}>0,{prior_draws}=0),{R['origFee']}*{R['commitment']},0)",
             )
             prev_bal = f"H{r - 1}" if r > 2 else "0"
             pre_interest = f"({prev_bal}+F{r}+E{r})"
@@ -418,6 +459,10 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         R["drawsEnd"] = f"Draws!$H${draws_last}"
         R["capInterest"] = f"SUM(Draws!$G$2:$G${draws_last})"
         R["capFee"] = f"SUM(Draws!$F$2:$F${draws_last})"
+        put(
+            "impliedLtc", "Implied LTC (check: equals LTC above)",
+            f"={R['commitment']}/({R['totalExFin']}+{R['capInterest']}+{R['capFee']})",
+        )
 
     # ---- Model sheet: rows 2..total_rows+1 = months 1..total_rows ----------
     model = wb.create_sheet("Model")
@@ -617,7 +662,7 @@ def build_model_workbook(inputs: dict) -> tuple[bytes, list[str]]:
         "netSaleProceeds": "=B8",
         "totalProfit": f"=SUM({lev})",
         "npv": f"=D1+NPV((1+{R['disc']})^(1/12)-1,$D$2:$D${flow_last})",
-        "minDscr": f"=MIN(Model!$Q$2:$Q${hold_row})",
+        "minDscr": _annual_dscr_formula(takeout, hold_months) if loan_amount > 0 else f"=MIN(Model!$Q$2:$Q${hold_row})",
         "debtYield": f"=B10/{R['loan']}",
         "ltv": ltv_formula,
         "loanConstant": f"=IF({constant_io},{constant_rate},12*B1/{R['loan']})",

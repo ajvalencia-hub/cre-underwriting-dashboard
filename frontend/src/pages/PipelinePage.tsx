@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
-import { exportBatchDeck } from '../lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { exportBatchDeck, fetchDealMetrics, type DealMetrics } from '../lib/api'
+import { formatMoneyCompact } from '../lib/money'
 import { upcomingDeadlines } from '../lib/criticalDates'
 import {
   bulkStageOptions,
@@ -21,6 +22,9 @@ import {
   type PipelineView,
 } from '../lib/pipelineViews'
 import type { Deal, DealStatus } from '../types/deal'
+import ServerFileLink from '../components/ServerFileLink'
+import { saveOutput, textBlob } from '../lib/saveOutput'
+import { toastError } from '../lib/toast'
 
 interface PipelinePageProps {
   deals: Deal[]
@@ -34,6 +38,47 @@ interface PipelinePageProps {
   onNewDealFromDocuments: () => void
   /** Assign a type to an untyped (legacy) deal. */
   onSetDealType: (dealId: string, type: DealType) => void
+  /** The tab is showing — refresh the per-deal numbers. */
+  active: boolean
+}
+
+// Optional numeric columns (roadmap #18), remembered per browser.
+const METRIC_COLUMNS = [
+  { id: 'totalCost', label: 'Total cost' },
+  { id: 'equity', label: 'Equity' },
+  { id: 'leveredIrr', label: 'Levered IRR' },
+  { id: 'equityMultiple', label: 'Equity multiple' },
+  { id: 'yield', label: 'Going-in cap / YoC' },
+] as const
+type MetricColumn = (typeof METRIC_COLUMNS)[number]['id']
+const COLUMNS_KEY = 'cre.pipelineColumns'
+const DEFAULT_COLUMNS: MetricColumn[] = ['totalCost', 'equity', 'leveredIrr', 'yield']
+
+function loadColumns(): MetricColumn[] {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(COLUMNS_KEY) ?? 'null')
+    const known = new Set<string>(METRIC_COLUMNS.map((c) => c.id))
+    return Array.isArray(raw) ? (raw.filter((c) => known.has(c)) as MetricColumn[]) : DEFAULT_COLUMNS
+  } catch {
+    return DEFAULT_COLUMNS
+  }
+}
+
+function metricCell(column: MetricColumn, type: DealType, m: DealMetrics | undefined): string {
+  if (!m || m.status !== 'ok') return '—'
+  const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`)
+  switch (column) {
+    case 'totalCost':
+      return m.totalCost == null ? '—' : formatMoneyCompact(m.totalCost)
+    case 'equity':
+      return m.equity == null ? '—' : formatMoneyCompact(m.equity)
+    case 'leveredIrr':
+      return pct(m.leveredIrr)
+    case 'equityMultiple':
+      return m.equityMultiple == null ? '—' : `${m.equityMultiple.toFixed(2)}x`
+    case 'yield':
+      return pct(type === 'development' ? m.yieldOnCost : m.goingInCapRate)
+  }
 }
 
 const BOARD_META: Record<DealType, { title: string; accent: string }> = {
@@ -57,12 +102,14 @@ interface BoardProps {
   onOpenDeal: (dealId: string) => void
   onStatusChange: (dealId: string, status: DealStatus) => void
   onNewDeal: (type: DealType) => void
+  metrics: Record<string, DealMetrics> | null
+  columns: MetricColumn[]
 }
 
 /** One dealflow board: its own stage chips, counts, and stage dropdowns. */
 function Board({
   type, deals, hiddenCount, activeDealId, selected,
-  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal,
+  onToggle, onSelectAll, onOpenDeal, onStatusChange, onNewDeal, metrics, columns,
 }: BoardProps) {
   const stages = stagesFor(type)
   const counts = new Map<DealStatus, number>()
@@ -111,6 +158,15 @@ function Board({
               <th className="px-3 py-2 font-medium">Market</th>
               <th className="px-3 py-2 font-medium">Stage</th>
               <th className="px-3 py-2 font-medium">Last touched</th>
+              {columns.map((c) => (
+                <th key={c} className="px-3 py-2 text-right font-medium">
+                  {c === 'yield'
+                    ? type === 'development'
+                      ? 'Yield on cost'
+                      : 'Going-in cap'
+                    : METRIC_COLUMNS.find((m) => m.id === c)?.label}
+                </th>
+              ))}
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -173,30 +229,44 @@ function Board({
                       </span>
                     )}
                   </td>
+                  {columns.map((c) => {
+                    const m = metrics?.[deal.id]
+                    return (
+                      <td
+                        key={c}
+                        className="px-3 py-2 text-right tabular-nums text-slate-700"
+                        title={m?.status === 'incomplete' ? `Can't compute yet — missing: ${m.missing.join(', ')}` : undefined}
+                      >
+                        {m?.status === 'incomplete' ? <span className="text-xs text-slate-400">incomplete</span> : metricCell(c, type, m)}
+                      </td>
+                    )
+                  })}
                   <td className="px-3 py-2 text-right">
-                    <a
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/share.html`}
-                      target="_blank"
-                      rel="noreferrer"
+                      filename={`${deal.name}.html`}
+                      newTab
                       title="Self-contained read-only HTML snapshot"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       Share
-                    </a>
-                    <a
+                    </ServerFileLink>
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/deck.pptx`}
+                      filename={`${deal.name} deck.pptx`}
                       title="One-page investment summary (PowerPoint)"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       Deck
-                    </a>
-                    <a
+                    </ServerFileLink>
+                    <ServerFileLink
                       href={`/api/deals/${deal.id}/ic-deck.pptx`}
+                      filename={`${deal.name} IC deck.pptx`}
                       title="Full 8-slide IC deck (PowerPoint)"
                       className="mr-2 text-xs text-slate-400 hover:text-sky-700 hover:underline"
                     >
                       IC deck
-                    </a>
+                    </ServerFileLink>
                     <button
                       onClick={() => onOpenDeal(deal.id)}
                       className="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-50"
@@ -209,7 +279,7 @@ function Board({
             })}
             {deals.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-400">
+                <td colSpan={6 + columns.length} className="px-3 py-6 text-center text-sm text-slate-400">
                   No {type} deals{hiddenCount > 0 ? ' in this view' : ' yet'}.
                 </td>
               </tr>
@@ -230,7 +300,24 @@ export default function PipelinePage({
   onNewDeal,
   onNewDealFromDocuments,
   onSetDealType,
+  active,
 }: PipelinePageProps) {
+  const [metrics, setMetrics] = useState<Record<string, DealMetrics> | null>(null)
+  const [columns, setColumns] = useState<MetricColumn[]>(loadColumns)
+  const dealsKey = deals.map((d) => `${d.id}:${d.updatedAt}`).join('|')
+  useEffect(() => {
+    if (!active) return
+    fetchDealMetrics().then(setMetrics).catch(() => setMetrics(null))
+  }, [active, dealsKey])
+  function toggleColumn(id: MetricColumn, on: boolean) {
+    const next = METRIC_COLUMNS.map((c) => c.id).filter((c) => (c === id ? on : columns.includes(c)))
+    setColumns(next)
+    try {
+      window.localStorage.setItem(COLUMNS_KEY, JSON.stringify(next))
+    } catch {
+      // storage unavailable — the choice just isn't remembered
+    }
+  }
   const [showTerminal, setShowTerminal] = useState(false)
   const [marketFilter, setMarketFilter] = useState('')
   const [sortKey, setSortKey] = useState<PipelineSortKey>('stage')
@@ -302,14 +389,7 @@ export default function PipelinePage({
     try {
       // Ids in the pipeline's CURRENT sort so slide order matches the table.
       const { blob, skipped } = await exportBatchDeck(visibleSelected.map((d) => d.id))
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'screening-deck.pptx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await saveOutput(blob, 'screening-deck.pptx')
       if (skipped.length > 0) {
         setDeckNote(`Skipped (no computable outputs): ${skipped.join(', ')}`)
       }
@@ -321,15 +401,9 @@ export default function PipelinePage({
   }
 
   function handleExportCsv() {
-    const blob = new Blob([pipelineToCsv(sorted)], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'pipeline.csv'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    saveOutput(textBlob(pipelineToCsv(sorted), 'text/csv'), 'pipeline.csv').catch((err) =>
+      toastError('Could not save pipeline.csv', err),
+    )
   }
 
   function handleApplyView(view: PipelineView) {
@@ -415,6 +489,19 @@ export default function PipelinePage({
             <option value="name">Name</option>
           </select>
         </label>
+        <details className="relative">
+          <summary className="cursor-pointer rounded border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50">
+            Columns
+          </summary>
+          <div className="absolute z-10 mt-1 w-48 rounded border border-slate-200 bg-white p-2 shadow-sm">
+            {METRIC_COLUMNS.map((c) => (
+              <label key={c.id} className="flex items-center gap-2 py-0.5 text-slate-700">
+                <input type="checkbox" checked={columns.includes(c.id)} onChange={(e) => toggleColumn(c.id, e.target.checked)} />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </details>
         <button
           onClick={() => setShowTerminal(!showTerminal)}
           className={`rounded border px-2 py-1 ${
@@ -512,6 +599,8 @@ export default function PipelinePage({
         onOpenDeal={onOpenDeal}
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
+        metrics={metrics}
+        columns={columns}
       />
 
       <Board
@@ -525,6 +614,8 @@ export default function PipelinePage({
         onOpenDeal={onOpenDeal}
         onStatusChange={onStatusChange}
         onNewDeal={onNewDeal}
+        metrics={metrics}
+        columns={columns}
       />
 
       {untyped.length > 0 && (

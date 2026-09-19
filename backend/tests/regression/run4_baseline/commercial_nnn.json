@@ -97,6 +97,7 @@
   "developmentSpreadBps": 0.020000000000000004,
   "equityMultiple": 2.3625,
   "goingInCapRate": 0.1,
+  "goingInDebtYield": 0.16666666666666666,
   "governingConstraint": "Manual (loan amount input)",
   "gpIrr": 0.24637468332042012,
   "interestCoverageRatio": 2.7777777777777777,
@@ -107,6 +108,7 @@
   "ltc": 0.6,
   "ltv": 0.6,
   "minDscr": 2.7777777777777777,
+  "minMonthlyDscr": 2.7777777777777777,
   "moic": 2.3625,
   "netSaleProceeds": 1875000.0,
   "npv": 724843.485072741,
@@ -116,6 +118,7 @@
   "stressedDscr": 1.7035436766745362,
   "terminalValue": 3750000.0,
   "totalProfit": 1635000.0,
+  "trendedYieldOnCost": 0.1,
   "unleveredEquityMultiple": 1.725,
   "unleveredIrr": 0.1402966634108227,
   "yieldOnCost": 0.1

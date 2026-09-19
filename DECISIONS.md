@@ -3,6 +3,238 @@
 Non-obvious choices made during the autonomous build runs, with the
 alternatives rejected. Financial-convention decisions are marked **[FIN]**.
 
+## Engine audit fixes (post-Run 5, owner-approved)
+
+An external analyst/engineer audit found calculation defects; the owner
+approved engine changes to fix them. Each fix has a test that fails before
+it. Where a fix moves the regression baseline, the entry lists which cases
+and metrics moved and why — the baseline is regenerated only for that
+stated reason.
+
+- **IRR solver never raises**: NPV at the solver's rate bounds over/under-
+  flowed on long holds (a 25-yr hold at 30% vacancy and 10% debt failed the
+  compute with a 500, and one such cell failed a whole sensitivity sweep,
+  tornado, goal seek and the exports). The NPV now returns its signed
+  limit (latest flow dominates near -100%, earliest at very high rates),
+  and Newton hands over to bisection on a non-finite value. Baseline
+  unchanged. Rejected: catching the error in each service (hides the root
+  cause, still no IRR for valid deals).
+- **[FIN] Several IRRs are reported, not hidden**: flows that change sign
+  more than once can have several IRRs; the solver returns one. When a flow
+  vector changes sign twice or more, the engine scans the NPV for every
+  root and warns with all of them, pointing to NPV and equity multiple.
+  One sign change (the usual deal) skips the scan (Descartes' rule), so
+  compute and Monte Carlo cost is unchanged. Baseline unchanged.
+- **[FIN] Construction LTC is measured on total cost including capitalized
+  interest and loan fees; the origination fee is charged on the loan
+  commitment** (supersedes the F2 "LTC ex-financing, financing loan-funded
+  on top" rule and the first-draw fee simplification). Lenders size LTC on
+  a budget that includes the interest reserve and fees; the old rule let a
+  stated 60% LTC carry ~61.4% of total cost as debt, understating equity
+  and overstating levered IRR, and the fee came to ~1% of one draw.
+  Circular, so the engine iterates to a fixed point (equity = (1 - LTC) x
+  total cost, commitment = LTC x total cost); the construction balance
+  ends at the commitment. The Excel export writes the solved equity and
+  commitment as values (a spreadsheet would need iterative calculation)
+  and adds an "Implied LTC" check cell computed from its formulas. New
+  result block `constructionLoan` {commitment, equity, totalCost, ltc}.
+  **Baseline moved: analytic_development only** (LTC 0.6, 1% fee): levered
+  IRR 27.36% -> 26.88%, equity multiple 3.58 -> 3.48, yield on cost 8.77%
+  -> 8.73%, loan fee ~$2.7k -> $107k; 89 values in that case. The other
+  five cases have no construction loan and are unchanged.
+- **[FIN] Development permanent takeout can have its own max LTV**
+  (`permanentLtvPct`, development only, blank = the shared ltvOrLtc). One
+  input used to set both the construction LTC and the perm LTV, so a 60%
+  LTC build couldn't refi into a 70% LTV perm. Acquisitions (one loan)
+  ignore it. Baseline unchanged (blank everywhere).
+- **[FIN] Value-add yield on cost uses post-renovation, untrended NOI.**
+  The basis already carried the full renovation budget (J1) but the
+  numerator was in-place NOI, so a program that raises rents LOWERED yield
+  on cost (hand case: 12.00% -> 11.43% with a $100 premium; now 12.57%).
+  The numerator is the 12 months after the program completes, with every
+  growth rate zeroed (today's rents + delivered premiums), less the same
+  reserves deduction as the in-place figure. Debt sizing stays in-place
+  (J1: lenders size on in-place). Deals without a program are unchanged;
+  a program that doesn't finish within 20 years falls back to in-place
+  with a warning. Baseline unchanged (no baseline case has a program);
+  test_renovation's hand expectation updated from 180,000 to 216,000 NOI.
+- **[FIN] Min DSCR is the worst LOAN YEAR** (12 months of NOI over 12
+  months of debt service, from the first debt-service month; a trailing
+  partial year is dropped when a full one exists). The minimum of monthly
+  DSCRs let one rollover-downtime month set the headline — lenders test
+  annual (trailing/forward 12) coverage. `minMonthlyDscr` keeps the old
+  number; `underwrittenDscr` (NOI − reserves) and the insurance-stress
+  minDscr follow the same annual rule; `avgDscr` is unchanged. The Excel
+  export's minDscr is the same windows as SUM/SUM terms. **Baseline moved:
+  commercial_rollover only** — minDscr 0.83x -> 1.12x (stress variants
+  0.81 -> 1.12, 0.80 -> 1.11); every case gains the `minMonthlyDscr` key.
+  Baseline files are merged value-by-value (only real changes) so
+  float noise from regenerating on another machine doesn't churn them.
+- **[FIN] Per-deal analysis start (closing) date** — `analysisStartDate`,
+  blank = the fixed 2026-01-01 epoch (so every existing deal and the
+  baseline are unchanged). Supersedes the H1/F2 rejections: they held when
+  the epoch only moved XIRR by leap-day noise, but lease start/expiry
+  dates, rollover downtime, free rent and base years all map through it,
+  so any deal closing after Jan 2026 was mis-timed — and increasingly so
+  every month. Implemented as a context variable set around each compute
+  (thread-safe for the Monte Carlo worker) rather than a parameter on
+  every lease function; operations' revenue-share-by-year uses it too.
+  Test: moving the start date and every lease date by two years leaves
+  every output identical; a bad date warns and falls back.
+- **Engine inputs are type- and range-checked against the schema**
+  (proforma/input_validation.py, run first in engine.compute so every path
+  — compute, sweeps, Monte Carlo, imports, exports — is covered). The
+  engine's lenient number reader treated any non-number as the default, so
+  a vacancy imported as the text "0.1" read as 0 (levered IRR 11.57% ->
+  15.39%, silently). Now: numeric text ("0.1", "$1,250,000") is read as
+  the number with a warning; any other value in a numeric field or table
+  cell raises InsufficientInputsError naming it (the API's existing 422,
+  and the UI already links each entry to its field); values outside the
+  schema range compute AS ENTERED with a warning — never silently clamped.
+  Rejected: rejecting out-of-range values (the UI lets users commit them
+  deliberately) and clamping (the number on screen must be the number
+  used). New schema flag `zeroDisables` for sizing constraints where 0
+  means "off" (dscrConstraint's min of 1 contradicted the engine's
+  0 = no constraint); the frontend range check honours it too. ~0.05 ms per
+  compute. Baseline unchanged.
+- **Inputs the engine ignores are labelled, not hidden**: 25 schema fields
+  (hotel, for-sale homes, retail rent roll, loan term, total equity, draw
+  schedule, TI/LC PSF, …) looked modeled but Compute never reads them.
+  They carry `"templateOnly": true`; the form says "Not used by Compute —
+  only written to an Excel template that maps it", or one banner for a
+  section that is entirely template-only. Rejected: removing them (they
+  legitimately feed mapped Excel templates) and silently implementing
+  them piecemeal. test_template_only_fields keeps the flag honest both
+  ways (flagged-but-read and read-nowhere-but-unflagged both fail).
+- **Going-in debt yield** (`goingInDebtYield`, acquisitions with debt) =
+  in-place / year-1 NOI over the loan; the existing debtYield (stabilized
+  NOI, the sizing view) is relabelled "(stabilized NOI)". Lenders quote the
+  going-in figure; a deal sized on stabilized NOI showed only the
+  flattering one. Baseline: key-only additions.
+- **American waterfall says when tier 1's hurdle isn't applied**: the G1
+  deal-by-deal convention (tier-1 promote starts once pref + capital are
+  returned) is kept, but a tier-1 hurdle above the pref now produces a
+  warning pointing to the european style. Baseline unchanged.
+- **Backups: rotation per day, restore is undoable, failures are
+  visible.** Keeping the last 7 SNAPSHOTS let 7 launches in one day (the
+  desktop app backs up at launch, and "Restart to apply" relaunches) wipe
+  every older day. Now: one snapshot per day for 7 days; the automatic run
+  skips when the newest daily is under 20 h old; a restore first snapshots
+  the live DB as `pre_restore` (keep 5) so it can be undone; kind/name are
+  validated (a name like `../../x` used to be joined into a path); the
+  scheduler logs failures and Settings shows the last automatic outcome
+  (it used to `except: pass`).
+- **Documents: a shared file is removed only with its last record.** Uploads
+  are stored once per content hash, so one file can back a Documents upload
+  and several deals' attachments; deleting any one record deleted the file
+  for all of them, and re-uploading then 500'd (a one-row-per-hash lookup).
+  Reuse is limited to general documents and restores a file missing from
+  disk.
+- **[FIN] Lease-roll deals: general vacancy and speculative-lease free
+  rent** (roadmap #10). `leaseGeneralVacancyPct` tops each month's loss up
+  to that share of potential revenue (scheduled base rent + recoveries)
+  where rollover downtime falls short — ARGUS's "reduce by absorption &
+  turnover vacancy" method; rejected: stacking it on top of downtime
+  (double-counts vacancy in rollover months). Credit loss then applies to
+  what's left. `freeRentMonthsNew` abates the re-let path's base rent for
+  that many months after downtime; `freeRentMonthsRenewal` the renewal
+  path's from the renewal start; both probability-weighted like the rest
+  of the rollover blend, base rent only (existing free-rent convention).
+  All default 0: baseline unchanged. The Excel export already refuses
+  lease deals.
+- **[FIN] Loan maturity inside the hold is refinanced** (roadmap #11).
+  `loanTermYears` was ignored, so a 10-year hold on a 5-year loan never
+  met its balloon. When the term (from close for acquisitions, from the
+  permanent takeout for developments) ends before the exit month, the
+  balloon is refinanced: a new loan sized by the same LTV/DSCR/debt-yield
+  constraints on FORWARD 12-month NOI and value (NOI / exit cap) at that
+  month, priced at the loan rate + refiRateSpreadPct (acquisitions; the
+  development perm rate already carries it), fully amortizing from the
+  next month, refiCostsPct paid by equity; the net cash-out (+) or paydown
+  (−) goes to equity, with a warning describing it. Rejected: paying the
+  balloon from equity (not the base case) and an extension option (a
+  separate feature). Blank term = no maturity, as before; a term that ends
+  AT the exit is simply repaid by the sale. Result block
+  `maturityRefinance`; the Excel export refuses such deals (it mirrors one
+  loan). refiRateSpreadPct / refiCostsPct are now shown for acquisitions
+  too. Baseline unchanged.
+- **[FIN] User construction draw schedule shapes spending** (roadmap
+  #12). The table was ignored (S-curve only). Its monthly amounts are used
+  as WEIGHTS for the non-land budget over months 1..N (land stays at
+  close): the schedule always spends exactly the budget, so a table that
+  doesn't add up is scaled with a warning rather than silently changing
+  total cost; out-of-range months fold into the nearest build month.
+  Equity-first funding and the LTC solve run on the result. Rejected:
+  treating the amounts as literal dollars (a typo would change the
+  budget) and as loan draws (the engine's funding order decides those).
+  The Excel export refuses a custom schedule (its Draws sheet mirrors the
+  S-curve). Blank = S-curve; baseline unchanged.
+- **[FIN] Trended vs untrended yield on cost; optional growth during
+  construction** (roadmap #23). yieldOnCost stays untrended (today's rents,
+  the sizing view) and is now labelled so; `trendedYieldOnCost` is the
+  first 12 stabilized months of the modeled NOI (with growth, after
+  reserves) over the same basis. Development rents/expenses still start
+  growing at delivery by default (flat through the build — conservative);
+  `growDuringConstruction` (development only) trends them from close,
+  implemented as an offset on the single growth-clock helper, set per
+  compute like the analysis calendar. Baseline: key-only additions.
+- **[FIN] Exit mechanics** (roadmap #24). `exitNoiBasis = trailing` caps
+  the last 12 months of the hold instead of the forward 12 (forward stays
+  the default, F2). `prepaymentPenaltyPct` charges that share of the loan
+  balance repaid at sale — a step-down, or a flat approximation of
+  defeasance / yield maintenance — as a financing cost (levered only;
+  reported as `prepaymentCost`). Rejected: a full yield-maintenance
+  calculator (needs a Treasury curve the app doesn't have). Exit on NOI
+  after reserves already exists (reservesConvention =
+  above_noi_underwritten). The Excel export refuses trailing exits,
+  prepayment costs and growth during construction. Baseline unchanged.
+- **Template results are labelled LibreOffice, and the Template tab can
+  check LibreOffice against Excel** (roadmap #13). Read-back results come
+  from a LibreOffice recalculation but were labelled "Excel"; LibreOffice's
+  IRR/XIRR root-finders and some financial functions differ. Labels now
+  say "recalculated by LibreOffice". The check recalculates the UNMODIFIED
+  template (a copy, prepared exactly as Generate prepares its output:
+  openpyxl round-trip + fullCalcOnLoad — without the flag LibreOffice
+  keeps the cached values and the comparison is vacuous, found while
+  testing) and compares each mapped output with the value Excel saved in
+  the file (rel/abs 1e-6). On demand, not on upload: it costs a
+  LibreOffice cold start and needs the output mapping. Recalc behavior and
+  the downloaded workbook are unchanged.
+- **Database schema version** (roadmap #21). SQLite `user_version` holds
+  SCHEMA_VERSION (1 = the current set of hand-rolled migrations; bump it
+  with each new step). Startup: `prepare_migrations()` BEFORE create_all
+  refuses a database written by a newer build (DatabaseTooNewError, shown
+  on the desktop app's error page) and backs up an existing database
+  about to move to a newer version ("pre_migration", keep 3, listed in
+  Settings as "Before app update"); a brand-new database needs neither.
+  `run_migrations()` then runs the steps and stamps the version. The
+  pre-migration backup is also the safety net for the old scenarios
+  table rebuild, whose RENAME/CREATE aren't transactional under the
+  sqlite3 driver. Rejected: adopting Alembic now (a new dependency the
+  current migrations don't need).
+- **Typed API contract** (roadmap #22). `openapi-typescript` (dev-only;
+  an npm `overrides` entry lets it use the project's TypeScript 6 — its
+  peer range says ^5, generation verified on 6) turns the backend's
+  OpenAPI schema into `src/types/api.gen.ts`, regenerated by
+  `npm run gen:api` against scratch storage; a CI job fails on a stale
+  file. Rather than rewrite every frontend type, `apiContract.ts` asserts
+  per pair that the API's declared response fits the UI's type — 32 pairs;
+  a deliberately broken field was confirmed to fail `tsc`. Response models
+  added for 30+ dict-returning routes (`app/api_models.py`) keep extra
+  keys (`extra="allow"`) and mark defaults as always present in the
+  schema, and declare only fields the UI treats as always present —
+  conditional blocks (compute's gpEconomics/statement) stay undeclared so
+  no response gains a null; responses are unchanged (regression baseline
+  passes). Deal status and a few enums are documented in the schema but
+  not enforced on output (stored legacy values must still load). Property
+  tax, benchmarks and demographics stay undeclared: provider-dependent
+  shapes. Found and fixed on the way: a stale backup-listing test fake,
+  and untyped extraction results (now fully modeled).
+- **Export: a development with no construction period** carried only land
+  at month 0 on the Draws sheet (the engine spends the whole budget at
+  close), so its exported IRR was nonsense. Fixed, with a new parity case
+  `export_development_no_build_period`.
+
 ## Opex Detail — pct_of_egi lines report under their own category (post-Run 5)
 
 - **[FIN] Only `management_fee` pct_of_egi rows (plus legacy
@@ -1126,7 +1358,8 @@ alternatives rejected. Financial-convention decisions are marked **[FIN]**.
   offset m-1). Leases straddling the start are in place at month 1 with
   escalations counted from their TRUE start date. Rejected: a per-deal
   analysis-start input (the epoch is already the XIRR convention; one
-  calendar everywhere).
+  calendar everywhere). *(Superseded — analysisStartDate, see "Engine audit
+  fixes".)*
 - **[FIN] Escalation timing:** step-ups apply on lease-start anniversaries
   every escalationMonths months (default 12); fixed_pct compounds, fixed_step
   adds $psf. Rejected: calendar-January escalations (less common in
@@ -1384,6 +1617,7 @@ alternatives rejected. Financial-convention decisions are marked **[FIN]**.
   equity is exhausted. Interest accrues monthly on the drawn balance and is
   capitalized (interest-reserve convention), as is the origination fee. LTC
   applies to the budget ex-financing; financing costs are loan-funded on top.
+  *(Superseded — see "Engine audit fixes": LTC now includes financing.)*
   Rejected pro-rata equity/debt funding per draw — lenders require equity in
   first.
 - **[FIN] Between construction end and permanent takeout, NOI is swept

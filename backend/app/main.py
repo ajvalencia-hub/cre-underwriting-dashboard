@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
-from app.database import Base, SessionLocal, engine, run_migrations
+from app.database import Base, SessionLocal, engine, prepare_migrations, run_migrations
 from app.services.presets import seed_presets
 from app.services.storage_maintenance import sweep_generated_files
 from app.routers import (
@@ -40,6 +40,7 @@ logging.basicConfig(
 )
 request_logger = logging.getLogger("app.request")
 
+prepare_migrations()  # refuse a newer database; back up before migrating
 Base.metadata.create_all(bind=engine)
 run_migrations()
 sweep_generated_files()
@@ -77,6 +78,9 @@ async def request_id_middleware(request: Request, call_next):
         response.status_code, duration_ms,
     )
     response.headers["X-Request-ID"] = request_id
+    # Never let a browser guess a type other than the one we declare (an
+    # uploaded file sniffed as HTML would run in the app's origin).
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
     return response
 
 

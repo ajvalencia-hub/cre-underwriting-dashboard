@@ -25,7 +25,7 @@
     { "id": "paybackPeriodYears", "label": "Payback Period", "type": "years", "group": "Returns" },
 
     { "id": "goingInCapRate", "label": "Going-In Cap Rate", "type": "percent", "group": "Yield & Value" },
-    { "id": "yieldOnCost", "label": "Yield on Cost", "type": "percent", "group": "Yield & Value" },
+    { "id": "yieldOnCost", "label": "Yield on Cost (untrended — today's rents)", "type": "percent", "group": "Yield & Value" },
     { "id": "postRenoAvgRent", "label": "Post-Reno Avg Rent (unit/mo)", "type": "currency", "group": "Yield & Value" },
     { "id": "year1LossToLease", "label": "Year-1 Loss to Lease", "type": "currency", "group": "Yield & Value" },
     { "id": "gpFeesTotal", "label": "GP Fees (acq + dev + AM)", "type": "currency", "group": "Returns" },
@@ -42,9 +42,13 @@
     { "id": "npv", "label": "Net Present Value", "type": "currency", "group": "Yield & Value" },
     { "id": "profitabilityIndex", "label": "Profitability Index", "type": "multiple", "group": "Yield & Value" },
 
-    { "id": "minDscr", "label": "Min DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "minDscr", "label": "Min DSCR (lowest loan year)", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "minMonthlyDscr", "label": "Min Monthly DSCR", "type": "multiple", "group": "Debt & Leverage" },
+    { "id": "trendedYieldOnCost", "label": "Yield on Cost (trended — first stabilized year, with growth)", "type": "percent", "group": "Yield & Value" },
+    { "id": "prepaymentCost", "label": "Prepayment Cost at Sale", "type": "currency", "group": "Debt & Leverage" },
+    { "id": "goingInDebtYield", "label": "Going-In Debt Yield (year-1 NOI)", "type": "percent", "group": "Debt & Leverage" },
     { "id": "avgDscr", "label": "Avg DSCR", "type": "multiple", "group": "Debt & Leverage" },
-    { "id": "debtYield", "label": "Debt Yield", "type": "percent", "group": "Debt & Leverage" },
+    { "id": "debtYield", "label": "Debt Yield (stabilized NOI)", "type": "percent", "group": "Debt & Leverage" },
     { "id": "ltv", "label": "LTV", "type": "percent", "group": "Debt & Leverage" },
     { "id": "ltc", "label": "LTC", "type": "percent", "group": "Debt & Leverage" },
     { "id": "loanConstant", "label": "Loan Constant", "type": "percent", "group": "Debt & Leverage" },
@@ -82,7 +86,7 @@
       "label": "Financing",
       "visibleWhen": null,
       "fields": [
-        { "id": "totalCostBasis", "label": "Purchase / Total Cost Basis", "type": "currency", "min": 0, "required": true },
+        { "id": "totalCostBasis", "templateOnly": true, "label": "Purchase / Total Cost Basis", "type": "currency", "min": 0, "required": true },
         { "id": "ltvOrLtc", "label": "LTV / LTC", "type": "percent", "min": 0, "max": 1, "default": 0.65 },
         { "id": "loanAmount", "label": "Loan Amount", "type": "currency", "min": 0 },
         { "id": "interestRate", "label": "Interest Rate (fixed mode)", "type": "percent", "min": 0, "max": 0.25, "default": 0.065 },
@@ -106,16 +110,16 @@
         { "id": "rateCapPremium", "label": "Rate Cap Premium (paid at close)", "type": "currency", "min": 0,
           "visibleWhen": { "all": [{ "field": "rateMode", "equals": "floating" }] } },
         { "id": "amortYears", "label": "Amortization (yrs)", "type": "number", "min": 0, "max": 40, "default": 30 },
-        { "id": "loanTermYears", "label": "Loan Term (yrs)", "type": "number", "min": 0, "max": 40, "default": 10 },
+        { "id": "loanTermYears", "label": "Loan Term (yrs — refinanced at maturity if before exit; blank = no maturity)", "type": "number", "min": 0, "max": 40, "default": 10 },
         { "id": "ioMonths", "label": "Interest-Only Period (mo)", "type": "number", "min": 0, "default": 0 },
         { "id": "originationFeePct", "label": "Origination / Loan Fees", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
         { "id": "monthsOfTaxesAndInsurance", "label": "Tax & Insurance Escrows (months, funded at close / released at exit)", "type": "number", "min": 0, "max": 24, "default": 0 },
-        { "id": "dscrConstraint", "label": "Min DSCR Sizing Constraint", "type": "number", "min": 1, "max": 3, "default": 1.25 },
-        { "id": "debtYieldConstraint", "label": "Min Debt Yield Sizing Constraint", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 },
+        { "id": "dscrConstraint", "label": "Min DSCR Sizing Constraint (0 = off)", "type": "number", "min": 1, "max": 3, "zeroDisables": true, "default": 1.25 },
+        { "id": "debtYieldConstraint", "label": "Min Debt Yield Sizing Constraint (0 = off)", "type": "percent", "min": 0, "max": 0.2, "zeroDisables": true, "default": 0.08 },
         { "id": "sizingNoiBasis", "label": "Sizing NOI Basis", "type": "select", "options": ["in_place", "stabilized", "underwritten"], "default": "stabilized" },
-        { "id": "refiRateSpreadPct", "label": "Refi / Takeout Rate Spread (over construction rate)", "type": "percent", "min": -0.05, "max": 0.05, "default": 0,
-          "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
-        { "id": "refiCostsPct", "label": "Refi / Takeout Costs (% of new loan)", "type": "percent", "min": 0, "max": 0.05, "default": 0.01,
+        { "id": "refiRateSpreadPct", "label": "Refi / Takeout Rate Spread (over the current loan rate)", "type": "percent", "min": -0.05, "max": 0.05, "default": 0 },
+        { "id": "refiCostsPct", "label": "Refi / Takeout Costs (% of new loan)", "type": "percent", "min": 0, "max": 0.05, "default": 0.01 },
+        { "id": "permanentLtvPct", "label": "Permanent Loan Max LTV (blank = same as LTC)", "type": "percent", "min": 0, "max": 1,
           "visibleWhen": { "all": [{ "field": "dealType", "equals": "development" }] } },
         { "id": "juniorTrancheKind", "label": "Junior Tranche", "type": "select",
           "options": ["none", "mezz", "pref_equity"], "default": "none" },
@@ -136,7 +140,7 @@
       "label": "Equity Structure",
       "visibleWhen": null,
       "fields": [
-        { "id": "totalEquity", "label": "Total Equity", "type": "currency", "min": 0 },
+        { "id": "totalEquity", "templateOnly": true, "label": "Total Equity", "type": "currency", "min": 0 },
         { "id": "lpSplitPct", "label": "LP Split", "type": "percent", "min": 0, "max": 1, "default": 0.9 },
         { "id": "gpSplitPct", "label": "GP Split", "type": "percent", "min": 0, "max": 1, "default": 0.1 },
         { "id": "preferredReturnPct", "label": "Preferred Return", "type": "percent", "min": 0, "max": 0.2, "default": 0.08 },
@@ -257,8 +261,11 @@
       "visibleWhen": null,
       "fields": [
         { "id": "holdPeriodYears", "label": "Hold Period (yrs)", "type": "number", "min": 1, "max": 30, "default": 5 },
+        { "id": "analysisStartDate", "label": "Analysis Start / Closing Date (blank = Jan 1, 2026)", "type": "date" },
         { "id": "exitCapRatePct", "label": "Exit / Terminal Cap Rate", "type": "percent", "min": 0, "max": 0.2, "default": 0.06 },
         { "id": "costOfSalePct", "label": "Cost of Sale", "type": "percent", "min": 0, "max": 0.1, "default": 0.02 },
+        { "id": "exitNoiBasis", "label": "Exit Value on (NOI basis)", "type": "select", "options": ["forward", "trailing"], "default": "forward" },
+        { "id": "prepaymentPenaltyPct", "label": "Prepayment Cost at Sale (% of loan balance repaid)", "type": "percent", "min": 0, "max": 0.1, "default": 0 },
         { "id": "discountRatePct", "label": "Discount Rate (NPV)", "type": "percent", "min": 0, "max": 0.3, "default": 0.1 },
         { "id": "irrConvention", "label": "IRR Convention", "type": "select",
           "options": ["periodic_monthly", "xirr"], "default": "periodic_monthly" },
@@ -289,14 +296,15 @@
       "fields": [
         { "id": "landCost", "label": "Land Cost", "type": "currency", "min": 0, "required": true },
         { "id": "hardCosts", "label": "Hard Costs", "type": "currency", "min": 0 },
-        { "id": "hardCostsPsf", "label": "Hard Costs (PSF/Unit, optional)", "type": "currency", "min": 0 },
+        { "id": "hardCostsPsf", "templateOnly": true, "label": "Hard Costs (PSF/Unit, optional)", "type": "currency", "min": 0 },
         { "id": "softCosts", "label": "Soft Costs", "type": "currency", "min": 0 },
         { "id": "contingencyPct", "label": "Contingency", "type": "percent", "min": 0, "max": 0.3, "default": 0.05 },
         { "id": "developerFeePct", "label": "Developer Fee", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
         { "id": "constructionMonths", "label": "Construction Period (mo)", "type": "number", "min": 0, "max": 96 },
+        { "id": "growDuringConstruction", "label": "Grow rents & expenses from closing (not from delivery)", "type": "boolean", "default": false },
         { "id": "leaseUpMonths", "label": "Lease-Up / Absorption Period (mo)", "type": "number", "min": 0, "max": 60 },
         { "id": "stabilizationMonth", "label": "Stabilization Month", "type": "number", "min": 0, "max": 120 },
-        { "id": "constructionDrawSchedule", "label": "Construction Loan Draw Schedule", "type": "table",
+        { "id": "constructionDrawSchedule", "label": "Construction Draw Schedule (monthly spend; blank = S-curve)", "type": "table",
           "columns": [
             { "id": "month", "label": "Month", "type": "number" },
             { "id": "drawAmount", "label": "Draw Amount", "type": "currency" }
@@ -338,13 +346,13 @@
         { "field": "mixedUseComponents", "contains": "townhouse" }
       ] },
       "fields": [
-        { "id": "homeCount", "label": "# Homes / Lots", "type": "number", "min": 0 },
-        { "id": "buildCostPerHome", "label": "Build Cost per Home", "type": "currency", "min": 0 },
-        { "id": "absorptionPerMonth", "label": "Sales / Lease-Up Pace (per mo)", "type": "number", "min": 0 },
-        { "id": "isForSale", "label": "Model as For-Sale (vs. Rental)", "type": "boolean", "default": true },
-        { "id": "salePricePerHome", "label": "Sale Price per Home", "type": "currency", "min": 0,
+        { "id": "homeCount", "templateOnly": true, "label": "# Homes / Lots", "type": "number", "min": 0 },
+        { "id": "buildCostPerHome", "templateOnly": true, "label": "Build Cost per Home", "type": "currency", "min": 0 },
+        { "id": "absorptionPerMonth", "templateOnly": true, "label": "Sales / Lease-Up Pace (per mo)", "type": "number", "min": 0 },
+        { "id": "isForSale", "templateOnly": true, "label": "Model as For-Sale (vs. Rental)", "type": "boolean", "default": true },
+        { "id": "salePricePerHome", "templateOnly": true, "label": "Sale Price per Home", "type": "currency", "min": 0,
           "visibleWhen": { "all": [{ "field": "isForSale", "equals": true }] } },
-        { "id": "rentPerHome", "label": "Rent per Home", "type": "currency", "min": 0,
+        { "id": "rentPerHome", "templateOnly": true, "label": "Rent per Home", "type": "currency", "min": 0,
           "visibleWhen": { "all": [{ "field": "isForSale", "equals": false }] } }
       ]
     },
@@ -356,7 +364,7 @@
         { "field": "mixedUseComponents", "contains": "retail" }
       ] },
       "fields": [
-        { "id": "rentRoll", "label": "Rent Roll", "type": "table",
+        { "id": "rentRoll", "templateOnly": true, "label": "Rent Roll", "type": "table",
           "columns": [
             { "id": "tenant", "label": "Tenant", "type": "text" },
             { "id": "sf", "label": "SF", "type": "number" },
@@ -368,7 +376,7 @@
             { "id": "tiLcPsf", "label": "TI/LC PSF", "type": "currency" },
             { "id": "percentageRentPct", "label": "Percentage Rent", "type": "percent" }
           ] },
-        { "id": "retailVacancyPct", "label": "Vacancy / Rollover Reserve", "type": "percent", "min": 0, "max": 0.5 }
+        { "id": "retailVacancyPct", "templateOnly": true, "label": "Vacancy / Rollover Reserve", "type": "percent", "min": 0, "max": 0.5 }
       ]
     },
     {
@@ -400,6 +408,9 @@
           ] },
         { "id": "renewalProbability", "label": "Renewal Probability", "type": "percent", "min": 0, "max": 1, "default": 0.7 },
         { "id": "downtimeMonths", "label": "Re-let Downtime (mo)", "type": "number", "min": 0, "max": 36, "default": 6 },
+        { "id": "freeRentMonthsNew", "label": "Free Rent — New Lease (mo)", "type": "number", "min": 0, "max": 24, "default": 0 },
+        { "id": "freeRentMonthsRenewal", "label": "Free Rent — Renewal (mo)", "type": "number", "min": 0, "max": 24, "default": 0 },
+        { "id": "leaseGeneralVacancyPct", "label": "General Vacancy (on top of rollover downtime)", "type": "percent", "min": 0, "max": 0.5, "default": 0 },
         { "id": "marketRentPsf", "label": "Market Rent PSF/yr (blank = in-place at expiry)", "type": "currency", "min": 0 },
         { "id": "marketRentGrowthPct", "label": "Market Rent Growth", "type": "percent", "min": -0.1, "max": 0.2, "default": 0.03 },
         { "id": "newTermYears", "label": "Rollover Term (yrs)", "type": "number", "min": 1, "max": 20, "default": 5 },
@@ -430,7 +441,7 @@
         { "id": "rentPsf", "label": "Rent PSF", "type": "currency", "min": 0 },
         { "id": "nnnRecoveriesPsf", "label": "NNN Recoveries PSF", "type": "currency", "min": 0 },
         { "id": "tenancyType", "label": "Tenancy", "type": "select", "options": ["single_tenant", "multi_tenant"] },
-        { "id": "tiLcPsf", "label": "TI/LC PSF", "type": "currency", "min": 0 }
+        { "id": "tiLcPsf", "templateOnly": true, "label": "TI/LC PSF", "type": "currency", "min": 0 }
       ]
     },
     {
@@ -441,16 +452,16 @@
         { "field": "mixedUseComponents", "contains": "hotel" }
       ] },
       "fields": [
-        { "id": "keys", "label": "# Keys", "type": "number", "min": 0 },
-        { "id": "adr", "label": "ADR", "type": "currency", "min": 0 },
-        { "id": "occupancyPct", "label": "Occupancy", "type": "percent", "min": 0, "max": 1 },
-        { "id": "fnbRevenue", "label": "F&B Revenue", "type": "currency", "min": 0 },
-        { "id": "otherRevenue", "label": "Other Revenue", "type": "currency", "min": 0 },
-        { "id": "departmentalExpenseRatioPct", "label": "Departmental Expense Ratio", "type": "percent", "min": 0, "max": 1 },
-        { "id": "undistributedExpenseRatioPct", "label": "Undistributed Expense Ratio", "type": "percent", "min": 0, "max": 1 },
-        { "id": "ffeReservePct", "label": "FF&E Reserve", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
-        { "id": "franchiseFeePct", "label": "Franchise Fee", "type": "percent", "min": 0, "max": 0.15 },
-        { "id": "managementFeeHotelPct", "label": "Hotel Management Fee", "type": "percent", "min": 0, "max": 0.15 }
+        { "id": "keys", "templateOnly": true, "label": "# Keys", "type": "number", "min": 0 },
+        { "id": "adr", "templateOnly": true, "label": "ADR", "type": "currency", "min": 0 },
+        { "id": "occupancyPct", "templateOnly": true, "label": "Occupancy", "type": "percent", "min": 0, "max": 1 },
+        { "id": "fnbRevenue", "templateOnly": true, "label": "F&B Revenue", "type": "currency", "min": 0 },
+        { "id": "otherRevenue", "templateOnly": true, "label": "Other Revenue", "type": "currency", "min": 0 },
+        { "id": "departmentalExpenseRatioPct", "templateOnly": true, "label": "Departmental Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "undistributedExpenseRatioPct", "templateOnly": true, "label": "Undistributed Expense Ratio", "type": "percent", "min": 0, "max": 1 },
+        { "id": "ffeReservePct", "templateOnly": true, "label": "FF&E Reserve", "type": "percent", "min": 0, "max": 0.1, "default": 0.04 },
+        { "id": "franchiseFeePct", "templateOnly": true, "label": "Franchise Fee", "type": "percent", "min": 0, "max": 0.15 },
+        { "id": "managementFeeHotelPct", "templateOnly": true, "label": "Hotel Management Fee", "type": "percent", "min": 0, "max": 0.15 }
       ]
     },
     {
@@ -463,7 +474,7 @@
       "fields": [
         { "id": "officeRentableSf", "label": "Rentable SF", "type": "number", "min": 0 },
         { "id": "officeRentPsf", "label": "Rent PSF", "type": "currency", "min": 0 },
-        { "id": "officeTiLcPsf", "label": "TI/LC PSF", "type": "currency", "min": 0 },
+        { "id": "officeTiLcPsf", "templateOnly": true, "label": "TI/LC PSF", "type": "currency", "min": 0 },
         { "id": "parkingIncomeOffice", "label": "Parking Income", "type": "currency", "min": 0 }
       ]
     },

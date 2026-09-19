@@ -88,3 +88,18 @@ export function upcomingDeadlines(deals: Deal[], today: Date): DeadlineEntry[] {
   }
   return entries.sort((a, b) => a.days - b.days)
 }
+
+/** The deal's closing date from its critical dates, if any: "Closing"
+ *  (acquisitions) first, then "Land closing" (developments), then any other
+ *  label mentioning closing. Offered for analysisStartDate, never applied
+ *  silently — it moves every lease date in the model. */
+export function closingDateOf(rows: CriticalDate[]): string | null {
+  const valid = rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date))
+  const byLabel = (test: (label: string) => boolean) =>
+    valid.find((r) => test(r.label.trim().toLowerCase()))?.date ?? null
+  return (
+    byLabel((l) => l === 'closing') ??
+    byLabel((l) => l === 'land closing') ??
+    byLabel((l) => l.includes('closing'))
+  )
+}

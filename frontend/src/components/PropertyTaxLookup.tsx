@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { lookupPropertyTax, type PropertyTaxLookupResult } from '../lib/api'
+import { formatMoney } from '../lib/money'
 
 interface PropertyTaxLookupProps {
   address: string
@@ -11,7 +12,7 @@ interface PropertyTaxLookupProps {
   onApplyMillage: (millageRate: number) => void
 }
 
-const money = (v: number) => `$${Math.round(v).toLocaleString()}`
+const money = (v: number) => formatMoney(v)
 const pct = (v: number) => `${(v * 100).toFixed(3)}%`
 
 /** County assessor lookup (Miami-Dade). Display + one explicit apply action —

@@ -13,18 +13,24 @@ import {
   type Statement,
   type StatementComponent,
 } from '../lib/cashflowStatement'
+import { saveOutput, textBlob } from '../lib/saveOutput'
+import { toastError } from '../lib/toast'
+import { formatMoney } from '../lib/money'
 
 interface CashFlowTabProps {
   statement: Statement | null
   /** Current deal-input values — the hold sweep re-evaluates them per exit year. */
   values: Record<string, unknown>
   onGoToCompute: () => void
+  /** The statement was computed from inputs that have since changed. */
+  stale: boolean
+  onRecompute: () => void
 }
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`)
 const mult = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
 const money = (v: number | null | undefined) =>
-  v == null ? '—' : `$${Math.round(v).toLocaleString()}`
+  v == null ? '—' : formatMoney(v)
 
 function HoldSweepChart({ response }: { response: HoldSweepResponse }) {
   const rows = response.sweep.rows
@@ -122,18 +128,18 @@ function fmt(value: number): string {
 }
 
 function download(filename: string, text: string) {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
+  saveOutput(textBlob(text, 'text/csv;charset=utf-8'), filename).catch((err) =>
+    toastError(`Could not save ${filename}`, err),
+  )
 }
 
-export default function CashFlowTab({ statement: rawStatement, values, onGoToCompute }: CashFlowTabProps) {
+export default function CashFlowTab({
+  statement: rawStatement,
+  values,
+  onGoToCompute,
+  stale,
+  onRecompute,
+}: CashFlowTabProps) {
   const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set())
   const [component, setComponent] = useState<StatementComponent>('blended')
   const statement = useMemo(
@@ -199,7 +205,17 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-3">
+      {stale && (
+        <div className="mb-3 flex max-w-3xl items-center justify-between rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          <span>
+            <strong>Out of date.</strong> These cash flows were computed before the inputs last changed.
+          </span>
+          <button onClick={onRecompute} className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700">
+            Recompute ⌘↩
+          </button>
+        </div>
+      )}
+      <div className={`mb-3 flex items-center gap-3 ${stale ? 'opacity-60' : ''}`}>
         <h1 className="text-2xl font-semibold">Cash Flow</h1>
         <span className="text-xs text-slate-400">
           Click a year header to expand its months.
@@ -271,11 +287,22 @@ export default function CashFlowTab({ statement: rawStatement, values, onGoToCom
                       : undefined
                   }
                 >
-                  {column.label}
-                  {column.year !== null && column.indices.length > 1 && (
-                    <span className="ml-1 text-slate-300">
-                      {expandedYears.has(column.year) ? '▾' : '▸'}
-                    </span>
+                  {column.year !== null && column.indices.length > 1 ? (
+                    // A real button so the year toggle is reachable by keyboard.
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleYear(column.year)
+                      }}
+                      aria-expanded={expandedYears.has(column.year)}
+                      className="font-semibold"
+                    >
+                      {column.label}
+                      <span className="ml-1 text-slate-300">{expandedYears.has(column.year) ? '▾' : '▸'}</span>
+                    </button>
+                  ) : (
+                    column.label
                   )}
                 </th>
               ))}

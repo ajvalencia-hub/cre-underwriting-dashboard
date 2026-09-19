@@ -10,12 +10,12 @@
    {
     "bumpPct": 0.25,
     "leveredCfDeltaAnnual": -825.2142853691257,
-    "minDscr": 0.810918050035493
+    "minDscr": 1.116548286201104
    },
    {
     "bumpPct": 0.5,
     "leveredCfDeltaAnnual": -1650.4285707381568,
-    "minDscr": 0.7960187217501833
+    "minDscr": 1.1109624484717326
    }
   ],
   "loanAmount": 2428459.445688363,
@@ -111,6 +111,7 @@
   "developmentSpreadBps": -0.03231265204042628,
   "equityMultiple": 0.49122372090484034,
   "goingInCapRate": 0.03837378904922664,
+  "goingInDebtYield": 0.0948102035239448,
   "governingConstraint": "DSCR",
   "gpIrr": -0.14503129218592625,
   "interestCoverageRatio": 1.458618515752997,
@@ -120,7 +121,8 @@
   "lpIrr": -0.14503129218592514,
   "ltc": 0.39750308045753324,
   "ltv": 0.4047432409480605,
-  "minDscr": 0.8254239547763923,
+  "minDscr": 1.1219866273429853,
+  "minMonthlyDscr": 0.8254239547763925,
   "moic": 0.49122372090484034,
   "netSaleProceeds": 1574994.5037147398,
   "npv": -2591641.420599007,
@@ -129,6 +131,7 @@
   "stressedDscr": 0.9247809299881992,
   "terminalValue": 3962732.3172364356,
   "totalProfit": -1964410.2537402865,
+  "trendedYieldOnCost": 0.03768734795957372,
   "unleveredEquityMultiple": 0.8131998400399103,
   "unleveredIrr": -0.045823876024630894,
   "yieldOnCost": 0.03768734795957373
